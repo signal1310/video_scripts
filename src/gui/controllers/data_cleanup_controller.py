@@ -36,7 +36,7 @@ from src.core.settings.ui_state import (
 )
 from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
-from src.gui.controllers.encode_trash import move_to_trash
+from src.gui.controllers.encode_trash import move_to_trash, needs_permanent_confirm
 from src.gui.controllers.frame_analysis_controller import FrameAnalysisController
 from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.controllers.shortcuts_controller import ShortcutsController
@@ -63,6 +63,7 @@ from src.service.data_cleanup_service import (
     CleanupPlanResult,
     CleanupScope,
     DataCleanupService,
+    StoragePreviewFn,
     partition_cleanup_keys,
 )
 from src.service.encode.encode_history import EncodeHistory
@@ -183,6 +184,14 @@ def _format_size(size_bytes: int) -> str:
     return format_size_mb(bytes_to_mb(size_bytes), SIZE_DECIMALS, unit="auto")
 
 
+def _movable_to_trash(path: str) -> bool:
+    """휴지통으로 옮겨도 영구 삭제가 되지 않는 파일이면 참. 확인할 수 없는 드라이브는 거짓
+
+    - 정리 창은 영구 삭제 확인을 받지 않으므로 휴지통이 없는 드라이브의 임시 파일은 남김
+    """
+    return not needs_permanent_confirm(path)
+
+
 def result_text(result: CleanupPlanResult, ui_count: int, freed_bytes: int) -> str:
     """정리 결과를 건수, 확보 용량, 초기화 항목 수, 실패 사유 순서로 안내"""
     parts: list[str] = []
@@ -237,6 +246,7 @@ class DataCleanupController:
                 output_history=output_history,
                 state_files=self._state_files(),
                 trash_fn=move_to_trash,
+                movable_fn=_movable_to_trash,
             )
         finally:
             output_history.close()
@@ -267,9 +277,12 @@ class DataCleanupController:
         if reason:
             QMessageBox.information(deps.parent, BUSY_TITLE, reason)
             return
+        # - 작업 폴더는 위젯에서 읽어야 하므로 화면 스레드에서 한 번만 구하고, 건수 읽기는 워커에 맡김
+        root_spec = self._root_spec()
         dialog = DataCleanupDialog(
-            preview_fn=self.build_preview,
-            current_root=self._root_spec(),
+            storage_preview_fn=self.storage_preview_fn(root_spec),
+            ui_preview_fn=self.ui_previews,
+            current_root=root_spec,
             parent=deps.parent,
         )
         if dialog.exec() != int(QDialog.DialogCode.Accepted):
@@ -284,12 +297,27 @@ class DataCleanupController:
         text = self.execute_cleanup(request.scope, request.keys)
         QMessageBox.information(deps.parent, RESULT_TITLE, text)
 
+    def storage_preview_fn(self, root_spec: str) -> StoragePreviewFn:
+        """정리 창이 백그라운드에서 부를 저장 데이터 미리보기 함수
+
+        - 작업 폴더 경로를 미리 받아 두어 워커가 Qt 위젯을 읽지 않게 함
+        - 저장소 연결은 부르는 스레드에서 열고 닫음
+        """
+
+        def preview(scope: CleanupScope) -> dict[CleanupItemKey, CleanupItemPreview]:
+            return self._storage_previews(scope, root_spec)
+
+        return preview
+
+    def ui_previews(self) -> dict[CleanupItemKey, CleanupItemPreview]:
+        """화면과 설정 항목의 미리보기. 기본값과 다른 항목만 1건으로 셈(화면 스레드에서만 호출)"""
+        checks = self._ui_checks()
+        return {key: CleanupItemPreview(key, 1 if checks[key]() else 0, 0, True) for key in UI_RESET_CLEANUP_ITEM_KEYS}
+
     def build_preview(self, scope: CleanupScope) -> dict[CleanupItemKey, CleanupItemPreview]:
         """범위의 항목별 미리보기. 화면과 설정 항목은 기본값과 다른 항목만 1건으로 셈"""
-        previews = self._storage_previews(scope)
-        checks = self._ui_checks()
-        for key in UI_RESET_CLEANUP_ITEM_KEYS:
-            previews[key] = CleanupItemPreview(key, 1 if checks[key]() else 0, 0, True)
+        previews = self._storage_previews(scope, self._root_spec())
+        previews.update(self.ui_previews())
         return previews
 
     def execute_cleanup(self, scope: CleanupScope, selected_keys: Sequence[CleanupItemKey]) -> str:
@@ -317,11 +345,16 @@ class DataCleanupController:
         deps = self._deps
         return deps.session.current_root_dir(deps.header_bar.path_edit.text())
 
-    def _storage_previews(self, scope: CleanupScope) -> dict[CleanupItemKey, CleanupItemPreview]:
-        """저장 데이터 항목의 미리보기. 범위가 현재인데 작업 폴더가 없으면 지울 것이 없는 것으로 봄"""
+    def _storage_previews(
+        self, scope: CleanupScope, root_spec: str
+    ) -> dict[CleanupItemKey, CleanupItemPreview]:
+        """저장 데이터 항목의 미리보기. 범위가 현재인데 작업 폴더가 없으면 지울 것이 없는 것으로 봄
+
+        - 작업 폴더 경로를 인자로 받아 저장 데이터 미리보기 워커가 Qt 위젯을 읽지 않게 함
+        """
         try:
             with self._service() as service:
-                previews = service.preview(scope, self._root_spec())
+                previews = service.preview(scope, root_spec)
         except ValueError:
             logger.info("작업 폴더가 없어 현재 작업 폴더 범위의 저장 데이터 미리보기를 비웁니다")
             return {key: CleanupItemPreview(key, 0, 0, False) for key in STORAGE_CLEANUP_ITEM_KEYS}
@@ -342,7 +375,9 @@ class DataCleanupController:
             deps.frame_analysis.reload_cached()
             deps.re_evaluate()
         if cleared & ENCODE_STORAGE_KEYS:
-            deps.encode.book.clear_discarded()
+            # - 폐기 표시는 폐기 기록을 지웠을 때만 메모리에서 비움(다른 항목만 지웠는데 표시가 사라지면 안 됨)
+            if "discarded_history" in cleared:
+                deps.encode.book.clear_discarded()
             deps.table_model.set_encode_book(deps.encode.book)
             deps.menu.refresh_encode_state()
 

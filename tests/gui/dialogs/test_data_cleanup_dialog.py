@@ -1,6 +1,7 @@
 """통합 데이터 정리 및 초기화 대화상자 검증: 범위 전환, 프리셋, 19개 체크박스, 경고와 확인, 테마
 
 - 미리보기와 확인은 대역 함수를 주입해 실제 저장 데이터를 건드리지 않음
+- 저장 데이터 건수는 백그라운드 결과로 채워지므로, 스레드 시작을 대역으로 바꿔 실행 순서를 결정적으로 만듦
 - 배지 문구와 버튼 상태는 위젯 문자열로 확인
 """
 
@@ -15,10 +16,12 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.gui.dialogs import data_cleanup_dialog as dialog_module
+from src.gui.dialogs import data_cleanup_preview_loader as loader_module
 from src.gui.dialogs.data_cleanup_dialog import (
     DIALOG_DEFAULT_HEIGHT,
     DIALOG_DEFAULT_WIDTH,
     DIALOG_MIN_WIDTH,
+    LOADING_BADGE_TEXT,
     SAFETY_NOTE_TEXT,
     DataCleanupDialog,
     DataCleanupRequest,
@@ -32,6 +35,8 @@ from src.service.data_cleanup_service import (
     CATEGORY_CLEANUP_ITEM_KEYS,
     CLEANUP_ITEM_LABELS,
     CLEANUP_PRESETS,
+    STORAGE_CLEANUP_ITEM_KEYS,
+    UI_RESET_CLEANUP_ITEM_KEYS,
     CleanupItemKey,
     CleanupItemPreview,
     CleanupScope,
@@ -46,12 +51,17 @@ PART_SIZE_BYTES: int = 3 * 1024 * 1024
 
 
 def _previews(scope: CleanupScope) -> dict[CleanupItemKey, CleanupItemPreview]:
-    """범위에 따라 건수가 달라지는 미리보기 대역. 범위를 바꾸면 배지도 바뀜"""
+    """범위에 따라 건수가 달라지는 저장 데이터 미리보기 대역. 범위를 바꾸면 배지도 바뀜"""
     count = CURRENT_COUNT if scope == "current" else CURRENT_COUNT + ALL_EXTRA_COUNT
     return {
         key: CleanupItemPreview(key, count, PART_SIZE_BYTES if key == "part_files" else 0, True)
-        for key in ALL_CLEANUP_ITEM_KEYS
+        for key in STORAGE_CLEANUP_ITEM_KEYS
     }
+
+
+def _ui_previews() -> dict[CleanupItemKey, CleanupItemPreview]:
+    """화면/설정 항목 미리보기 대역. 모두 기본값과 같은 것으로 봄"""
+    return {key: CleanupItemPreview(key, 0, 0, True) for key in UI_RESET_CLEANUP_ITEM_KEYS}
 
 
 class _Recorder:
@@ -62,7 +72,8 @@ class _Recorder:
         self.confirm_calls: int = 0
         self._confirm = confirm
 
-    def preview(self, scope: CleanupScope) -> dict[CleanupItemKey, CleanupItemPreview]:
+    def storage(self, scope: CleanupScope) -> dict[CleanupItemKey, CleanupItemPreview]:
+        """범위별 저장 데이터 미리보기"""
         self.scopes.append(scope)
         return _previews(scope)
 
@@ -71,10 +82,28 @@ class _Recorder:
         return self._confirm
 
 
+def _immediate_spawn(thread: object) -> None:
+    """스레드를 띄우지 않고 본체를 바로 실행해 배지를 동기로 채움"""
+    thread.run()  # type: ignore[attr-defined]
+
+
+class _ImmediateLoaderCase(unittest.TestCase):
+    """저장 데이터 미리보기 스레드를 즉시 실행하는 대역을 테스트 동안 붙이는 기준 클래스
+
+    - 범위 전환처럼 창을 만든 뒤에 다시 읽는 경로도 결정적으로 채우려고 클래스 단위로 한 번만 붙임
+    """
+
+    def setUp(self) -> None:
+        patcher = mock.patch.object(loader_module, "spawn_preview_thread", side_effect=_immediate_spawn)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
 def _dialog(recorder: _Recorder, **kwargs: object) -> DataCleanupDialog:
-    """대역 미리보기와 확인을 물린 대화상자"""
+    """저장 데이터 미리보기를 동기로 채우는 대화상자"""
     options: dict[str, object] = {
-        "preview_fn": recorder.preview,
+        "storage_preview_fn": recorder.storage,
+        "ui_preview_fn": _ui_previews,
         "confirm_fn": recorder.confirm,
         "current_root": ROOT,
     }
@@ -82,7 +111,7 @@ def _dialog(recorder: _Recorder, **kwargs: object) -> DataCleanupDialog:
     return DataCleanupDialog(**options)  # type: ignore[arg-type]
 
 
-class DataCleanupDialogStructureTest(unittest.TestCase):
+class DataCleanupDialogStructureTest(_ImmediateLoaderCase):
     """범주, 항목, 프리셋 구성과 초기 상태"""
 
     def test_all_categories_and_checkboxes_exist(self) -> None:
@@ -121,7 +150,7 @@ class DataCleanupDialogStructureTest(unittest.TestCase):
         self.assertIn("휴지통으로 옮겨집니다", dialog.lbl_safety_text.text())
 
 
-class DataCleanupDialogPresetTest(unittest.TestCase):
+class DataCleanupDialogPresetTest(_ImmediateLoaderCase):
     """프리셋과 범주 전체 선택이 정확한 항목만 선택하는지"""
 
     def test_each_preset_checks_exact_keys(self) -> None:
@@ -168,7 +197,7 @@ class DataCleanupDialogPresetTest(unittest.TestCase):
         self.assertFalse(dialog._select_all["encode"].isChecked())
 
 
-class DataCleanupDialogScopeTest(unittest.TestCase):
+class DataCleanupDialogScopeTest(_ImmediateLoaderCase):
     """범위 전환이 미리보기를 다시 부르고 배지를 갱신하는지"""
 
     def test_scope_switch_reinvokes_preview(self) -> None:
@@ -215,7 +244,7 @@ class DataCleanupDialogScopeTest(unittest.TestCase):
         self.assertEqual(recorder.scopes, ["all", "all"])
 
 
-class DataCleanupDialogSelectionTest(unittest.TestCase):
+class DataCleanupDialogSelectionTest(_ImmediateLoaderCase):
     """실행 버튼 상태와 되돌릴 수 없음 경고, 확인 흐름"""
 
     def test_execute_button_follows_selection(self) -> None:
@@ -281,7 +310,7 @@ class DataCleanupDialogSelectionTest(unittest.TestCase):
             self.assertFalse(dialog._ask_confirm())
 
 
-class DataCleanupDialogThemeTest(unittest.TestCase):
+class DataCleanupDialogThemeTest(_ImmediateLoaderCase):
     """테마 전환과 미리보기 대체 경로"""
 
     def test_apply_theme_dark_and_light(self) -> None:
@@ -293,7 +322,15 @@ class DataCleanupDialogThemeTest(unittest.TestCase):
         self.assertTrue(dialog.styleSheet())
         self.assertFalse(dialog.lbl_safety_icon.pixmap().isNull())
 
+    def test_safety_note_states_unmovable_parts_are_left(self) -> None:
+        """임시 파일 안내가 휴지통이 없는 드라이브의 파일을 남긴다는 사실을 함께 알리는지 검증"""
+        dialog = _dialog(_Recorder())
+        self.assertIn("휴지통으로 옮겨집니다", dialog.lbl_safety_text.text())
+        self.assertIn("지우지 않고 남깁니다", dialog.lbl_safety_text.text())
+        self.assertIn("남깁니다", dialog._checkboxes["part_files"].toolTip())
+
     def test_default_preview_without_fn_or_service(self) -> None:
+        """미리보기 함수를 받지 못해도 0건으로 채워지는지 검증"""
         dialog = DataCleanupDialog()
         self.assertEqual(dialog.current_scope(), "all")
         self.assertEqual(dialog._badges["part_files"].text(), "0건")
@@ -301,6 +338,7 @@ class DataCleanupDialogThemeTest(unittest.TestCase):
         self.assertEqual(dialog._badges["probe_cache"].text(), "0건")
 
     def test_service_preview_is_used_when_injected(self) -> None:
+        """서비스를 주입하면 그 서비스의 미리보기를 현재 작업 폴더로 부르는지 검증"""
         service = mock.Mock(spec=DataCleanupService)
         service.preview.return_value = _previews("current")
         dialog = DataCleanupDialog(service=cast("DataCleanupService", service), current_root=ROOT)
@@ -308,8 +346,92 @@ class DataCleanupDialogThemeTest(unittest.TestCase):
         service.preview.assert_called_with("current", ROOT)
         self.assertEqual(dialog._badges["probe_cache"].text(), "2건")
 
+    def test_ui_previews_are_applied_without_background_read(self) -> None:
+        """화면/설정 항목은 저장 데이터와 달리 백그라운드 결과를 기다리지 않고 바로 채우는지 검증"""
+        changed: dict[CleanupItemKey, CleanupItemPreview] = {
+            key: CleanupItemPreview(key, 1, 0, True) for key in UI_RESET_CLEANUP_ITEM_KEYS
+        }
+        dialog = DataCleanupDialog(ui_preview_fn=lambda: changed, current_root=ROOT)
+        self.assertEqual(dialog._badges["column_order"].text(), "1건")
 
-class DataCleanupDialogLayoutTest(unittest.TestCase):
+class DataCleanupDialogPendingTest(unittest.TestCase):
+    """저장 데이터를 읽는 동안의 표시와 실행 잠금, 실패 처리, 취소"""
+
+    def _dialog_with_slow_loader(self, recorder: _Recorder) -> tuple[DataCleanupDialog, list[object]]:
+        """스레드를 띄우지 않아 결과가 아직 도착하지 않은 상태의 대화상자"""
+        spawned: list[object] = []
+        with mock.patch.object(loader_module, "spawn_preview_thread", side_effect=spawned.append):
+            dialog = DataCleanupDialog(
+                storage_preview_fn=recorder.storage,
+                ui_preview_fn=_ui_previews,
+                current_root=ROOT,
+            )
+        return dialog, spawned
+
+    def test_badges_show_loading_and_execute_stays_locked(self) -> None:
+        """읽는 동안 저장 데이터 배지는 진행 문구이고, 항목을 골라도 실행 버튼이 잠긴 상태인지 검증"""
+        dialog, spawned = self._dialog_with_slow_loader(_Recorder())
+        self.assertTrue(dialog.is_loading())
+        self.assertEqual(len(spawned), 1)
+        for key in STORAGE_CLEANUP_ITEM_KEYS:
+            self.assertEqual(dialog._badges[key].text(), LOADING_BADGE_TEXT)
+        dialog._checkboxes["probe_cache"].setChecked(True)
+        self.assertFalse(dialog.btn_execute.isEnabled())
+        dialog._checkboxes["column_order"].setChecked(True)
+        self.assertFalse(dialog.btn_execute.isEnabled())
+
+    def test_construction_does_not_read_storage_synchronously(self) -> None:
+        """창을 만드는 동안 저장 데이터 미리보기를 화면 스레드에서 부르지 않는지 검증"""
+        recorder = _Recorder()
+        dialog, spawned = self._dialog_with_slow_loader(recorder)
+        self.assertEqual(recorder.scopes, [])
+        self.assertEqual(len(spawned), 1)
+        self.assertEqual(dialog.current_scope(), "current")
+
+    def test_result_arrival_fills_badges_and_unlocks_execute(self) -> None:
+        """결과가 도착하면 저장 데이터 배지를 채우고 실행 버튼을 여는지 검증"""
+        dialog, spawned = self._dialog_with_slow_loader(_Recorder())
+        dialog._checkboxes["probe_cache"].setChecked(True)
+        spawned[0].run()  # type: ignore[attr-defined]
+        QApplication.processEvents()
+        self.assertFalse(dialog.is_loading())
+        self.assertEqual(dialog._badges["part_files"].text(), "2건 / 3.0 MB")
+        self.assertTrue(dialog.btn_execute.isEnabled())
+
+    def test_failure_shows_zero_without_blocking(self) -> None:
+        """작업 폴더가 없어 실패하면 0건으로 표시하고 실행을 막지 않는지 검증"""
+        failing = _Recorder()
+        spawned: list[object] = []
+        with mock.patch.object(loader_module, "spawn_preview_thread", side_effect=spawned.append):
+
+            def _explode(_scope: CleanupScope) -> dict[CleanupItemKey, CleanupItemPreview]:
+                raise ValueError("no root")
+
+            dialog = DataCleanupDialog(
+                storage_preview_fn=_explode,
+                ui_preview_fn=_ui_previews,
+                current_root=ROOT,
+            )
+        dialog._checkboxes["column_order"].setChecked(True)
+        with self.assertLogs(loader_module.logger, level="INFO"):
+            spawned[0].run()  # type: ignore[attr-defined]
+        QApplication.processEvents()
+        self.assertFalse(dialog.is_loading())
+        self.assertEqual(dialog._badges["part_files"].text(), "0건")
+        self.assertTrue(dialog.btn_execute.isEnabled())
+        self.assertEqual(failing.scopes, [])
+
+    def test_closing_cancels_pending_result(self) -> None:
+        """창을 닫은 뒤 도착한 결과를 무시하는지 검증"""
+        dialog, spawned = self._dialog_with_slow_loader(_Recorder())
+        dialog.done(int(DataCleanupDialog.DialogCode.Rejected))
+        spawned[0].run()  # type: ignore[attr-defined]
+        QApplication.processEvents()
+        self.assertTrue(dialog.is_loading())
+        self.assertEqual(dialog._badges["probe_cache"].text(), LOADING_BADGE_TEXT)
+
+
+class DataCleanupDialogLayoutTest(_ImmediateLoaderCase):
     """13pt 글꼴과 최소 너비에서도 프리셋 버튼이 잘리지 않는지"""
 
     def test_preset_buttons_fit_at_13pt_min_and_default_width(self) -> None:
@@ -354,10 +476,14 @@ class DataCleanupHelpersTest(unittest.TestCase):
         self.assertEqual(request.irreversible_keys, ("criteria_settings", "exception_rules"))
         self.assertEqual(DataCleanupRequest("all", ()).irreversible_keys, ())
 
-    def test_module_exports_empty_preview_helper(self) -> None:
-        previews = dialog_module._empty_preview("all")
-        self.assertEqual(tuple(previews), ALL_CLEANUP_ITEM_KEYS)
-        self.assertTrue(all(item.count == 0 for item in previews.values()))
+    def test_module_exports_empty_preview_helpers(self) -> None:
+        """미리보기 함수를 받지 못할 때 쓰는 빈 미리보기가 저장 데이터와 화면 항목을 모두 덮는지 검증"""
+        storage = dialog_module._empty_storage_preview("all")
+        self.assertEqual(tuple(storage), STORAGE_CLEANUP_ITEM_KEYS)
+        self.assertTrue(all(item.count == 0 for item in storage.values()))
+        ui = dialog_module._empty_ui_preview()
+        self.assertEqual(tuple(ui), UI_RESET_CLEANUP_ITEM_KEYS)
+        self.assertTrue(all(item.count == 0 for item in ui.values()))
 
 
 if __name__ == "__main__":

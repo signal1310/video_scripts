@@ -380,6 +380,24 @@ class TestScopedHistoryCleanup(_HistoryCase):
         self.assertEqual(self.history.clear_completed_history([self.root_a]), 0)
         self.assertEqual(self.history.count_discarded(), 1)
 
+    def test_empty_batches_outside_the_cleared_rows_are_kept(self) -> None:
+        """이번에 지운 항목이 속한 배치만 빈 배치로 지우고, 그 밖의 빈 배치는 남기는지 검증"""
+        emptied = self._batch(self.root_a, "done_a.mp4", EncodeState.DONE)
+        untouched_empty = self.history.create_batch(self.root_b, "{}", [])
+        already_empty_in_scope = self.history.create_batch(self.root_a, "{}", [])
+
+        self.assertEqual(self.history.clear_completed_history([self.root_a]), 1)
+        self.assertEqual(
+            sorted(row.batch_id for row in self.history.list_open_batches()),
+            sorted([untouched_empty, already_empty_in_scope]),
+        )
+        self.assertNotEqual(emptied, untouched_empty)
+        with sqlite3.connect(self.db_path) as conn:
+            remaining = {
+                int(row[0]) for row in conn.execute(f"SELECT batch_id FROM {ENCODE_BATCH_TABLE}").fetchall()
+            }
+        self.assertEqual(remaining, {untouched_empty, already_empty_in_scope})
+
     def test_absolute_item_paths_of_multi_root_batch_clear_by_their_own_root(self) -> None:
         """작업 폴더가 둘인 배치는 항목 원본 경로가 범위에 드는 행만 지움"""
         source_a = os.path.join(self.root_a, "a.mp4")

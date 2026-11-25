@@ -33,7 +33,7 @@ from src.core.models import VideoProps
 from src.core.paths import get_data_dir
 from src.core.probe_parser import PROBE_VERSION
 from src.core.resolution_tiers import copy_manual_targets
-from src.core.workspace_paths import is_within_roots, logical_owner_root, parse_root_dirs
+from src.core.workspace_paths import LogicalOwnerResolver, is_within_roots, parse_root_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -426,16 +426,21 @@ def _root_key_in_scope(root_key: str, root_dirs: Sequence[str]) -> bool:
 
 
 def _probe_clear_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[FileKey]:
-    """정리 범위에 드는 분석 캐시 행의 키 목록"""
+    """정리 범위에 드는 분석 캐시 행의 키 목록
+
+    - 범위 판정기를 한 번만 만들어 행마다 폴더 파싱과 파일 존재 조회를 반복하지 않음
+    """
     rows = conn.execute(
         f"SELECT filename, filesize_bytes, mtime_ns FROM {ANALYSIS_TABLE_NAME}"
     ).fetchall()
-    keys: list[FileKey] = []
-    for row in rows:
-        if root_dirs is not None and logical_owner_root(str(row[0]), root_dirs) is None:
-            continue
-        keys.append((str(row[0]), int(row[1]), int(row[2])))
-    return keys
+    if root_dirs is None:
+        return [(str(row[0]), int(row[1]), int(row[2])) for row in rows]
+    resolver = LogicalOwnerResolver(root_dirs)
+    return [
+        (str(row[0]), int(row[1]), int(row[2]))
+        for row in rows
+        if resolver.owner(str(row[0])) is not None
+    ]
 
 
 def _manual_target_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[tuple[str, str]]:

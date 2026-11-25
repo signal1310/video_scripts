@@ -39,7 +39,7 @@ from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
 from src.core.quality_probe import METRIC_VMAF, resolve_metric_name
-from src.core.workspace_paths import is_within_roots, logical_owner_root
+from src.core.workspace_paths import LogicalOwnerResolver, is_within_roots
 from src.service.frame_analysis_record import (
     RECORD_COLUMNS,
     FileKey,
@@ -115,14 +115,19 @@ def _is_locked_error(error: sqlite3.OperationalError) -> bool:
 
 
 def _frame_cache_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[FileKey]:
-    """정리 범위에 드는 화질 분석 캐시 행의 파일 식별 키 목록"""
+    """정리 범위에 드는 화질 분석 캐시 행의 파일 식별 키 목록
+
+    - 범위 판정기를 한 번만 만들어 행마다 폴더 파싱과 파일 존재 조회를 반복하지 않음
+    """
     rows = conn.execute(f"SELECT filename, filesize_bytes, mtime_ns FROM {FRAME_ANALYSIS_TABLE}").fetchall()
-    keys: list[FileKey] = []
-    for row in rows:
-        if root_dirs is not None and logical_owner_root(str(row[0]), root_dirs) is None:
-            continue
-        keys.append((str(row[0]), int(row[1]), int(row[2])))
-    return keys
+    if root_dirs is None:
+        return [(str(row[0]), int(row[1]), int(row[2])) for row in rows]
+    resolver = LogicalOwnerResolver(root_dirs)
+    return [
+        (str(row[0]), int(row[1]), int(row[2]))
+        for row in rows
+        if resolver.owner(str(row[0])) is not None
+    ]
 
 
 def _path_rows(conn: sqlite3.Connection, table: str, root_dirs: Sequence[str] | None) -> list[str]:

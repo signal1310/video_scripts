@@ -25,12 +25,14 @@ from src.service.data_cleanup_service import (
     CLEANUP_SCOPE_CURRENT,
     CLEANUP_SCOPES,
     PART_TRASH_FAILED_TEMPLATE,
+    PART_UNMOVABLE_TEMPLATE,
     SCOPE_ROOTS_REQUIRED_TEXT,
     STORAGE_CLEANUP_ITEM_KEYS,
     UI_RESET_CLEANUP_ITEM_KEYS,
     CleanupItemKey,
     CleanupScope,
     DataCleanupService,
+    MovableFn,
     cleanup_item_category,
     partition_cleanup_keys,
 )
@@ -141,6 +143,7 @@ class _CleanupCase(unittest.TestCase):
         trash_fn: TrashFn | None = None,
         state_files: Mapping[CleanupItemKey, str] | None = None,
         db_path: str | None = None,
+        movable_fn: MovableFn | None = None,
     ) -> DataCleanupService:
         """같은 정리 대상 기록을 보는 서비스 생성(저장소 close는 테스트 정리에서 맡음)"""
         path = self.db_path if db_path is None else db_path
@@ -159,6 +162,7 @@ class _CleanupCase(unittest.TestCase):
             output_history=output,
             state_files=state_files,
             trash_fn=self._trash if trash_fn is None else trash_fn,
+            movable_fn=movable_fn,
         )
 
     def write_file(self, path: str, size: int) -> str:
@@ -494,6 +498,65 @@ class TestExecuteStorageCleanup(_CleanupCase):
         with sqlite3.connect(self.db_path) as conn:
             batches = conn.execute("SELECT COUNT(*) FROM encode_batch").fetchone()
         self.assertEqual(batches, (2,))
+
+
+class TestMovablePartFiles(_CleanupCase):
+    """휴지통이 없는 드라이브의 임시 파일은 건드리지 않고 남기는지"""
+
+    def test_unmovable_part_is_skipped_and_reported(self) -> None:
+        """옮길 수 없는 경로의 .part는 실행에서 남기고 남긴 수를 결과 사유로 안내하는지 검증"""
+        paths = self.seed_records()
+
+        def unmovable_part(path: str) -> bool:
+            return os.path.basename(path) != "a.mp4.part"
+
+        service = self.make_service(movable_fn=unmovable_part)
+        preview = service.preview(CLEANUP_SCOPE_ALL)
+        # - 미리보기 건수는 지금처럼 대상 임시 파일 수를 그대로 셈
+        self.assertEqual(preview["part_files"].count, 2)
+
+        result = service.execute_storage_cleanup(["part_files"], CLEANUP_SCOPE_ALL)
+        self.assertEqual(result.cleared_counts["part_files"], 1)
+        self.assertEqual(result.errors["part_files"], PART_UNMOVABLE_TEMPLATE.format(count=1))
+        self.assertTrue(os.path.isfile(paths["part_a"]))
+        self.assertFalse(os.path.isfile(paths["part_b"]))
+        self.assertNotIn("a.mp4.part", [os.path.basename(path) for path in self.trashed])
+
+    def test_unmovable_parts_are_reported_with_the_current_scope(self) -> None:
+        """현재 작업 폴더 범위에서 기록 밖 임시 파일까지 옮길 수 없는 것으로 판정하면 남기는지 검증"""
+        paths = self.seed_records()
+
+        def all_unmovable(_path: str) -> bool:
+            return False
+
+        service = self.make_service(movable_fn=all_unmovable)
+        result = service.execute_storage_cleanup(["part_files"], CLEANUP_SCOPE_CURRENT, self.root_a)
+        self.assertEqual(result.cleared_counts["part_files"], 0)
+        self.assertEqual(result.errors["part_files"], PART_UNMOVABLE_TEMPLATE.format(count=2))
+        self.assertTrue(os.path.isfile(paths["part_a"]))
+        self.assertTrue(os.path.isfile(paths["orphan_a"]))
+        self.assertEqual(self.trashed, [])
+
+    def test_movable_fn_receives_only_part_paths(self) -> None:
+        """옮길 수 있는지 판정에 `.part` 대상 경로만 넘기는지 검증"""
+        self.seed_records()
+        seen: list[str] = []
+
+        def record(path: str) -> bool:
+            seen.append(os.path.basename(path))
+            return True
+
+        service = self.make_service(movable_fn=record)
+        service.execute_storage_cleanup(["part_files"], CLEANUP_SCOPE_CURRENT, self.root_a)
+        self.assertTrue(seen)
+        self.assertTrue(all(name.endswith(".part") for name in seen))
+
+    def test_default_movable_fn_trashes_every_part(self) -> None:
+        """판정 함수를 주지 않으면 범위의 임시 파일을 모두 옮기는지 검증"""
+        self.seed_records()
+        result = self.make_service().execute_storage_cleanup(["part_files"], CLEANUP_SCOPE_ALL)
+        self.assertEqual(result.cleared_counts["part_files"], 2)
+        self.assertEqual(result.errors, {})
 
 
 class TestProtectedPartFiles(_CleanupCase):

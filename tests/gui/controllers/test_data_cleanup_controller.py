@@ -455,13 +455,15 @@ class _FakeDialog:
 
     def __init__(
         self,
-        preview_fn: object,
+        storage_preview_fn: object,
+        ui_preview_fn: object,
         current_root: str,
         parent: object = None,
         result: object = None,
         on_exec: Callable[[], None] | None = None,
     ) -> None:
-        self.preview_fn = preview_fn
+        self.storage_preview_fn = storage_preview_fn
+        self.ui_preview_fn = ui_preview_fn
         self.current_root = current_root
         self.parent = parent
         self.result = result
@@ -568,7 +570,7 @@ class DialogFlowTest(unittest.TestCase):
 
     def test_rejected_dialog_does_nothing(self) -> None:
         """닫기로 끝나면 정리를 실행하지 않는지 검증"""
-        dialog = _FakeDialog(lambda scope: {}, ROOT)
+        dialog = _FakeDialog(lambda scope: {}, lambda: {}, ROOT)
         factory = self._patch_dialog(dialog)
         with mock.patch.object(self.controller, "execute_cleanup") as execute:
             self.controller.open_dialog()
@@ -576,10 +578,9 @@ class DialogFlowTest(unittest.TestCase):
         self.message_box.information.assert_not_called()
         self.assertIs(factory.call_args.kwargs["parent"], self.window)
 
-
     def test_empty_selection_does_nothing(self) -> None:
         """선택 항목이 없으면 정리를 실행하지 않는지 검증"""
-        dialog = _FakeDialog(lambda scope: {}, ROOT, self.parent)
+        dialog = _FakeDialog(lambda scope: {}, lambda: {}, ROOT, self.parent)
         factory = self._patch_dialog(dialog)
         with mock.patch.object(self.controller, "execute_cleanup") as execute:
             self.controller.open_dialog()
@@ -595,6 +596,7 @@ class DialogFlowTest(unittest.TestCase):
 
         dialog = _FakeDialog(
             lambda scope: {},
+            lambda: {},
             ROOT,
             self.parent,
             result=_Request("current", ("part_files",)),
@@ -609,13 +611,24 @@ class DialogFlowTest(unittest.TestCase):
     def test_accepted_dialog_executes_and_shows_result(self) -> None:
         """확정하면 선택 범위와 항목으로 정리를 실행하고 결과를 보이는지 검증"""
         dialog = _FakeDialog(
-            lambda scope: {}, ROOT, self.parent, result=_Request("all", ("part_files",))
+            lambda scope: {}, lambda: {}, ROOT, self.parent, result=_Request("all", ("part_files",))
         )
         self._patch_dialog(dialog)
         with mock.patch.object(self.controller, "execute_cleanup", return_value="끝") as execute:
             self.controller.open_dialog()
         execute.assert_called_once_with("all", ("part_files",))
         self.assertEqual(self.message_box.information.call_args.args[2], "끝")
+
+    def test_dialog_gets_precomputed_root_and_split_preview_fns(self) -> None:
+        """작업 폴더를 미리 구해 넘기고, 미리보기를 저장 데이터와 화면 항목 두 함수로 나눠 넘기는지 검증"""
+        dialog = _FakeDialog(lambda scope: {}, lambda: {}, ROOT)
+        factory = self._patch_dialog(dialog)
+        with mock.patch.object(self.controller, "execute_cleanup"):
+            self.controller.open_dialog()
+        kwargs = factory.call_args.kwargs
+        self.assertEqual(kwargs["current_root"], ROOT)
+        self.assertTrue(callable(kwargs["storage_preview_fn"]))
+        self.assertEqual(kwargs["ui_preview_fn"], self.controller.ui_previews)
 
 
 class PreviewTest(unittest.TestCase):
@@ -689,6 +702,20 @@ class ExecuteCleanupTest(unittest.TestCase):
         self.assertEqual(self.window.re_evaluate_calls, 1)
         self.assertEqual(len(self.window.status_texts), 1)
         self.assertNotIn("\n", self.window.status_texts[0])
+
+    def test_completed_history_only_keeps_discard_marks(self) -> None:
+        """재인코딩 완료 이력만 지웠을 때 폐기 표시를 지우지 않고 표와 메뉴만 갱신하는지 검증"""
+        self.controller.execute_cleanup("current", ("encode_output_history",))
+        self.assertEqual(self.window._encode.book.cleared, 0)
+        self.assertEqual(len(self.window.table_model.encode_books), 1)
+        self.assertEqual(self.window.menu.refresh_calls, 1)
+
+    def test_discarded_history_clears_discard_marks(self) -> None:
+        """폐기 기록을 지웠을 때는 폐기 표시를 메모리에서 비우는지 검증"""
+        self.controller.execute_cleanup("current", ("discarded_history",))
+        self.assertEqual(self.window._encode.book.cleared, 1)
+        self.assertEqual(len(self.window.table_model.encode_books), 1)
+        self.assertEqual(self.window.menu.refresh_calls, 1)
 
     def test_manual_targets_are_reloaded_from_db_after_storage_cleanup(self) -> None:
         """직접 지정을 지운 뒤 메모리와 저장 기준을 DB 값으로 다시 읽는지 검증"""
@@ -973,6 +1000,32 @@ class ServiceConstructionTest(unittest.TestCase):
         frame_store.return_value.close.assert_called()
         self.assertEqual(set(state_files), set(UI_RESET_CLEANUP_ITEM_KEYS))
         self.assertEqual(state_files["column_order"], os.path.join(tmp.name, "config.json"))
+
+    def test_service_gets_trash_and_movable_check(self) -> None:
+        """정리 서비스에 휴지통 옮기기와 영구 삭제 위험 판정을 함께 넘기는지 검증"""
+        window = _Window()
+        controller = _controller(window)
+        store = mock.MagicMock(db_path=os.path.join(ROOT, "data", "video_cache.sqlite3"))
+        with (
+            mock.patch.object(controller_module, "open_default_store", return_value=store),
+            mock.patch.object(controller_module, "FrameAnalysisStore"),
+            mock.patch.object(controller_module, "EncodeHistory"),
+            mock.patch.object(controller_module, "EncodeOutputHistory"),
+            mock.patch.object(controller_module, "get_state_path", return_value=os.path.join(ROOT, "config.json")),
+            mock.patch.object(controller_module, "DataCleanupService") as service_class,
+            controller._service(),
+        ):
+            pass
+        kwargs = service_class.call_args.kwargs
+        self.assertEqual(kwargs["trash_fn"], controller_module.move_to_trash)
+        self.assertEqual(kwargs["movable_fn"], controller_module._movable_to_trash)
+
+    def test_movable_to_trash_rejects_unconfirmed_drives(self) -> None:
+        """휴지통을 확인할 수 없는 드라이브의 임시 파일은 옮길 수 없는 것으로 보는지 검증"""
+        with mock.patch.object(controller_module, "needs_permanent_confirm", return_value=False):
+            self.assertTrue(controller_module._movable_to_trash(os.path.join(ROOT, "a.mp4.part")))
+        with mock.patch.object(controller_module, "needs_permanent_confirm", return_value=True):
+            self.assertFalse(controller_module._movable_to_trash(os.path.join(ROOT, "b.mp4.part")))
 
     def test_state_is_read_from_session_every_time(self) -> None:
         """설정 초기화로 세션 상태가 새 인스턴스로 바뀌어도 최신 상태를 읽는지 검증"""

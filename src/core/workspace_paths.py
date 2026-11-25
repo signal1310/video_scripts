@@ -267,6 +267,67 @@ def logical_owner_root(logical_filename: str, root_spec: str | Sequence[str]) ->
     return None
 
 
+def _scan_root_names(root_dir: str) -> tuple[frozenset[str], frozenset[str]]:
+    """작업 폴더 직속의 파일 이름과 하위 폴더 이름 집합. 읽지 못하면 빈 집합
+
+    - 파일마다 os.path.isfile, os.path.isdir을 부르지 않도록 한 번만 훑음
+    - 이름은 normcase로 맞춰 대소문자 차이를 없앰(logical_owner_root의 존재 확인과 같은 판정)
+    """
+    files: set[str] = set()
+    dirs: set[str] = set()
+    try:
+        with os.scandir(root_dir) as entries:
+            for entry in entries:
+                name = os.path.normcase(entry.name)
+                try:
+                    is_dir = entry.is_dir()
+                except OSError:
+                    is_dir = False
+                if is_dir:
+                    dirs.add(name)
+                else:
+                    files.add(name)
+    except OSError:
+        return frozenset(), frozenset()
+    return frozenset(files), frozenset(dirs)
+
+
+class LogicalOwnerResolver:
+    """여러 행의 논리 파일명 소유 판정을 한 번 준비한 자료로 되풀이하는 판정기
+
+    - 작업 폴더 파싱, 라벨 맵, 단일 폴더의 직속 파일 이름과 하위 폴더 이름 집합을 만들 때 한 번만 준비
+    - 판정 결과는 logical_owner_root와 같음. 폴더를 훑은 뒤 파일이 지워져도 그 사실은 반영하지 않음
+    """
+
+    def __init__(self, root_spec: str | Sequence[str]) -> None:
+        self._roots: tuple[str, ...] = parse_root_dirs(root_spec)
+        self._label_to_root: dict[str, str] = {}
+        self._files: frozenset[str] = frozenset()
+        self._dirs: frozenset[str] = frozenset()
+        if not self._roots:
+            return
+        _labels, self._label_to_root = build_root_label_map(self._roots)
+        if len(self._roots) == 1:
+            self._files, self._dirs = _scan_root_names(self._roots[0])
+
+    def owner(self, logical_filename: str) -> str | None:
+        """논리 파일명이 가리키는 작업 폴더. 범위 밖이거나 알 수 없으면 None"""
+        if not self._roots:
+            return None
+        posix = logical_filename.replace("\\", "/")
+        head, sep, _rest = posix.partition(LOGICAL_SEP)
+        if not sep:
+            if len(self._roots) != 1:
+                return None
+            return self._roots[0] if os.path.normcase(posix) in self._files else None
+        owner = self._label_to_root.get(head)
+        if owner is not None:
+            return owner
+        if len(self._roots) == 1 and os.path.normcase(head) in self._dirs:
+            return self._roots[0]
+        return None
+
+
 def _drive_key(path: str) -> str:
     """드라이브 문자 비교용 정규화 값"""
     return os.path.splitdrive(os.path.abspath(path))[0].lower()

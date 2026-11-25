@@ -258,6 +258,35 @@ class TestStoreFailureHandling(_StoreTestCase):
             store.apply((), [_entry("a.mp4")])
 
 
+class TestProbeScopeCost(_StoreTestCase):
+    """분석 캐시 정리 범위 판정이 행 수에 비례해 폴더를 훑지 않는지"""
+
+    ROW_COUNT: int = 2_000
+
+    def setUp(self) -> None:
+        super().setUp()
+        roots = tempfile.TemporaryDirectory()
+        self.addCleanup(roots.cleanup)
+        self.root_a = os.path.join(roots.name, "root_dir_a")
+        os.makedirs(self.root_a, exist_ok=True)
+
+    def test_thousands_of_rows_scan_folder_once(self) -> None:
+        """수천 행 분석 캐시를 현재 폴더 범위로 셀 때 폴더 파싱, scandir, isfile이 행 수를 따르지 않는지 검증"""
+        self.store.apply((), [_entry(f"clip_{index}.mp4") for index in range(self.ROW_COUNT)])
+        with (
+            patch.object(store_mod, "parse_root_dirs", wraps=store_mod.parse_root_dirs) as parse,
+            patch.object(store_mod.os.path, "isfile", wraps=os.path.isfile) as isfile,
+            patch.object(store_mod.os.path, "isdir", wraps=os.path.isdir) as isdir,
+            patch.object(store_mod.os, "scandir", wraps=os.scandir) as scandir,
+        ):
+            self.assertEqual(self.store.count_for_roots([self.root_a]), 0)
+        self.assertLessEqual(parse.call_count, 2)
+        self.assertEqual(isfile.call_count, 0)
+        self.assertEqual(scandir.call_count, 1)
+        # - 작업 폴더 해석에서 폴더 확인이 몇 번 있으므로 행 수(2,000)에 비례하지 않는지만 확인
+        self.assertLessEqual(isdir.call_count, 4)
+
+
 class TestFingerprint(unittest.TestCase):
     """내용 지문이 이름과 수정 시각에 무관하고 앞, 뒤 청크 변화를 구분하는지 검증"""
 

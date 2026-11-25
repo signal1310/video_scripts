@@ -134,7 +134,9 @@ CLEANUP_PRESET_LABELS: dict[CleanupPresetKey, str] = {
 }
 IRREVERSIBLE_CATEGORY: CleanupCategory = "settings"
 PART_TRASH_FAILED_TEMPLATE: str = "임시 파일 {count}개를 휴지통으로 옮기지 못했습니다: {names}"
+PART_UNMOVABLE_TEMPLATE: str = "휴지통이 없는 드라이브에 있는 임시 파일 {count}개는 지우지 않고 남겼습니다"
 SCOPE_ROOTS_REQUIRED_TEXT: str = "현재 작업 폴더 범위를 정하려면 작업 폴더 경로가 필요합니다"
+MovableFn = Callable[[str], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +157,10 @@ class CleanupPlanResult:
     errors: dict[CleanupItemKey, str]
 
 
+# - 화면이 범위별 미리보기를 요청할 때 쓰는 서명. 저장 데이터 건수를 화면 밖에서 읽을 때 재사용
+StoragePreviewFn = Callable[[CleanupScope], Mapping[CleanupItemKey, CleanupItemPreview]]
+
+
 def _default_trash_fn(path: str) -> bool:
     """기본 휴지통 옮기기: send2trash가 있으면 그 함수를, 없으면 옮기지 못한 것으로 봄
 
@@ -171,6 +177,11 @@ def _default_trash_fn(path: str) -> bool:
     except OSError as error:
         logger.warning("임시 파일을 휴지통으로 옮기지 못했습니다: %s (%s)", path, error)
         return False
+    return True
+
+
+def _always_movable(_path: str) -> bool:
+    """기본 판정: 모든 임시 파일을 옮길 수 있는 것으로 봄"""
     return True
 
 
@@ -241,6 +252,7 @@ class DataCleanupService:
         output_history: EncodeOutputHistory,
         state_files: Mapping[CleanupItemKey, str] | None = None,
         trash_fn: TrashFn | None = None,
+        movable_fn: MovableFn | None = None,
     ) -> None:
         self._analysis_store: AnalysisStore = analysis_store
         self._frame_store: FrameAnalysisStore = frame_store
@@ -248,6 +260,8 @@ class DataCleanupService:
         self._output_history: EncodeOutputHistory = output_history
         self._state_files: dict[CleanupItemKey, str] = dict(state_files or {})
         self._trash_fn: Callable[[str], bool] = trash_fn if trash_fn is not None else _default_trash_fn
+        # - 휴지통이 없는 드라이브의 임시 파일은 옮기면 영구 삭제가 되므로 건드리지 않고 남김
+        self._movable_fn: MovableFn = movable_fn if movable_fn is not None else _always_movable
 
     def preview(
         self,
@@ -437,17 +451,36 @@ class DataCleanupService:
         )
 
     def _clear_part_files(self, roots: tuple[str, ...] | None) -> tuple[int, str]:
-        """임시 파일만 휴지통으로 옮기고 (옮긴 수, 실패 사유)를 반환"""
+        """임시 파일만 휴지통으로 옮기고 (옮긴 수, 실패 사유)를 반환
+
+        - 휴지통이 없는 드라이브의 파일은 영구 삭제가 되므로 건드리지 않고 남긴 뒤 남긴 수를 안내
+        """
         moved = 0
         failed: list[str] = []
+        unmovable = 0
         for path in self._part_paths(roots):
+            if not _is_movable(path, self._movable_fn):
+                unmovable += 1
+                continue
             if _trash_part(path, self._trash_fn):
                 moved += 1
             else:
                 failed.append(os.path.basename(path))
-        if not failed:
-            return moved, ""
-        return moved, PART_TRASH_FAILED_TEMPLATE.format(count=len(failed), names=", ".join(failed))
+        reasons: list[str] = []
+        if failed:
+            reasons.append(PART_TRASH_FAILED_TEMPLATE.format(count=len(failed), names=", ".join(failed)))
+        if unmovable:
+            reasons.append(PART_UNMOVABLE_TEMPLATE.format(count=unmovable))
+        return moved, " / ".join(reasons)
+
+
+def _is_movable(path: str, movable_fn: MovableFn) -> bool:
+    """휴지통으로 옮겨도 영구 삭제가 되지 않는 파일인지. 판정 실패는 보수적으로 옮기지 않음"""
+    try:
+        return bool(movable_fn(path))
+    except OSError as error:
+        logger.warning("임시 파일을 옮길 수 있는지 확인하지 못했습니다: %s (%s)", path, error)
+        return False
 
 
 def _trash_part(path: str, trash_fn: Callable[[str], bool]) -> bool:

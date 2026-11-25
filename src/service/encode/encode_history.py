@@ -452,7 +452,8 @@ class EncodeHistory:
     def clear_completed_history(self, root_dirs: Sequence[str] | None = None) -> int:
         """완료(done) 상태 항목 기록을 삭제하고 삭제 건수를 반환
 
-        - 항목이 남지 않은 배치는 함께 지워 빈 배치가 목록에 남지 않게 함
+        - 이번에 지운 항목이 속한 배치에 항목이 남지 않았을 때만 그 배치를 함께 지움
+          (정리 범위 밖의 빈 배치는 이번 정리와 무관하므로 건드리지 않음)
         - 진행 중, 대기, 교체 대기 항목은 이어서 재인코딩에 필요하므로 남김
         """
 
@@ -460,14 +461,16 @@ class EncodeHistory:
             keys = _completed_keys(conn, root_dirs)
             if not keys:
                 return 0
+            batch_ids = sorted({batch_id for batch_id, _path in keys})
             with _Transaction(conn):
                 conn.executemany(
                     f"DELETE FROM {ENCODE_ITEM_TABLE} WHERE batch_id = ? AND source_path = ?",
                     keys,
                 )
-                conn.execute(
-                    f"DELETE FROM {ENCODE_BATCH_TABLE} WHERE NOT EXISTS ("
-                    f"SELECT 1 FROM {ENCODE_ITEM_TABLE} i WHERE i.batch_id = {ENCODE_BATCH_TABLE}.batch_id)"
+                conn.executemany(
+                    f"DELETE FROM {ENCODE_BATCH_TABLE} WHERE batch_id = ? AND NOT EXISTS ("
+                    f"SELECT 1 FROM {ENCODE_ITEM_TABLE} i WHERE i.batch_id = {ENCODE_BATCH_TABLE}.batch_id)",
+                    [(batch_id,) for batch_id in batch_ids],
                 )
             return len(keys)
 

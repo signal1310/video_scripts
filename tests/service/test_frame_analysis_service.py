@@ -6,7 +6,9 @@ import tempfile
 import threading
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 
+from src.core import workspace_paths as paths_module
 from src.core.analysis.frame_analysis import (
     CROP_SCAN_VERSION,
     DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
@@ -255,6 +257,33 @@ class TestFrameStoreScopedCleanup(_ServiceTestCase):
         self.assertEqual(self.store.clear_for_roots(), 1)
         self.assertEqual(self.store.load_crop_exclusions([self.crop_a]), frozenset({self.crop_a}))
         self.assertEqual(self.store.load_vr_overrides([self.vr_a]), frozenset({self.vr_a}))
+
+
+class TestFrameStoreScopedCleanupCost(_ServiceTestCase):
+    """정리 범위 판정이 행 수에 비례해 폴더를 훑지 않는지"""
+
+    ROW_COUNT: int = 2_000
+
+    def setUp(self) -> None:
+        super().setUp()
+        roots = tempfile.TemporaryDirectory()
+        self.addCleanup(roots.cleanup)
+        self.root_a = os.path.join(roots.name, "root_dir_a")
+        os.makedirs(self.root_a, exist_ok=True)
+
+    def test_thousands_of_rows_scan_folder_once(self) -> None:
+        """수천 행 화질 분석 캐시를 현재 폴더 범위로 셀 때 폴더 파싱과 scandir이 행 수를 따르지 않는지 검증"""
+        for index in range(self.ROW_COUNT):
+            self.store.save(_record(f"clip_{index}.mp4"))
+        with (
+            patch.object(paths_module, "parse_root_dirs", wraps=paths_module.parse_root_dirs) as parse,
+            patch.object(paths_module.os.path, "isfile", wraps=os.path.isfile) as isfile,
+            patch.object(paths_module.os, "scandir", wraps=os.scandir) as scandir,
+        ):
+            self.assertEqual(self.store.count_for_roots([self.root_a]), 0)
+        self.assertLessEqual(parse.call_count, 2)
+        self.assertEqual(isfile.call_count, 0)
+        self.assertEqual(scandir.call_count, 1)
 
 
 class TestFrameAnalysisService(_ServiceTestCase):

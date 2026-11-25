@@ -1,7 +1,8 @@
 """통합 데이터 정리 및 초기화 대화상자 모듈
 
 - 4범주 19개 항목을 설정 카드와 접이식 범주로 묶고, 항목별 건수와 용량을 배지로 미리 보여 줌
-- 정리 범위(현재 작업 폴더/전체 저장 데이터)를 바꾸면 주입한 미리보기 함수로 건수를 다시 셈
+- 정리 범위(현재 작업 폴더/전체 저장 데이터)를 바꾸면 저장 데이터 건수는 백그라운드에서 다시 읽어 도착하면 채움
+- 화면과 설정 항목의 변경 여부는 Qt 위젯을 읽어야 하므로 화면 스레드에서 계산해 넘겨받음
 - 설정 범주를 고르면 되돌릴 수 없음을 아이콘과 경고 상자로 알리고 실행 전에 한 번 더 확인
 - 원본 영상 파일은 어떤 항목에서도 지우지 않고, 임시 파일은 휴지통으로 옮긴다는 안내를 항상 표시
 """
@@ -30,6 +31,7 @@ from PyQt6.QtWidgets import (
 
 from src.core.encode.encode_progress_values import bytes_to_mb
 from src.core.formatting import format_size_mb
+from src.gui.dialogs.data_cleanup_preview_loader import PreviewLoader
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
@@ -46,16 +48,19 @@ from src.service.data_cleanup_service import (
     CLEANUP_SCOPE_CURRENT,
     CLEANUP_SCOPE_LABELS,
     IRREVERSIBLE_CATEGORY,
+    STORAGE_CLEANUP_ITEM_KEYS,
+    UI_RESET_CLEANUP_ITEM_KEYS,
     CleanupCategory,
     CleanupItemKey,
     CleanupItemPreview,
     CleanupPresetKey,
     CleanupScope,
     DataCleanupService,
+    StoragePreviewFn,
     cleanup_item_category,
 )
 
-PreviewFn = Callable[[CleanupScope], Mapping[CleanupItemKey, CleanupItemPreview]]
+UiPreviewFn = Callable[[], Mapping[CleanupItemKey, CleanupItemPreview]]
 ConfirmFn = Callable[[], bool]
 
 WINDOW_TITLE: str = "데이터 정리 및 초기화"
@@ -71,6 +76,7 @@ SAFETY_ICON_NAME: str = "info"
 EXECUTE_PRIMARY_OBJECT_NAME: str = "PrimaryButton"
 EXECUTE_DANGER_OBJECT_NAME: str = "DangerButton"
 EMPTY_BADGE_TEXT: str = "0건"
+LOADING_BADGE_TEXT: str = "불러오는 중..."
 BADGE_COUNT_TEMPLATE: str = "{count}건"
 BADGE_SIZE_TEMPLATE: str = "{count}건 / {size}"
 BADGE_TOOLTIP: str = "선택한 범위에서 이 항목을 정리할 때 지우는 기록 건수와 파일 용량입니다."
@@ -90,11 +96,13 @@ CURRENT_SCOPE_HINT_TEMPLATE: str = "현재 작업 폴더: {root}"
 ALL_SCOPE_HINT: str = "이 PC에 저장된 모든 작업 기록, 캐시, 화면 배치를 대상으로 합니다."
 NO_ROOT_HINT: str = "작업 폴더가 선택되지 않아 현재 작업 폴더 범위를 쓸 수 없습니다."
 SAFETY_NOTE_TEXT: str = (
-    "원본 영상 파일은 어떤 항목을 선택해도 삭제되지 않으며, 임시 파일(.part)은 휴지통으로 옮겨집니다."
+    "원본 영상 파일은 어떤 항목을 선택해도 삭제되지 않으며, 임시 파일(.part)은 휴지통으로 옮겨집니다. "
+    "휴지통이 없는 드라이브의 임시 파일은 지우지 않고 남깁니다."
 )
 SAFETY_NOTE_TOOLTIP: str = (
     "정리 항목은 프로그램이 만든 기록, 캐시, 설정만 지웁니다.\n"
-    "영상 원본과 재인코딩 결과 파일은 이 창에서 지우지 않습니다."
+    "영상 원본과 재인코딩 결과 파일은 이 창에서 지우지 않습니다.\n"
+    "휴지통을 쓸 수 없는 네트워크, 이동식 드라이브에 있는 임시 파일은 그대로 남깁니다."
 )
 IRREVERSIBLE_WARNING_TEXT: str = "설정은 초기화 후 되돌릴 수 없습니다."
 IRREVERSIBLE_WARNING_ACCESSIBLE_NAME: str = "되돌릴 수 없는 설정 초기화 경고"
@@ -118,7 +126,7 @@ PRESET_TOOLTIPS: dict[CleanupPresetKey, str] = {
     "reset_all": "19개 항목을 모두 골라 저장 기록과 화면 배치, 설정을 모두 초기화합니다.",
 }
 ITEM_TOOLTIPS: dict[CleanupItemKey, str] = {
-    "part_files": "인코딩이 중간에 끝나 남은 임시 .part 파일을 휴지통으로 옮깁니다.",
+    "part_files": "인코딩이 중간에 끝나 남은 임시 .part 파일을 휴지통으로 옮깁니다. 휴지통이 없는 드라이브의 파일은 남깁니다.",
     "discarded_history": "절약 효과가 없어 폐기한 재인코딩 기록을 지웁니다. 폐기한 영상 파일은 그대로 남습니다.",
     "encode_output_history": "재인코딩 결과 지문과 완료 기록을 지워 같은 영상을 다시 대상으로 되돌립니다.",
     "probe_cache": "영상 정보(길이, 해상도, 비트레이트)를 측정해 둔 분석 캐시를 지웁니다. 다음 분석에서 영상을 다시 읽습니다.",
@@ -163,9 +171,14 @@ def is_irreversible_key(key: CleanupItemKey) -> bool:
     return cleanup_item_category(key) == IRREVERSIBLE_CATEGORY
 
 
-def _empty_preview(_scope: CleanupScope) -> dict[CleanupItemKey, CleanupItemPreview]:
-    """미리보기 함수를 받지 못했을 때 쓰는 빈 미리보기. 아무것도 지우지 않음"""
-    return {key: CleanupItemPreview(key, 0, 0, True) for key in ALL_CLEANUP_ITEM_KEYS}
+def _empty_ui_preview() -> dict[CleanupItemKey, CleanupItemPreview]:
+    """화면/설정 항목의 빈 미리보기. 화면 상태 확인 함수를 받지 못했을 때 씀"""
+    return {key: CleanupItemPreview(key, 0, 0, True) for key in UI_RESET_CLEANUP_ITEM_KEYS}
+
+
+def _empty_storage_preview(_scope: CleanupScope) -> dict[CleanupItemKey, CleanupItemPreview]:
+    """저장 데이터 미리보기를 받지 못했을 때 쓰는 빈 미리보기. 아무것도 지우지 않음"""
+    return {key: CleanupItemPreview(key, 0, 0, True) for key in STORAGE_CLEANUP_ITEM_KEYS}
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,12 +195,17 @@ class DataCleanupRequest:
 
 
 class DataCleanupDialog(QDialog, ThemeAwareMixin):
-    """정리 범위, 빠른 프리셋, 4범주 19개 항목을 한 화면에서 고르는 대화상자"""
+    """정리 범위, 빠른 프리셋, 4범주 19개 항목을 한 화면에서 고르는 대화상자
+
+    - 창은 저장 데이터를 읽기 전에 먼저 뜨고, 건수와 용량은 백그라운드 결과가 도착하면 채움
+    - 불러오는 동안 실행 버튼을 잠가 화면에 보이는 건수와 실행이 어긋나지 않게 함
+    """
 
     def __init__(
         self,
         *,
-        preview_fn: PreviewFn | None = None,
+        storage_preview_fn: StoragePreviewFn | None = None,
+        ui_preview_fn: UiPreviewFn | None = None,
         service: DataCleanupService | None = None,
         current_root: str = "",
         has_current_root: bool | None = None,
@@ -202,15 +220,20 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
 
         self._current_root: str = current_root
         self._has_current_root: bool = bool(current_root.strip()) if has_current_root is None else has_current_root
-        self._preview_fn: PreviewFn = self._resolve_preview_fn(preview_fn, service)
+        self._storage_preview_fn: StoragePreviewFn = self._resolve_storage_preview_fn(storage_preview_fn, service)
+        self._ui_preview_fn: UiPreviewFn = ui_preview_fn if ui_preview_fn is not None else _empty_ui_preview
         self._confirm_fn: ConfirmFn = confirm_fn if confirm_fn is not None else self._ask_confirm
         self._previews: dict[CleanupItemKey, CleanupItemPreview] = {}
+        self._loading: bool = False
         self._checkboxes: dict[CleanupItemKey, QCheckBox] = {}
         self._badges: dict[CleanupItemKey, QLabel] = {}
         self._select_all: dict[CleanupCategory, QCheckBox] = {}
         self._sections: dict[CleanupCategory, CollapsibleSection] = {}
         self._preset_buttons: dict[CleanupPresetKey, QPushButton] = {}
         self._scope: CleanupScope = CLEANUP_SCOPE_CURRENT if self._has_current_root else CLEANUP_SCOPE_ALL
+        self._loader = PreviewLoader(self._storage_preview_fn, self)
+        self._loader.ready.connect(self._on_storage_previews)
+        self._loader.failed.connect(self._on_storage_preview_failed)
 
         scope_bar, self._radio_current, self._radio_all, self.lbl_scope_hint = self._build_scope_bar()
         preset_bar = self._build_preset_bar()
@@ -222,13 +245,16 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
         self.set_scope(self._scope)
         self.init_theme_listener()
 
-    def _resolve_preview_fn(self, preview_fn: PreviewFn | None, service: DataCleanupService | None) -> PreviewFn:
-        """주입한 미리보기 함수를 우선 쓰고, 없으면 서비스나 빈 미리보기로 대체"""
-        if preview_fn is not None:
-            return preview_fn
+    def _resolve_storage_preview_fn(
+        self, storage_preview_fn: StoragePreviewFn | None, service: DataCleanupService | None
+    ) -> StoragePreviewFn:
+        """주입한 저장 데이터 미리보기 함수를 우선 쓰고, 없으면 서비스나 빈 미리보기로 대체"""
+        if storage_preview_fn is not None:
+            return storage_preview_fn
         if service is not None:
             return lambda scope: service.preview(scope, self._current_root)
-        return _empty_preview
+        return _empty_storage_preview
+
 
     def _assemble_ui(self, scope_bar: QWidget, preset_bar: QWidget, safety_note: QWidget, footer: QWidget) -> None:
         """범위, 프리셋, 항목 목록, 경고, 안내, 실행 버튼을 위에서 아래로 배치"""
@@ -489,10 +515,44 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
         self.lbl_scope_hint.setToolTip(text)
 
     def refresh_preview(self) -> None:
-        """현재 범위의 항목별 건수와 용량을 다시 계산해 배지에 반영"""
-        self._previews = dict(self._preview_fn(self._scope))
-        for key, badge in self._badges.items():
-            badge.setText(item_badge_text(self._previews.get(key)))
+        """현재 범위의 건수를 다시 읽음. 화면/설정 항목은 바로, 저장 데이터는 백그라운드 결과가 도착하면 채움"""
+        self._show_badges(self._ui_preview_fn(), UI_RESET_CLEANUP_ITEM_KEYS)
+        self._loading = True
+        for key in STORAGE_CLEANUP_ITEM_KEYS:
+            self._badges[key].setText(LOADING_BADGE_TEXT)
+        self._update_state()
+        self._loader.start(self._scope)
+
+    def _show_badges(self, previews: Mapping[CleanupItemKey, CleanupItemPreview], keys: Sequence[CleanupItemKey]) -> None:
+        """고른 항목의 배지에 미리보기 건수와 용량을 표시"""
+        for key in keys:
+            self._badges[key].setText(item_badge_text(previews.get(key)))
+
+    def _on_storage_previews(self, previews: Mapping[CleanupItemKey, CleanupItemPreview]) -> None:
+        """저장 데이터 건수와 용량이 도착하면 배지를 채우고 실행 버튼을 다시 연다"""
+        self._previews = {key: previews[key] for key in STORAGE_CLEANUP_ITEM_KEYS if key in previews}
+        self._show_badges(self._previews, STORAGE_CLEANUP_ITEM_KEYS)
+        self._finish_loading()
+
+    def _on_storage_preview_failed(self) -> None:
+        """작업 폴더가 없거나 저장소를 읽지 못하면 저장 데이터는 지울 것이 없는 것으로 표시"""
+        self._previews = {key: CleanupItemPreview(key, 0, 0, False) for key in STORAGE_CLEANUP_ITEM_KEYS}
+        self._show_badges(self._previews, STORAGE_CLEANUP_ITEM_KEYS)
+        self._finish_loading()
+
+    def _finish_loading(self) -> None:
+        """읽기가 끝나 실행 버튼을 다시 연다"""
+        self._loading = False
+        self._update_state()
+
+    def is_loading(self) -> bool:
+        """저장 데이터 건수를 아직 읽는 중인지"""
+        return self._loading
+
+    def done(self, result_code: int) -> None:
+        """창을 닫으면 진행 중 미리보기 결과를 버려 종료를 기다리지 않음"""
+        self._loader.cancel()
+        super().done(result_code)
 
     def apply_preset(self, preset: CleanupPresetKey) -> None:
         """프리셋 하나를 골라 그 항목만 선택하고 해당 범주를 펼침"""
@@ -552,10 +612,13 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
         self._update_state()
 
     def _update_state(self) -> None:
-        """선택 상태에 맞춰 실행 버튼, 경고 상자, 범주 전체 선택 표시를 갱신"""
+        """선택 상태에 맞춰 실행 버튼, 경고 상자, 범주 전체 선택 표시를 갱신
+
+        - 저장 데이터 건수를 읽는 동안에는 실행 버튼을 잠가 화면에 보이는 건수와 실행이 어긋나지 않게 함
+        """
         request = self.selected_request()
         irreversible = request is not None and bool(request.irreversible_keys)
-        self.btn_execute.setEnabled(request is not None)
+        self.btn_execute.setEnabled(request is not None and not self._loading)
         self.warning_box.setVisible(irreversible)
         self._apply_execute_style(irreversible)
         self._sync_select_all()

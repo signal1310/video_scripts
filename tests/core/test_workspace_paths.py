@@ -1,10 +1,12 @@
-"""작업 폴더 범위 판정과 논리 파일명 소속 판정(is_within_roots, logical_owner_root) 검증"""
+"""작업 폴더 범위 판정과 논리 파일명 소속 판정(is_within_roots, logical_owner_root, LogicalOwnerResolver) 검증"""
 
 import os
 import tempfile
 import unittest
+from unittest import mock
 
-from src.core.workspace_paths import is_within_roots, logical_owner_root
+from src.core import workspace_paths as paths_module
+from src.core.workspace_paths import LogicalOwnerResolver, is_within_roots, logical_owner_root
 
 
 class _RootCase(unittest.TestCase):
@@ -76,6 +78,106 @@ class TestLogicalOwnerRoot(_RootCase):
 
     def test_empty_root_spec_has_no_owner(self) -> None:
         self.assertIsNone(logical_owner_root("a.mp4", ""))
+
+
+class TestLogicalOwnerResolverEquivalence(_RootCase):
+    """행마다 쓰는 판정기가 기존 함수와 같은 소유 판정을 내는지"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        for path in (
+            os.path.join(self.root_a, "a.mp4"),
+            os.path.join(self.root_a, "only_a.mp4"),
+            os.path.join(self.root_a, "sub", "nested.mp4"),
+            os.path.join(self.root_a_twin, "sibling.mp4"),
+            os.path.join(self.root_b, "only_b.mp4"),
+        ):
+            with open(path, "wb") as handle:
+                handle.write(b"x")
+
+    def _assert_same(self, roots: tuple[str, ...], names: tuple[str, ...]) -> None:
+        """판정기 결과가 기존 함수 결과와 같은지 이름마다 비교"""
+        resolver = LogicalOwnerResolver(roots)
+        for name in names:
+            with self.subTest(roots=roots, name=name):
+                self.assertEqual(resolver.owner(name), logical_owner_root(name, roots))
+
+    def test_single_root_matches_logical_owner_root(self) -> None:
+        """단일 폴더에서 직속 파일, 하위 폴더, 없는 파일, 다른 줄기 이름이 기존 함수와 같은지 검증"""
+        self._assert_same(
+            (self.root_a,),
+            (
+                "a.mp4",
+                "A.MP4",
+                "only_a.mp4",
+                "absent.mp4",
+                "sub/nested.mp4",
+                "sub/missing.mp4",
+                "absent/a.mp4",
+                "root_dir_b/only_b.mp4",
+            ),
+        )
+
+    def test_multi_root_matches_logical_owner_root(self) -> None:
+        """여러 폴더에서 라벨로 소유를 고르는 판정이 기존 함수와 같은지 검증"""
+        self._assert_same(
+            (self.root_a, self.root_b),
+            (
+                "root_dir_a/a.mp4",
+                "root_dir_b/only_b.mp4",
+                "root_dir_a/sub/nested.mp4",
+                "other/a.mp4",
+                "a.mp4",
+                "root_dir_a/absent.mp4",
+            ),
+        )
+
+    def test_missing_root_folder_matches_logical_owner_root(self) -> None:
+        """작업 폴더가 사라졌을 때도 기존 함수와 같은 판정인지 검증"""
+        gone = os.path.join(self.base, "gone_root")
+        self._assert_same((gone,), ("a.mp4", "sub/a.mp4"))
+        self._assert_same((gone, self.root_b), ("gone_root/a.mp4", "root_dir_b/only_b.mp4"))
+
+    def test_empty_root_spec_has_no_owner(self) -> None:
+        """작업 폴더가 없으면 어떤 이름도 소유하지 않는지 검증"""
+        resolver = LogicalOwnerResolver("")
+        self.assertIsNone(resolver.owner("a.mp4"))
+        self.assertIsNone(resolver.owner("root_dir_a/a.mp4"))
+
+
+class TestLogicalOwnerResolverCost(_RootCase):
+    """행 수가 늘어도 폴더 파싱과 파일 존재 조회가 반복되지 않는지"""
+
+    ROW_COUNT: int = 3_000
+
+    def test_folder_scan_happens_once_for_thousands_of_rows(self) -> None:
+        """수천 행을 판정해도 폴더 파싱 한 번, isfile 호출 없이 끝나는지 검증"""
+        with open(os.path.join(self.root_a, "a.mp4"), "wb") as handle:
+            handle.write(b"x")
+        with (
+            mock.patch.object(paths_module, "parse_root_dirs", wraps=paths_module.parse_root_dirs) as parse,
+            mock.patch.object(paths_module.os.path, "isfile", wraps=os.path.isfile) as isfile,
+            mock.patch.object(paths_module.os, "scandir", wraps=os.scandir) as scandir,
+        ):
+            resolver = LogicalOwnerResolver([self.root_a])
+            for index in range(self.ROW_COUNT):
+                resolver.owner(f"clip_{index}.mp4")
+            self.assertEqual(resolver.owner("a.mp4"), self.root_a)
+        self.assertLessEqual(parse.call_count, 2)
+        self.assertEqual(isfile.call_count, 0)
+        self.assertEqual(scandir.call_count, 1)
+
+    def test_multi_root_label_lookup_happens_once(self) -> None:
+        """여러 폴더에서도 라벨 맵을 한 번만 만들어 행마다 재사용하는지 검증"""
+        with (
+            mock.patch.object(paths_module, "build_root_label_map", wraps=paths_module.build_root_label_map) as labels,
+            mock.patch.object(paths_module, "parse_root_dirs", wraps=paths_module.parse_root_dirs) as parse,
+        ):
+            resolver = LogicalOwnerResolver([self.root_a, self.root_b])
+            for index in range(self.ROW_COUNT):
+                resolver.owner(f"root_dir_a/clip_{index}.mp4")
+        self.assertEqual(labels.call_count, 1)
+        self.assertLessEqual(parse.call_count, 3)
 
 
 if __name__ == "__main__":

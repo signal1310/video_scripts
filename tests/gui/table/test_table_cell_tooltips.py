@@ -12,6 +12,7 @@ from src.gui.table.table_cell_tooltips import (
     duration_cell_tip,
     encode_state_cell_tip,
     est_encode_time_cell_tip,
+    ffmpeg_args_line,
     fps_cell_tip,
     height_cell_tip,
     keyframe_cell_tip,
@@ -27,6 +28,7 @@ from src.gui.table.table_cell_tooltips import (
     width_cell_tip,
     zone_cell_tip,
 )
+from src.service.encode.encode_preview import PlannedCommand
 from tests._factories import make_eval, make_video
 
 
@@ -94,3 +96,23 @@ class CellTooltipTests(unittest.TestCase):
     def test_encode_state_default_tip_names_non_target_rows(self) -> None:
         """배치 밖 행의 기본 상태 툴팁이 대상 아님을 알리는지 검증"""
         self.assertEqual(encode_state_cell_tip(make_eval(make_video())), "인코딩 배치 대상이 아닙니다.")
+
+
+class FfmpegArgsLineTests(unittest.TestCase):
+    """예정 FFmpeg 인자 한 줄 문구를 검증"""
+
+    def test_exact_plan_line_has_no_approximation_note(self) -> None:
+        """정확한 계획은 요약만 담음"""
+        planned = PlannedCommand(command_line="ffmpeg -i clip.mp4", summary="hevc_nvenc cq 22.0", approximate=False)
+        self.assertEqual(ffmpeg_args_line(planned), "FFmpeg 인자: hevc_nvenc cq 22.0")
+
+    def test_approximate_plan_appends_the_note(self) -> None:
+        """보존 행처럼 가정한 계획은 근사 안내를 붙임"""
+        planned = PlannedCommand(command_line="ffmpeg -i clip.mp4", summary="hevc_nvenc cq 22.0", approximate=True)
+        line = ffmpeg_args_line(planned)
+        self.assertTrue(line.startswith("FFmpeg 인자: hevc_nvenc cq 22.0"))
+        self.assertIn("추정", line)
+
+    def test_missing_plan_returns_empty_text(self) -> None:
+        """명령을 만들 수 없으면 빈 문자열을 돌려 툴팁이 붙지 않게 함"""
+        self.assertEqual(ffmpeg_args_line(None), "")

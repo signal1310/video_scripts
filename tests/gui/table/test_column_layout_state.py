@@ -65,6 +65,16 @@ class ColumnLayoutCodecTests(unittest.TestCase):
         assert decoded is not None
         self.assertNotIn(ColumnId.ACTION, decoded)
 
+    def test_saved_state_without_new_column_still_decodes(self) -> None:
+        """새 열을 추가하기 전에 저장한 상태도 나머지 열 설정을 그대로 복원함을 검증"""
+        layouts = _sample_layouts()
+        del layouts[ColumnId.FFMPEG_ARGS]
+        decoded = decode_column_layouts(encode_column_layouts(layouts))
+        self.assertIsNotNone(decoded)
+        assert decoded is not None
+        self.assertNotIn(ColumnId.FFMPEG_ARGS, decoded)
+        self.assertEqual(decoded[ColumnId.NAME], layouts[ColumnId.NAME])
+
     def test_corrupt_entry_rejects_whole_state(self) -> None:
         """값 형식이 틀린 열 항목이 하나라도 있으면 전체 상태를 무효로 처리함을 검증"""
         payload = json.loads(encode_column_layouts(_sample_layouts()))

@@ -17,6 +17,7 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
+from src.gui.table.table_command_actions import copy_ffmpeg_commands, planned_command_lines
 from src.gui.table.table_model import VideoTableModel
 
 _MENU_ICON_SIZE: int = 14
@@ -285,6 +286,15 @@ def show_row_context_menu(
         icon_name="copy",
         palette=p,
     )
+    copy_commands = add_menu_action(
+        menu,
+        "FFmpeg 명령 복사" if count == 1 else f"선택한 {count}개 FFmpeg 명령 복사",
+        lambda: copy_ffmpeg_commands(view.table_model, targets, parent_widget),
+        icon_name="copy",
+        palette=p,
+    )
+    # - 명령을 만들 수 있는 영상이 하나도 없으면 붙여 넣을 내용이 없으므로 비활성
+    copy_commands.setEnabled(len(planned_command_lines(view.table_model, targets)) > 0)
 
     if to_add:
         add_n = len(to_add)

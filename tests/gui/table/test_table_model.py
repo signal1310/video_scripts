@@ -447,6 +447,50 @@ class FrameAnalysisPartialUpdateTests(unittest.TestCase):
         self.assertEqual(resolved, sorted(resolved))
         self.assertEqual(keys, sorted(keys))
 
+class FfmpegArgsTooltipTests(unittest.TestCase):
+    """권장 처리와 출력 해상도 셀 툴팁 끝에 예정 FFmpeg 인자가 붙는지 검증"""
+
+    def setUp(self) -> None:
+        self.model = VideoTableModel()
+        self.model.set_data_source([make_eval(make_video(filename="a.mp4"))], root_dir=_ROOT)
+
+    def _tip(self, col: int) -> str:
+        return str(self.model.data(self.model.index(0, col), _TOOLTIP) or "")
+
+    def test_action_cell_tip_ends_with_ffmpeg_args(self) -> None:
+        """권장 처리 셀은 기존 문구 뒤에 FFmpeg 인자 줄을 붙임"""
+        tip = self._tip(VideoTableModel.COL_ACTION)
+        self.assertTrue(tip.startswith("품질 "))
+        self.assertIn("\nFFmpeg 인자: ", tip)
+
+    def test_output_res_cell_tip_ends_with_ffmpeg_args(self) -> None:
+        """출력 해상도 셀도 FFmpeg 인자 줄을 붙임"""
+        tip = self._tip(VideoTableModel.COL_OUTPUT_RES)
+        self.assertIn("\nFFmpeg 인자: ", tip)
+
+    def test_other_cells_are_unchanged(self) -> None:
+        """다른 셀 툴팁에는 FFmpeg 인자 줄을 붙이지 않음"""
+        self.assertNotIn("FFmpeg 인자", self._tip(VideoTableModel.COL_CODEC))
+
+    def test_no_ffmpeg_line_when_command_cannot_be_built(self) -> None:
+        """명령을 만들 수 없으면 기존 문구만 남김"""
+        with mock.patch(
+            "src.gui.table.table_model.planned_command_for_evaluation",
+            return_value=None,
+        ):
+            tip = self._tip(VideoTableModel.COL_ACTION)
+        self.assertNotIn("FFmpeg 인자", tip)
+        self.assertTrue(tip)
+
+    def test_ffmpeg_args_column_shows_summary_and_full_command_tip(self) -> None:
+        """인자 열은 요약을 표시하고 셀 툴팁에 붙여 넣을 전체 명령줄을 보여 줌"""
+        display = self._tip(VideoTableModel.COL_FFMPEG_ARGS)
+        self.assertTrue(display.startswith("ffmpeg "))
+        self.assertIn(" -c:v:", display)
+        summary = str(self.model.data(self.model.index(0, VideoTableModel.COL_FFMPEG_ARGS)))
+        self.assertNotEqual(summary, display)
+        self.assertIn("cq", summary)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

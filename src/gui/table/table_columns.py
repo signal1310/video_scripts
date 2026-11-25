@@ -516,6 +516,19 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         filter_value=lambda ev: None,
         align=ALIGN_CENTER,
     ),
+    TableColumnDef(
+        col_id=26,
+        header=COLUMN_LABELS[ColumnId.FFMPEG_ARGS].short,
+        full_header=COLUMN_LABELS[ColumnId.FFMPEG_ARGS].full,
+        spec=ColumnSpec(26, ColumnDataType.TEXT),
+        tooltip_factory=_static_tip(
+            "이 영상의 예정 영상 인자입니다. 셀 툴팁에 실행할 전체 명령줄이 나옵니다."
+        ),
+        # - 예정 명령은 행마다 계산 비용이 있어 정렬과 필터 값은 두지 않음
+        filter_value=lambda ev: None,
+        align=ALIGN_LEFT,
+        font_kind=FONT_MONO,
+    ),
 )
 
 COL_DEF_MAP: dict[int, TableColumnDef] = {d.col_id: d for d in COL_DEFS}

@@ -71,8 +71,13 @@ def _snapshot_video_rows(
     pending = source.pending_output_tiers
     column_count = len(headers)
     # - 화질 분석 세 열은 모델의 결과 캐시에서 GUI 스레드에 문구로 복사해, 워커 스레드가 Qt 모델을 읽지 않게 함
-    frame_cells = [
-        {col: source.get_filter_value_for(ev, col) for col in FRAME_ANALYSIS_COLUMNS} for ev in evaluations
+    # - 예정 FFmpeg 인자 열도 모델의 행별 계산 결과를 같은 방식으로 복사
+    frame_cells: list[dict[int, str | float | None]] = [
+        {
+            **{col: source.get_filter_value_for(ev, col) for col in FRAME_ANALYSIS_COLUMNS},
+            VideoTableModel.COL_FFMPEG_ARGS: source.ffmpeg_args_summary(ev),
+        }
+        for ev in evaluations
     ]
 
     def render_rows() -> list[list[str]]:

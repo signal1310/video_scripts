@@ -34,6 +34,7 @@ from src.gui.table.frame_analysis_columns import (
     contiguous_row_ranges,
     is_frame_analysis_column,
 )
+from src.gui.table.table_cell_tooltips import ffmpeg_args_line
 from src.gui.table.table_column_formats import (
     encode_state_badge,
     encode_state_icon_name,
@@ -64,6 +65,7 @@ from src.gui.table.table_value_collection import (
     collect_value_counts,
 )
 from src.gui.theme import ThemeManager
+from src.service.encode.encode_preview import PlannedCommand, planned_command_for_evaluation
 
 _EMPTY_INDEX = QModelIndex()
 _CELL_ICON_SIZE_PX: int = 12
@@ -113,6 +115,7 @@ class VideoTableModel(QAbstractTableModel):
     COL_REASON = 23
     COL_OUT_BITRATE = 24
     COL_ENCODE_STATE = 25
+    COL_FFMPEG_ARGS = 26
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
     MENU_HEADERS: ClassVar[list[str]] = [d.menu_title for d in COL_DEFS]
@@ -150,6 +153,8 @@ class VideoTableModel(QAbstractTableModel):
         self._previous_discards: frozenset[str] = frozenset()
         self._previous_provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]] | None = None
         self._encode_label_cache: dict[str, str | None] = {}
+        # - 예정 FFmpeg 명령은 행마다 한 번만 계산(열 표시와 툴팁이 함께 씀), 데이터, 설정 교체 시 비움
+        self._planned_cache: dict[str, PlannedCommand | None] = {}
         self._config: ClassifierConfig = config or ClassifierConfig()
         self._filter_summaries: dict[int, str] = {}
         self._color_cache: dict[str, QColor] = {}
@@ -204,6 +209,7 @@ class VideoTableModel(QAbstractTableModel):
         - 정렬 키는 설정과 무관하게 캐시되므로 정렬은 다시 계산하지 않음
         """
         self._config = config
+        self._planned_cache.clear()
         self._emit_all_headers_changed()
         self.config_changed.emit()
 
@@ -235,6 +241,7 @@ class VideoTableModel(QAbstractTableModel):
             frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, root_dir)
         )
         self._encode_label_cache.clear()
+        self._planned_cache.clear()
         cfg_updated = config is not None
         if config is not None:
             self._config = config
@@ -560,9 +567,42 @@ class VideoTableModel(QAbstractTableModel):
                 return tooltip
         return PREVIOUS_DISCARD_TIP if path in self._previous_discards else None
 
+    def _planned_for(self, ev: VideoEvaluation) -> PlannedCommand | None:
+        """영상의 예정 FFmpeg 명령. 행마다 한 번만 계산해 인자 열과 툴팁이 재사용"""
+        cached = self._planned_cache.get(ev.video.filename)
+        if cached is None and ev.video.filename not in self._planned_cache:
+            cached = planned_command_for_evaluation(ev, self._config, root_dir=self._root_dir)
+            self._planned_cache[ev.video.filename] = cached
+        return cached
+
+    def _with_ffmpeg_args(self, ev: VideoEvaluation, tip: str) -> str:
+        """셀 툴팁 끝에 예정 FFmpeg 영상 인자 한 줄을 덧붙임. 명령을 만들 수 없으면 원래 문구만"""
+        extra = ffmpeg_args_line(self._planned_for(ev))
+        return f"{tip}\n{extra}" if extra else tip
+
+    def ffmpeg_args_summary(self, ev: VideoEvaluation) -> str:
+        """영상의 예정 FFmpeg 영상 인자 한 줄 요약, 명령을 만들 수 없으면 빈 문자열. CSV 내보내기가 같은 값을 씀"""
+        planned = self._planned_for(ev)
+        return "" if planned is None else planned.summary
+
+    def planned_command_line(self, ev: VideoEvaluation) -> str | None:
+        """영상의 예정 FFmpeg 명령줄, 만들 수 없으면 None. 우클릭 복사가 그대로 넘김"""
+        planned = self._planned_for(ev)
+        return None if planned is None else planned.command_line
+
+    def _ffmpeg_command_tip(self, ev: VideoEvaluation) -> str:
+        """인자 열 셀 툴팁: 붙여 넣어 실행할 전체 명령줄"""
+        planned = self._planned_for(ev)
+        if planned is None:
+            return COL_DEF_MAP[self.COL_FFMPEG_ARGS].tooltip_factory(self._config)
+        return planned.command_line
+
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
         if col == self.COL_ENCODE_STATE:
             return self._encode_label(ev)
+        if col == self.COL_FFMPEG_ARGS:
+            planned = self._planned_for(ev)
+            return planned.summary if planned is not None else None
         if is_frame_analysis_column(col):
             return self._frame_view.display(ev.video.filename, col)
         return display_text_for(ev, col, self._config, self._pending_output_tiers)
@@ -688,8 +728,10 @@ class VideoTableModel(QAbstractTableModel):
         if role == self.EVAL_ROLE:
             return ev
         if role == int(Qt.ItemDataRole.ToolTipRole):
+            if col == self.COL_FFMPEG_ARGS:
+                return self._ffmpeg_command_tip(ev)
             if col == self.COL_OUTPUT_RES:
-                return format_output_res_tooltip(ev, self._config)
+                return self._with_ffmpeg_args(ev, format_output_res_tooltip(ev, self._config))
             if is_frame_analysis_column(col):
                 return self._frame_view.tooltip(ev.video.filename, col)
             if col == self.COL_ENCODE_STATE and (state_tip := self._encode_tooltip(ev)) is not None:
@@ -698,6 +740,10 @@ class VideoTableModel(QAbstractTableModel):
                 return format_row_tooltip(
                     ev, self._root_dir, get_encode_codec_label(self._config.encode.encode_codec)
                 )
+            if col == self.COL_ACTION:
+                col_def = COL_DEF_MAP[col]
+                assert col_def.cell_tooltip is not None
+                return self._with_ffmpeg_args(ev, col_def.cell_tooltip(ev))
             cell_tooltip = COL_DEF_MAP[col].cell_tooltip
             if cell_tooltip is None:
                 return COL_DEF_MAP[col].tooltip_factory(self._config)

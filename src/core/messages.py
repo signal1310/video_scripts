@@ -49,6 +49,7 @@ class ColumnId(Enum):
     ACTION = "action"
     REASON = "reason"
     ENCODE_STATE = "encode_state"
+    FFMPEG_ARGS = "ffmpeg_args"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +95,7 @@ COLUMN_LABELS: dict[ColumnId, ColumnLabelSpec] = {
     ColumnId.ACTION: ColumnLabelSpec("권장 처리", "권장 처리", "권장\n처리"),
     ColumnId.REASON: ColumnLabelSpec("판정 사유", "판정 사유", "판정\n사유"),
     ColumnId.ENCODE_STATE: ColumnLabelSpec("인코딩 상태", "인코딩 상태"),
+    ColumnId.FFMPEG_ARGS: ColumnLabelSpec("FFmpeg 인자", "인자"),
 }
 
 # 로그 레벨 태그(표준 4단계만 사용, 작업 상태는 레벨과 문장으로 표현)

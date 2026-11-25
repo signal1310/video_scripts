@@ -3,6 +3,7 @@
 from src.core.formatting import format_duration_hms
 from src.core.messages import LABEL_UNMEASURED_DETAIL
 from src.core.models import VideoEvaluation
+from src.service.encode.encode_preview import PlannedCommand, plan_approximation_note
 
 _REFERENCE_NOTE: str = " (원본 보존 행, 인코딩 가정 참고값)"
 _NOT_TARGET_TIP: str = "인코딩 배치 대상이 아닙니다."
@@ -121,3 +122,14 @@ def out_bitrate_cell_tip(ev: VideoEvaluation) -> str:
 def encode_state_cell_tip(_ev: VideoEvaluation) -> str:
     """인코딩 상태 셀의 기본 툴팁, 배치 상태가 있으면 표 모델이 그 툴팁을 우선함"""
     return _NOT_TARGET_TIP
+
+
+def ffmpeg_args_line(planned: PlannedCommand | None) -> str:
+    """셀 툴팁과 인자 열에 쓰는 한 줄 요약. 명령을 만들 수 없으면 빈 문자열
+
+    - 표 모델이 행마다 한 번 계산한 결과를 넘겨 툴팁과 열이 같은 값을 씀
+    - 보존 행은 인코딩을 가정한 값이므로 근사 표시를 붙임
+    """
+    if planned is None:
+        return ""
+    return f"FFmpeg 인자: {planned.summary}{plan_approximation_note(planned)}"

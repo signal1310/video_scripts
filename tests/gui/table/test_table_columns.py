@@ -11,6 +11,14 @@ from src.core.encode.encode_batch_book import STATUS_PENDING, STATUS_REPLACE_PEN
 from src.core.messages import COLUMN_LABELS, ColumnId
 from src.gui.table.column_filters import ColumnDataType
 from src.gui.table.column_layout_state import COL_INDEX_TO_ID
+from src.gui.table.column_sizing import (
+    DEFAULT_COL_ORDER,
+    DEFAULT_HIDDEN_COLS,
+    PRESET_DEFAULT,
+    PRESET_QUALITY,
+    PRESET_SPECS,
+    hidden_columns_for_preset,
+)
 from src.gui.table.table_column_formats import keyframe_icon_name
 from src.gui.table.table_column_styles import FONT_MONO_BOLD
 from src.gui.table.table_columns import COL_DEF_MAP, ENCODE_STATE_LABELS
@@ -68,6 +76,43 @@ class EncodeStateColumnTests(unittest.TestCase):
         for col in (VideoTableModel.COL_OUTPUT_RES, VideoTableModel.COL_ACTIVE_FRAME):
             with self.subTest(col=col):
                 self.assertEqual(COL_DEF_MAP[col].font_kind, FONT_MONO_BOLD)
+
+
+class FfmpegArgsColumnTests(unittest.TestCase):
+    """FFmpeg 인자 열의 위치, 기본 숨김, 머리글과 툴팁을 검증"""
+
+    def test_column_is_appended_last_and_hidden_by_default(self) -> None:
+        """인자 열이 마지막 열이고 기본 숨김인지 검증"""
+        self.assertEqual(VideoTableModel.COL_FFMPEG_ARGS, 26)
+        self.assertEqual(len(COL_DEF_MAP), 27)
+        self.assertEqual(COL_INDEX_TO_ID[VideoTableModel.COL_FFMPEG_ARGS], ColumnId.FFMPEG_ARGS)
+        self.assertIn(VideoTableModel.COL_FFMPEG_ARGS, DEFAULT_HIDDEN_COLS)
+        self.assertEqual(
+            DEFAULT_COL_ORDER[-1], VideoTableModel.COL_FFMPEG_ARGS
+        )
+
+    def test_header_comes_from_the_shared_label_table(self) -> None:
+        """머리글이 좁은 이름과 풀네임 기준 정의를 따르는지 검증"""
+        col_def = COL_DEF_MAP[VideoTableModel.COL_FFMPEG_ARGS]
+        self.assertEqual(col_def.header, COLUMN_LABELS[ColumnId.FFMPEG_ARGS].short)
+        self.assertEqual(col_def.menu_title, COLUMN_LABELS[ColumnId.FFMPEG_ARGS].full)
+        self.assertEqual(COLUMN_LABELS[ColumnId.FFMPEG_ARGS].short, "인자")
+
+    def test_no_preset_shows_the_column(self) -> None:
+        """프리셋 어디에도 인자 열을 넣지 않아 사용자가 직접 켜야 함을 검증"""
+        for preset_key in (PRESET_DEFAULT, PRESET_QUALITY, PRESET_SPECS):
+            with self.subTest(preset=preset_key):
+                self.assertIn(
+                    VideoTableModel.COL_FFMPEG_ARGS, hidden_columns_for_preset(preset_key)
+                )
+
+    def test_tooltip_is_polite_and_mentions_the_command(self) -> None:
+        """머리글 툴팁이 명령줄 안내를 담고 존댓말로 끝나는지 검증"""
+        tip = COL_DEF_MAP[VideoTableModel.COL_FFMPEG_ARGS].tooltip_factory(
+            VideoTableModel().config
+        )
+        self.assertIn("명령줄", tip)
+        self.assertTrue(tip.endswith("."))
 
 
 if __name__ == "__main__":

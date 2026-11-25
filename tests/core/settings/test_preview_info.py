@@ -238,13 +238,14 @@ class PreviewInfoTableConsistencyTests(unittest.TestCase):
         """표에 열이 추가되면 정보 표시 항목도 함께 정해야 하도록 열 전체의 대응을 검증
 
         - 인코딩 상태 열은 배치 진행 값이라 영상 정보 항목에 두지 않음
-        - 화질 분석 세 열은 표 전용 값이라 미리 보기 정보 항목에 두지 않음
+        - 화질 분석 세 열과 FFmpeg 인자 열은 표 전용 값이라 미리 보기 정보 항목에 두지 않음
         """
         not_in_overlay = {
             VideoTableModel.COL_ENCODE_STATE,
             VideoTableModel.COL_ACTIVE_FRAME,
             VideoTableModel.COL_DOWNSCALE_CANDIDATE,
             VideoTableModel.COL_QUALITY_METRIC,
+            VideoTableModel.COL_FFMPEG_ARGS,
         }
         covered = set(TABLE_INFO_COLUMNS.values()) | set(RESOLUTION_INFO_COLUMNS)
         self.assertEqual(covered, set(COL_DEF_MAP) - not_in_overlay)
@@ -258,6 +259,7 @@ class PreviewInfoTableConsistencyTests(unittest.TestCase):
             ColumnId.ACTIVE_FRAME.value,
             ColumnId.DOWNSCALE_CANDIDATE.value,
             ColumnId.QUALITY_METRIC.value,
+            ColumnId.FFMPEG_ARGS.value,
         }
         self.assertEqual(set(TABLE_INFO_COLUMNS), column_ids - merged - not_in_overlay)
         table_backed = set(VIDEO_INFO_KEYS) | set(JUDGMENT_INFO_KEYS)

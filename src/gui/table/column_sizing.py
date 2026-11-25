@@ -64,6 +64,7 @@ MIN_COL_WIDTHS: dict[int, int] = {
     VideoTableModel.COL_ACTION: 84,
     VideoTableModel.COL_REASON: 74,
     VideoTableModel.COL_OUT_BITRATE: 50,
+    VideoTableModel.COL_FFMPEG_ARGS: 90,
 }
 # - 값 목록이 고정된 열은 표본 행 대신 목록 전체의 폭으로 잼. 표본 밖 행에만 있는 긴 값이 잘리는 것을 막음
 FIXED_VALUE_COLUMNS: dict[int, tuple[str, ...]] = {
@@ -97,6 +98,7 @@ DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_OUT_BITRATE,
     VideoTableModel.COL_TARGET_RATIO,
     VideoTableModel.COL_AFTER_SIZE,
+    VideoTableModel.COL_FFMPEG_ARGS,
 )
 ALL_COLUMNS: frozenset[int] = frozenset(range(len(VideoTableModel.HEADERS)))
 DEFAULT_HIDDEN_COLS: frozenset[int] = frozenset(
@@ -109,6 +111,7 @@ DEFAULT_HIDDEN_COLS: frozenset[int] = frozenset(
         VideoTableModel.COL_ACTIVE_FRAME,
         VideoTableModel.COL_DOWNSCALE_CANDIDATE,
         VideoTableModel.COL_QUALITY_METRIC,
+        VideoTableModel.COL_FFMPEG_ARGS,
     }
 )
 # - 프리셋마다 보이는 열을 나열하고, 나머지는 숨김으로 계산해 열 추가 때 누락을 막음

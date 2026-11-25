@@ -2,8 +2,10 @@
 
 - 프로세스 실행은 담당하지 않음(encode_process 모듈 책임)
 - 출력은 항상 `.part` 임시 파일에 `-f`로 형식을 명시해 쓰며, 기존 파일은 덮어쓰지 않음(-n)
+- 화면 표시용 명령줄 문자열과 영상 인자 한 줄 요약도 같은 인자 빌더 결과에서 만듦
 """
 
+from collections.abc import Sequence
 from dataclasses import replace
 
 from src.core.encode.encode_plan import (
@@ -212,3 +214,72 @@ def build_sample_ffmpeg_args(
         f"{max(0.1, duration_sec):.3f}",
         *args[input_idx + 2 :],
     ]
+
+
+# - 공백이나 명령 해석에 쓰이는 문자가 든 인자는 큰따옴표로 감쌈(Windows CreateProcess 인용 규칙)
+QUOTE_REQUIRED_CHARS: frozenset[str] = frozenset(' \t&|<>^()%!,;="\'')
+QUOTE_CHAR: str = '"'
+ESCAPED_QUOTE: str = '\\"'
+ARG_SEPARATOR: str = " "
+SUMMARY_PART_SEPARATOR: str = " / "
+SUMMARY_VIDEO_STREAM_INDEX: int = 0
+
+
+def _quote_arg(arg: str) -> str:
+    r"""인자 하나를 명령줄에 넣을 문자열로 변환
+
+    - 공백이나 `& | < > ^ ( ) % ! , ; = " '` 가 없으면 그대로 씀
+    - 있으면 큰따옴표로 감싸고, 내부 큰따옴표는 역슬래시로 이스케이프하며, 닫는 따옴표 앞의 역슬래시는 두 번 씀
+    """
+    if arg and not any(char in QUOTE_REQUIRED_CHARS for char in arg):
+        return arg
+    body = arg.replace(QUOTE_CHAR, ESCAPED_QUOTE)
+    trailing = len(body) - len(body.rstrip("\\"))
+    trailing_backslashes = "\\" * trailing
+    return f"{QUOTE_CHAR}{body}{trailing_backslashes}{QUOTE_CHAR}"
+
+
+def format_command_line(args: Sequence[str]) -> str:
+    """인자 목록을 붙여 넣어 실행할 수 있는 한 줄 명령 문자열로 만듦(Windows 인용 규칙)"""
+    return ARG_SEPARATOR.join(_quote_arg(arg) for arg in args)
+
+
+def _arg_value(args: Sequence[str], flag: str) -> str | None:
+    """인자 목록에서 지정 옵션 바로 뒤의 값, 옵션이 없으면 None"""
+    try:
+        return args[args.index(flag) + 1]
+    except (ValueError, IndexError):
+        return None
+
+
+def _quality_token(flag: str) -> str:
+    """품질 옵션 이름(`-cq:v:0` -> `cq`)만 남김"""
+    return flag.lstrip("-").split(":", 1)[0]
+
+
+def summarize_video_args(plan: EncodePlan) -> str:
+    """계획의 실제 FFmpeg 인자에서 영상 핵심 인자만 뽑아 한 줄로 요약
+
+    - 필터(자르기, 축소), 인코더와 품질값, 최대 비트레이트, 키프레임 간격 순으로 붙임
+    - `build_ffmpeg_args` 결과에서 읽으므로 실행 명령과 값이 어긋나지 않음
+    """
+    args = build_ffmpeg_args(plan)
+    out = SUMMARY_VIDEO_STREAM_INDEX
+    parts: list[str] = []
+    filter_chain = _arg_value(args, f"-filter:v:{out}")
+    if filter_chain:
+        parts.append(filter_chain)
+    encoder = _arg_value(args, f"-c:v:{out}")
+    spec = get_encoder_spec(plan.encoder)
+    if encoder and spec is not None and spec.quality_option is not None:
+        quality_flag = _vopt(spec.quality_option, out)
+        quality = _arg_value(args, quality_flag)
+        if quality:
+            parts.append(f"{encoder} {_quality_token(quality_flag)} {quality}")
+    maxrate = _arg_value(args, _vopt("-maxrate", out))
+    if maxrate:
+        parts.append(f"maxrate {maxrate}")
+    gop = _arg_value(args, _vopt("-g", out))
+    if gop:
+        parts.append(f"g {gop}")
+    return SUMMARY_PART_SEPARATOR.join(parts)

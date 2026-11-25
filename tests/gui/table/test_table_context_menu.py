@@ -186,6 +186,10 @@ class TestHeaderContextMenu(unittest.TestCase):
         self.assertEqual(self.host.calls, [("reset_sort", None), ("reset_columns", None)])
 
 
+_FFMPEG_COPY_SINGLE = "FFmpeg 명령 복사"
+_FFMPEG_COPY_MULTI = "선택한 2개 FFmpeg 명령 복사"
+
+
 class TestRowContextMenu(unittest.TestCase):
     """행 우클릭 메뉴의 단수, 복수 문구와 호스트 호출을 검증"""
 
@@ -195,6 +199,12 @@ class TestRowContextMenu(unittest.TestCase):
         self.addCleanup(self.host.filter_header.close)
         self.addCleanup(set_row_compare_opener, None)
         set_row_compare_opener(None)
+        # - 실제 클립보드를 건드리지 않도록 복사 호출만 가로챔
+        self.copy_patch = patch(
+            "src.gui.table.table_context_menu.copy_ffmpeg_commands", return_value=1
+        )
+        self.copy_mock = self.copy_patch.start()
+        self.addCleanup(self.copy_patch.stop)
         self.clicked = make_eval(make_video(filename="clicked.mp4"))
         self.other = make_eval(make_video(filename="other.mp4"))
 
@@ -215,6 +225,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "탐색기에서 위치 열기",
                 "선택 파일명 복사",
                 "선택 전체 경로 복사",
+                _FFMPEG_COPY_SINGLE,
                 "선택 항목 예외 규칙에 추가",
                 MANUAL_TARGET_MENU_TITLE,
                 "VR 영상으로 보호",
@@ -243,6 +254,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "탐색기에서 위치 열기",
                 "선택한 2개 파일명 복사",
                 "선택한 2개 전체 경로 복사",
+                _FFMPEG_COPY_MULTI,
                 "선택한 2개 항목을 예외 규칙에 추가",
                 "선택한 3개 항목을 예외 규칙에서 제거",
                 MANUAL_TARGET_MENU_TITLE,
@@ -273,6 +285,19 @@ class TestRowContextMenu(unittest.TestCase):
 
         mixed = self._row_menu([self.clicked, self.other], to_add=[], to_remove=[])
         self.assertFalse(mixed["검은 여백 잘라내기 제외"].isChecked())
+
+    def test_ffmpeg_copy_entry_is_disabled_when_no_command_can_be_built(self) -> None:
+        """명령을 만들 수 있는 영상이 없으면 FFmpeg 명령 복사 항목을 비활성화하고, 있으면 활성화함을 검증"""
+        enabled = self._row_menu([self.clicked], to_add=[], to_remove=[])
+        self.assertTrue(enabled[_FFMPEG_COPY_SINGLE].isEnabled())
+        enabled[_FFMPEG_COPY_SINGLE].trigger()
+        self.copy_mock.assert_called_once()
+
+        with patch(
+            "src.gui.table.table_context_menu.planned_command_lines", return_value=[]
+        ):
+            disabled = self._row_menu([self.clicked], to_add=[], to_remove=[])
+        self.assertFalse(disabled[_FFMPEG_COPY_SINGLE].isEnabled())
 
     def test_menu_is_not_shown_without_viewport(self) -> None:
         """뷰포트가 없으면 메뉴를 띄우지 않음을 검증"""

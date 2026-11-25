@@ -50,6 +50,7 @@ TOOLBAR_ICON_BTN_SIZE: int = 36
 TOOLBAR_ICON_SIZE_PX: int = 16
 # 헤더 바 좌우 안쪽 여백과 카드 테두리 두께(접힌 탭 줄의 펼치기 버튼이 접기 버튼과 x 위치를 맞추는 기준)
 HEADER_PADDING_X_PX: int = 16
+HEADER_PADDING_Y_PX: int = 10
 CARD_BORDER_PX: int = 1
 FILTER_DEBOUNCE_MS: int = 250
 WORKER_CANCEL_WAIT_MS: int = 3000
@@ -133,6 +134,7 @@ __all__ = [
     "FRAME_BACKWARD_NOTICE",
     "FRAME_FORWARD_NOTICE",
     "HEADER_PADDING_X_PX",
+    "HEADER_PADDING_Y_PX",
     "MAX_LOG_HISTORY",
     "MUTE_NOTICE",
     "ON_ACCENT_COLOR",

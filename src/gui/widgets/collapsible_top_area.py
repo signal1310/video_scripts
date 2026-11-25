@@ -3,9 +3,11 @@
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, pyqtSignal
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -14,12 +16,12 @@ from PyQt6.QtWidgets import (
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.gui.constants import (
-    CARD_BORDER_PX,
     HEADER_PADDING_X_PX,
+    HEADER_PADDING_Y_PX,
     TOOLBAR_ICON_BTN_SIZE,
     TOOLBAR_ICON_SIZE_PX,
 )
-from src.gui.styles.icons import create_icon_button, set_button_icon
+from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.eliding_label import ElidingLabel
@@ -34,10 +36,9 @@ TOP_AREA_EXPAND_TOOLTIP: str = format_tooltip_with_shortcut(
 )
 TOP_AREA_EXPAND_NAME: str = "상단 영역 펼치기"
 TOP_AREA_EXPAND_ICON: str = "panel-top-open"
-# 펼친 상태의 헤더 접기 버튼과 같은 x 위치에 두도록 헤더 테두리와 안쪽 여백을 더함
-TOP_AREA_EXPAND_RIGHT_MARGIN_PX: int = CARD_BORDER_PX + HEADER_PADDING_X_PX
-# 접힌 줄에서 펼치기 버튼과 폴더 이름 사이 여백
+# 접힌 줄에서 폴더 아이콘과 폴더 이름 사이 여백
 TOP_AREA_SUMMARY_GAP_PX: int = 8
+TOP_AREA_FOLDER_ICON: str = "folder"
 TOP_AREA_SUMMARY_OBJECT_NAME: str = "TopAreaSummaryLabel"
 
 
@@ -101,8 +102,8 @@ class TopAreaPopup(FloatingPopupFrame):
 class CollapsibleTopArea(QWidget, ThemeAwareMixin):
     """탭 줄과 영역 본문을 묶어 펼침과 접힘을 전환하는 상단 영역
 
-    - 펼친 상태에서는 탭 줄을 숨기고, 접기 버튼은 헤더 쪽에 둠
-    - 접힌 상태에서는 탭 줄만 보이며 펼치기 버튼으로 본문을 펼침
+    - 펼친 상태에서는 탭 줄을 숨기고, 접기 버튼은 헤더의 왼쪽 끝에 둠
+    - 접힌 상태에서는 탭 줄만 보이며 왼쪽 끝 펼치기 버튼으로 본문을 펼침
     - 접힌 상태에서 탭을 누르면 해당 영역을 팝업으로 열고, 펼친 상태에서는 탭 클릭이 무시됨
     - 상태 변경은 collapsed_changed로 알림
     """
@@ -127,9 +128,13 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
         # 세로 여유 공간을 받아 늘어나지 않도록 고정해 접힌 상단 영역이 탭 높이만 차지하게 함
         self._tab_strip.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         strip_layout = QHBoxLayout(self._tab_strip)
-        strip_layout.setContentsMargins(0, 0, TOP_AREA_EXPAND_RIGHT_MARGIN_PX, 0)
+        # - 헤더와 같은 카드 모양에 같은 안쪽 여백을 줘 접고 펼칠 때 버튼이 가로, 세로 모두 같은 자리에 남음
+        strip_layout.setContentsMargins(
+            HEADER_PADDING_X_PX, HEADER_PADDING_Y_PX, HEADER_PADDING_X_PX, HEADER_PADDING_Y_PX
+        )
         strip_layout.setSpacing(TOP_AREA_TAB_STRIP_SPACING_PX)
-        # - 접힌 줄은 왼쪽부터 펼치기 버튼, 폴더 이름, 영역 탭, 여백 순서로 한 줄에 놓음
+        # - 접힌 줄은 왼쪽부터 펼치기 버튼, 폴더 아이콘, 폴더 이름, 영역 탭, 여백 순서로 한 줄에 놓음
+        # - 펼치기 버튼은 펼친 헤더의 접기 버튼과 같은 왼쪽 끝이라 전환해도 클릭 위치가 그대로임
         self._expand_btn = create_icon_button(
             self._tab_strip,
             TOP_AREA_EXPAND_TOOLTIP,
@@ -142,6 +147,11 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
             self._expand_btn, TOP_AREA_EXPAND_ICON, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
         )
         strip_layout.addWidget(self._expand_btn)
+        strip_layout.addSpacing(TOP_AREA_SUMMARY_GAP_PX)
+        self._folder_icon = QLabel(self._tab_strip)
+        self._folder_icon.setFixedSize(TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX)
+        self._folder_icon.setPixmap(self._folder_pixmap())
+        strip_layout.addWidget(self._folder_icon)
         strip_layout.addSpacing(TOP_AREA_SUMMARY_GAP_PX)
         self._summary_label = TopAreaSummaryLabel(self._tab_strip)
         strip_layout.addWidget(self._summary_label)
@@ -198,15 +208,22 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
         )
 
     @property
+    def folder_icon(self) -> QLabel:
+        """접힌 줄 왼쪽에 보이는 폴더 아이콘 라벨"""
+        return self._folder_icon
+
+    @property
     def summary_label(self) -> TopAreaSummaryLabel:
         """접힌 줄 왼쪽에 보이는 요약 라벨"""
         return self._summary_label
 
     def set_summary_text(self, text: str) -> None:
-        """접힌 줄에 보일 요약 문구를 지정. 빈 문구면 라벨을 숨겨 줄 간격을 남기지 않음"""
+        """접힌 줄에 보일 요약 문구를 지정. 빈 문구면 아이콘과 라벨을 숨겨 줄 간격을 남기지 않음"""
         self._summary_label.set_full_text(text)
         self._summary_label.setVisible(bool(text))
+        self._folder_icon.setVisible(bool(text))
         self._tab_strip.updateGeometry()
+
     def tab_button(self, index: int) -> QPushButton:
         """지정한 순서의 영역 탭 버튼"""
         return self._tab_buttons[index]
@@ -221,7 +238,14 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
             pad_right=0,
         )
         self._summary_label.set_color(palette.text_secondary)
+        self._folder_icon.setPixmap(self._folder_pixmap(palette))
         self._fit_tab_widths()
+
+    @staticmethod
+    def _folder_pixmap(palette: ThemePalette | None = None) -> QPixmap:
+        """접힌 줄 폴더 아이콘 픽스맵, 팔레트가 없으면 활성 테마 색"""
+        icon = get_icon(TOP_AREA_FOLDER_ICON, palette=palette, size=TOOLBAR_ICON_SIZE_PX)
+        return icon.pixmap(TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX)
 
     def changeEvent(self, a0: QEvent | None) -> None:
         """스타일 변경 시 탭 너비를 다시 맞춰 선택 상태와 무관하게 너비가 고정되도록 함"""

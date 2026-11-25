@@ -190,6 +190,24 @@ class TestGUIWidgetsModule(GuiTestCase):
             expected,
         )
 
+    def test_top_area_folder_icon_follows_the_summary_text_and_theme(self) -> None:
+        """폴더 아이콘이 요약 문구가 있을 때만 보이고 테마를 바꿔도 같은 폴더 아이콘인지 검증"""
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        area = CollapsibleTopArea([TopAreaSection("첫째", QWidget(host))], host)
+        area.set_collapsed(True)
+        area.set_summary_text("_재분류")
+        self.assertTrue(area.folder_icon.isVisibleTo(area))
+        self.assertFalse(area.folder_icon.pixmap().isNull())
+        palette = get_active_palette()
+        area.apply_theme(palette)
+        expected = get_icon("folder", palette=palette, size=TOOLBAR_ICON_SIZE_PX).pixmap(
+            TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX
+        )
+        self.assertEqual(area.folder_icon.pixmap().toImage(), expected.toImage())
+        area.set_summary_text("")
+        self.assertFalse(area.folder_icon.isVisibleTo(area))
+
     def test_header_encode_button_marks_active_encoding(self) -> None:
         """인코딩 진행 중 표시가 버튼 상태와 툴팁에 함께 반영되는지 검증"""
         header = HeaderBar()
@@ -244,16 +262,16 @@ class TestGUIWidgetsModule(GuiTestCase):
             header.encode_arrow.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         )
 
-    def test_header_encode_button_sits_between_analyze_and_collapse(self) -> None:
+    def test_header_collapse_button_is_the_first_widget_and_encode_follows_analyze(self) -> None:
+        """접기 버튼이 헤더 맨 왼쪽(접힌 줄 펼치기 버튼과 같은 쪽)이고 인코딩 버튼이 분석 버튼 뒤인지 검증"""
         header = HeaderBar()
         self.addCleanup(header.deleteLater)
         layout = header.layout()
         assert layout is not None
+        self.assertEqual(layout.indexOf(header.btn_collapse_top), 0)
+        self.assertLess(layout.indexOf(header.btn_collapse_top), layout.indexOf(header.folder_icon))
         self.assertLess(
             layout.indexOf(header.analyze_stack), layout.indexOf(header.btn_encode_start)
-        )
-        self.assertLess(
-            layout.indexOf(header.btn_encode_start), layout.indexOf(header.btn_collapse_top)
         )
 
     def test_header_bar_inplace_cancel_toggle(self) -> None:

@@ -702,9 +702,10 @@ class FrameAnalysisController:
             self._log_result_lines(pending)
 
     def _log_result_lines(self, results: Mapping[str, FrameAnalysisResult]) -> None:
-        """도착한 영상별 화질 분석 결과를 작업 기록에 남김"""
+        """도착한 영상별 결과를 실행 종류(여백 감지/화질 분석)별 이름으로 작업 기록에 남김"""
+        label = CROP_SCAN_LABEL if self._crop_scan else FRAME_ANALYSIS_LABEL
         for filename, result in results.items():
-            logger.info("화질 분석 결과: %s, %s", filename, result_summary_text(result))
+            logger.info("%s 결과: %s, %s", label, filename, result_summary_text(result))
 
     def _flush_on_stop(self, *, log: bool = True) -> None:
         """실행 종료 직전에 묶음 타이머를 멈추고 남은 결과를 모두 반영
@@ -752,15 +753,17 @@ class FrameAnalysisController:
             self._worker = None
         finished = event if isinstance(event, FrameAnalysisFinished) else FrameAnalysisFinished({})
         crop_only = finished.crop_only
-        self._crop_scan = False
         self._host.footer.clear_frame_analysis_progress()
         report = self._host.report_provider()
         if report is None or report.root_dir != self._start_root:
+            self._crop_scan = False
             self._pending_results = {}
             self._flush_timer.stop()
             self.refresh_actions()
             return
+        # - 마지막 결과 줄이 실행 종류(여백 감지/화질 분석)를 따르도록 flush 뒤에 해제
         self._flush_on_stop(log=finished.error == "")
+        self._crop_scan = False
         if finished.error:
             self._host.notify(
                 CROP_SCAN_ERROR_TEMPLATE.format(error=finished.error)

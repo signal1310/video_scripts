@@ -8,7 +8,7 @@ from unittest.mock import patch
 from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.core.settings.ui_state import UiLayoutState
-from src.gui.constants import TOOLBAR_ICON_BTN_SIZE
+from src.gui.constants import HEADER_PADDING_X_PX, TOOLBAR_ICON_BTN_SIZE
 from src.gui.main_window import MainWindow
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets.collapsible_top_area import (
@@ -130,21 +130,27 @@ class CollapsibleTopAreaWidgetTests(GuiTestCase):
         self.assertTrue(self.second.isVisibleTo(self.area))
 
     def test_expand_button_is_on_the_left_of_the_collapsed_line(self) -> None:
-        """접힌 줄에서 펼치기 버튼이 왼쪽 끝에 있고 폴더 이름, 탭 순서로 이어지는지 검증"""
+        """접힌 줄이 펼치기 버튼, 폴더 아이콘, 폴더 이름, 탭 순서이고 펼치기 버튼이 헤더 접기 버튼과 같은 왼쪽 끝인지 검증
+
+        - 펼친 헤더의 접기 버튼도 왼쪽 끝이라 같은 쪽에 있어야 전환해도 클릭 위치가 같음
+        """
         self.area.set_summary_text("clips")
         self.area.set_collapsed(True)
-        self.host.resize(600, 300)
+        self.area.resize(600, self.area.sizeHint().height())
         self.host.show()
         self.addCleanup(self.area.set_summary_text, "")
         QApplication.processEvents()
         expand = self.area.expand_button
+        icon = self.area.folder_icon
         summary = self.area.summary_label
         first_tab = self.area.tab_button(0)
-        self.assertLess(expand.geometry().left(), summary.geometry().left())
-        self.assertLess(summary.geometry().left(), first_tab.geometry().left())
+        self.assertEqual(expand.geometry().left(), HEADER_PADDING_X_PX)
+        self.assertLess(expand.geometry().right(), icon.geometry().left())
+        self.assertLess(icon.geometry().right(), summary.geometry().left())
         self.assertLess(summary.geometry().right(), first_tab.geometry().left())
         self.assertEqual(summary.text(), "clips")
         self.assertTrue(summary.isVisibleTo(self.area))
+        self.assertTrue(icon.isVisibleTo(self.area))
 
     def test_summary_text_hidden_when_empty(self) -> None:
         """요약 문구가 비면 라벨을 숨겨 접힌 줄에 빈 자리를 남기지 않는지 검증"""
@@ -228,6 +234,25 @@ class MainWindowTopAreaTests(GuiTestCase):
             top_area.expand_button.click()
             self.assertFalse(export_top_area_collapsed(win))
             self.assertFalse(win.header_bar.btn_collapse_top.isHidden())
+
+    def test_collapse_and_expand_buttons_share_the_same_window_position(self) -> None:
+        """실제 메인 창에서 헤더 접기 버튼과 접힌 줄 펼치기 버튼이 창 기준 같은 좌표(가로, 세로)에 놓이는지 검증
+
+        - 전환할 때 버튼이 움직이면 클릭 동선이 끊기므로 같은 x여야 함
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            win = self._make_window(tmpdir)
+            win.resize(1100, 700)
+            win.show()
+            top_area = win.findChild(CollapsibleTopArea)
+            assert top_area is not None
+            QApplication.processEvents()
+            collapse = win.header_bar.btn_collapse_top
+            collapse_pos = collapse.mapTo(win, collapse.rect().topLeft())
+            collapse.click()
+            QApplication.processEvents()
+            expand = top_area.expand_button
+            self.assertEqual(expand.mapTo(win, expand.rect().topLeft()), collapse_pos)
 
     def test_menu_shortcut_toggles_top_area_and_saves_state(self) -> None:
         """보기 메뉴의 Ctrl+F1 동작이 상단 영역을 접고 펼치며, 접힘 상태를 저장 값으로 내보냄을 검증"""

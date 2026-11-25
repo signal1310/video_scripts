@@ -34,6 +34,7 @@ from src.core.workspace_paths import (
 )
 from src.gui.constants import (
     HEADER_PADDING_X_PX,
+    HEADER_PADDING_Y_PX,
     ON_ACCENT_COLOR,
     PATH_EMPTY_TEXT,
     TOOLBAR_ICON_BTN_SIZE,
@@ -58,7 +59,6 @@ from src.gui.widgets.header_encode_button import (
 )
 
 _MODE_POPUP_GAP_Y: int = 3
-_HEADER_PADDING_Y_PX: int = 10
 _HEADER_SPACING_PX: int = 10
 _ANALYZE_GAP_BEFORE_PX: int = 8
 _ANALYZE_GAP_AFTER_PX: int = 6
@@ -330,7 +330,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(
-            HEADER_PADDING_X_PX, _HEADER_PADDING_Y_PX, HEADER_PADDING_X_PX, _HEADER_PADDING_Y_PX
+            HEADER_PADDING_X_PX, HEADER_PADDING_Y_PX, HEADER_PADDING_X_PX, HEADER_PADDING_Y_PX
         )
         layout.setSpacing(_HEADER_SPACING_PX)
 
@@ -467,7 +467,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         set_button_icon(
             self.btn_collapse_top, TOP_AREA_COLLAPSE_ICON, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
         )
-        layout.addWidget(self.btn_collapse_top)
+        # - 접힌 줄의 펼치기 버튼과 같은 왼쪽 끝에 둠
+        layout.insertWidget(0, self.btn_collapse_top)
 
         self._refresh_folder_name(initial_dir)
         self.init_theme_listener()

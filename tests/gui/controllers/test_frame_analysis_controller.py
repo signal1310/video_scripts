@@ -797,7 +797,7 @@ class ControllerTests(_ControllerCase):
 class LiveRefreshTests(_ControllerCase):
     """화질 분석 결과가 도착하는 대로 짧은 묶음으로 표에 반영되는지 검증"""
 
-    def _start_with_fake_worker(self) -> tuple[FrameAnalysisController, _FakeWorker]:
+    def _start_with_fake_worker(self, *, crop_only: bool = False) -> tuple[FrameAnalysisController, _FakeWorker]:
         controller = self.make_controller()
         self.view.selected = [self.ev]
         capability = FfmpegCapability(
@@ -809,7 +809,10 @@ class LiveRefreshTests(_ControllerCase):
         ), mock.patch(
             "src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker
         ):
-            controller.analyze_selected()
+            if crop_only:
+                controller.detect_crop_selected()
+            else:
+                controller.analyze_selected()
         return controller, cast("_FakeWorker", controller._worker)
 
     def test_progress_events_are_flushed_once_per_debounce_window(self) -> None:
@@ -844,6 +847,18 @@ class LiveRefreshTests(_ControllerCase):
             worker.progress.emit(1, 1, "a.mp4", _result())
             controller._flush_timer.timeout.emit()
         self.assertEqual(logs.output, ["INFO:src.gui.controllers.frame_analysis_controller:화질 분석 결과: a.mp4, -, 720p, VMAF"])
+
+    def test_crop_scan_results_are_logged_as_crop_scan_including_the_final_flush(self) -> None:
+        """여백 감지의 결과 줄이 타이머 플러시와 완료 시 마지막 플러시 모두 여백 감지 이름으로 남는지 검증"""
+        controller, worker = self._start_with_fake_worker(crop_only=True)
+        with self.assertLogs("src.gui.controllers.frame_analysis_controller", level="INFO") as logs:
+            worker.progress.emit(1, 2, "a.mp4", _result())
+            controller._flush_timer.timeout.emit()
+            worker.progress.emit(2, 2, "b.mp4", _result())
+            controller._on_completed(FrameAnalysisFinished({"b.mp4": _result()}, crop_only=True, total=2))
+        prefix = "INFO:src.gui.controllers.frame_analysis_controller:검은 여백 감지 결과: "
+        self.assertEqual(len(logs.output), 2)
+        self.assertTrue(all(line.startswith(prefix) for line in logs.output))
 
     def test_error_completion_keeps_rows_but_logs_no_result_lines(self) -> None:
         """오류로 끝난 실행은 도착분을 표에만 남기고 영상별 결과 줄은 기록하지 않는지 검증"""

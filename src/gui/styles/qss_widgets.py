@@ -6,7 +6,7 @@ from src.gui.styles.palettes import ThemePalette
 def build_widgets_qss(p: ThemePalette) -> str:
     """전달된 팔레트로 범용 위젯 및 메인 창 직속 위젯 QSS 문자열 반환"""
     return f"""
-QFrame#HeaderBar, QFrame#FilterBar, QFrame#FooterBar, QFrame#BentoCard {{
+QFrame#HeaderBar, QFrame#TopAreaTabStrip, QFrame#FilterBar, QFrame#FooterBar, QFrame#BentoCard {{
     background-color: {p.bg_card};
     border: 1px solid {p.border_subtle};
     border-radius: 10px;
@@ -201,9 +201,6 @@ QPushButton#FolderNameButton:hover {{
 }}
 QPushButton#FolderNameButton:disabled {{
     color: {p.text_muted};
-}}
-QFrame#TopAreaTabStrip {{
-    border-bottom: 1px solid {p.border_subtle};
 }}
 QPushButton#TopAreaTab {{
     background-color: transparent;

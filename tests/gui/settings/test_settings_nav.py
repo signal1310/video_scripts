@@ -85,9 +85,9 @@ class TestSettingsNav(unittest.TestCase):
         self.assertEqual(RESULTS_LABEL, "전체 결과")
         self.assertFalse(self.sidebar.btn_results.isVisible())
 
-    def test_manual_toggle_switches_between_184_and_52(self) -> None:
+    def test_manual_toggle_switches_between_158_and_52(self) -> None:
         """수동 접기 버튼이 사이드바 폭과 아이콘 전용 표시를 오가는지 검증"""
-        self.assertEqual(WIDTH_EXPANDED, 184)
+        self.assertEqual(WIDTH_EXPANDED, 158)
         self.assertEqual(WIDTH_RAIL, 52)
         self.assertFalse(self.sidebar.is_compact())
         self.sidebar.toggle_collapsed()
@@ -340,15 +340,20 @@ class TestSettingsNav(unittest.TestCase):
             self.assertIn(palette.bg_elevated, button.badge.styleSheet())
 
     def test_dialogs_qss_has_sidebar_divider_and_checked_border(self) -> None:
-        """사이드바 배경, 우측 구분선, 선택 테두리가 QSS에 들어가는지 검증"""
+        """사이드바 카드 바탕, 우측 구분선, 머리글 구분선, 선택 테두리가 QSS에 들어가는지 검증"""
         for palette in (DARK_PALETTE, LIGHT_PALETTE):
             qss = build_dialogs_qss(palette)
             self.assertIn("QWidget#SettingsSidebar", qss)
-            self.assertIn(palette.bg_base, qss)
+            self.assertIn(f"background-color: {palette.bg_card};", qss)
             self.assertIn(f"border-right: 1px solid {palette.border_subtle}", qss)
+            self.assertIn(f"QFrame#SettingsHeaderDivider {{\n    background-color: {palette.border_subtle};", qss)
             self.assertIn(f"border: 1px solid {palette.action_primary_border}", qss)
             self.assertIn("border: 1px solid transparent", qss)
             self.assertIn("border-radius: 9px", qss)
+            self.assertIn("border-radius: 6px", qss)
+            self.assertIn(f"background-color: {palette.bg_selected};", qss)
+            self.assertIn(f"background-color: {palette.bg_hover};", qss)
+            self.assertNotIn(f"QWidget#SettingsSidebar {{\n    background-color: {palette.bg_base};", qss)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLineEdit,
     QMessageBox,
@@ -86,8 +87,9 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import build_stylesheet
 from src.gui.theme import ThemeAwareMixin, ThemeManager
 
-_DIALOG_OUTER_MARGINS: tuple[int, int, int, int] = (12, 10, 12, 12)
-_DIALOG_OUTER_SPACING: int = 8
+_HEADER_MARGINS: tuple[int, int, int, int] = (12, 10, 12, 8)
+_CONTENT_MARGINS: tuple[int, int, int, int] = (10, 10, 12, 12)
+_HEADER_DIVIDER_HEIGHT: int = 1
 _DIALOG_DEFAULT_WIDTH: int = 720
 _DIALOG_DEFAULT_HEIGHT: int = 620
 _DIALOG_MIN_WIDTH: int = 460
@@ -181,8 +183,9 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.results_view = SearchResultsView(self)
 
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(*_DIALOG_OUTER_MARGINS)
-        main_layout.setSpacing(_DIALOG_OUTER_SPACING)
+        # - 사이드바를 창 왼쪽과 아래에 밀착시키려면 최상위 여백 대신 머리글과 내용 칸에 여백을 나눠 줌
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         (
             top_bar,
             self.search_edit,
@@ -190,16 +193,28 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             self.btn_pin,
             self.btn_help,
         ) = self._build_top_bar()
-        main_layout.addWidget(top_bar)
+        header = QWidget(self)
+        header.setObjectName("SettingsHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(*_HEADER_MARGINS)
+        header_layout.setSpacing(0)
+        header_layout.addWidget(top_bar)
+        main_layout.addWidget(header)
+        main_layout.addWidget(self._build_header_divider())
 
         body_layout = QHBoxLayout()
         body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(10)
+        body_layout.setSpacing(0)
         self.sidebar = SettingsSidebar(self)
         self.sidebar.category_selected.connect(self._on_sidebar_selected)
         body_layout.addWidget(self.sidebar)
         self.tab_widget = self._build_tab_widget()
-        body_layout.addWidget(self.tab_widget, stretch=1)
+        content = QWidget(self)
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(*_CONTENT_MARGINS)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self.tab_widget)
+        body_layout.addWidget(content, stretch=1)
         main_layout.addLayout(body_layout, stretch=1)
 
         self._build_pages(busy)
@@ -269,6 +284,14 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         btn_help.clicked.connect(lambda: self._request_help(""))
         layout.addWidget(btn_help)
         return bar, search_edit, chk_show_hints, btn_pin, btn_help
+
+    def _build_header_divider(self) -> QFrame:
+        """상단 바와 본문 사이 1px 구분선. 사이드바가 이 선 아래에서 시작하게 함"""
+        divider = QFrame(self)
+        divider.setObjectName("SettingsHeaderDivider")
+        divider.setFrameShape(QFrame.Shape.NoFrame)
+        divider.setFixedHeight(_HEADER_DIVIDER_HEIGHT)
+        return divider
 
     def _build_tab_widget(self) -> QTabWidget:
         tab_widget = QTabWidget(self)

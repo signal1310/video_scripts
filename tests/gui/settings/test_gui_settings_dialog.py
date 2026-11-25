@@ -12,6 +12,7 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QFrame,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -45,7 +46,9 @@ from src.gui.settings.settings_field_bindings import (
     split_setting_key,
 )
 from src.gui.settings.settings_group_card import SettingsGroupCard
+from src.gui.settings.settings_nav import WIDTH_EXPANDED
 from src.gui.settings.tuner_slider_row import TunerSliderRow
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.theme import ThemeManager
 from tests._gui_settings_base import GuiSettingsTestCase, count_pixels_by_lightness
 
@@ -225,11 +228,11 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         self.assertEqual(SettingsDialog.normalize_tab_index(99), SettingsDialog.TAB_GENERAL)
 
     def test_responsive_sidebar_switches_at_620_px(self) -> None:
-        """기본 720px에서는 184px 사이드바, 620px 미만에서는 52px 아이콘 레일인지 검증"""
+        """기본 720px에서는 158px 사이드바, 620px 미만에서는 52px 아이콘 레일인지 검증"""
         dialog, _root, _path = self._isolated_dialog()
         dialog.show()
         _APP.processEvents()
-        self.assertEqual(dialog.sidebar.width(), 184)
+        self.assertEqual(dialog.sidebar.width(), WIDTH_EXPANDED)
         self.assertFalse(dialog.sidebar.is_compact())
 
         dialog.resize(560, 620)
@@ -242,7 +245,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
 
         dialog.resize(720, 620)
         _APP.processEvents()
-        self.assertEqual(dialog.sidebar.width(), 184)
+        self.assertEqual(dialog.sidebar.width(), WIDTH_EXPANDED)
 
     def test_manual_sidebar_toggle_collapses_and_expands(self) -> None:
         """수동 접기 버튼이 아이콘 레일과 이름 표시를 오가는지 검증"""
@@ -253,13 +256,60 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         self.assertEqual(dialog.sidebar.width(), 52)
         self.assertEqual(dialog.sidebar.btn_toggle.accessibleName(), "범주 이름 펼치기")
         dialog.sidebar.toggle_collapsed()
-        self.assertEqual(dialog.sidebar.width(), 184)
+        self.assertEqual(dialog.sidebar.width(), WIDTH_EXPANDED)
         dialog.resize(560, 620)
         _APP.processEvents()
         dialog.sidebar.toggle_collapsed()
         self.assertEqual(dialog.sidebar.width(), 52)
         self.assertFalse(dialog.sidebar.btn_toggle.isEnabled())
 
+
+    def test_sidebar_sits_flush_under_the_divider(self) -> None:
+        """13pt 큰 글꼴에서도 사이드바가 창 왼쪽과 아래에 밀착하고 내용 칸은 여백을 지키는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        dialog.show()
+        _APP.processEvents()
+        font = QFont(dialog.font())
+        font.setPointSize(13)
+        for widget in (dialog, *dialog.findChildren(QWidget)):
+            widget.setFont(font)
+        divider = dialog.findChild(QFrame, "SettingsHeaderDivider")
+        assert divider is not None
+        for width, height in ((720, 620), (560, 620)):
+            with self.subTest(width=width):
+                dialog.resize(width, height)
+                _APP.processEvents()
+                sidebar = dialog.sidebar
+                self.assertEqual(sidebar.x(), 0)
+                self.assertEqual(sidebar.geometry().bottom(), dialog.rect().bottom())
+                self.assertEqual(divider.width(), dialog.width())
+                self.assertEqual(divider.height(), 1)
+                self.assertEqual(divider.geometry().bottom(), sidebar.geometry().top() - 1)
+                self.assertEqual(
+                    sidebar.width(), WIDTH_EXPANDED if width >= 620 else 52
+                )
+                content = dialog.tab_widget.parentWidget()
+                assert content is not None
+                self.assertEqual(content.x(), sidebar.geometry().right() + 1)
+                self.assertEqual(content.geometry().right(), dialog.rect().right())
+
+    def test_sidebar_stylesheet_uses_card_tokens(self) -> None:
+        """사이드바와 머리글 구분선 스타일이 카드 바탕과 경계선 토큰만 쓰는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            with self.subTest(palette=palette.name):
+                dialog.apply_theme(palette)
+                sheet = dialog.styleSheet()
+                self.assertIn(
+                    f"QWidget#SettingsSidebar {{\n    background-color: {palette.bg_card};",
+                    sheet,
+                )
+                self.assertIn(
+                    f"QFrame#SettingsHeaderDivider {{\n    background-color: {palette.border_subtle};",
+                    sheet,
+                )
+                self.assertIn("border-radius: 6px", sheet)
+                self.assertIn(f"background-color: {palette.bg_selected};", sheet)
 
     def test_sidebar_selection_switches_the_page(self) -> None:
         """사이드바 범주 버튼을 누르면 해당 페이지로 전환되는지 검증"""
@@ -578,7 +628,15 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         _APP.processEvents()
 
         self.assertLessEqual(dialog.minimumSizeHint().width(), 720)
-        self.assertEqual(dialog.sidebar.width(), 184)
+        self.assertEqual(dialog.sidebar.width(), WIDTH_EXPANDED)
+        divider = dialog.findChild(QFrame, "SettingsHeaderDivider")
+        assert divider is not None
+        self.assertLessEqual(divider.geometry().bottom(), dialog.sidebar.geometry().top())
+        self.assertEqual(dialog.sidebar.x(), 0)
+        self.assertEqual(
+            dialog.sidebar.geometry().bottom(), dialog.rect().bottom()
+        )
+
         scroll = dialog._page_scrolls[SettingsDialog.TAB_GENERAL]
         viewport = scroll.viewport()
         assert viewport is not None

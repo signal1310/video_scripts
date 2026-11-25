@@ -13,12 +13,11 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -32,10 +31,11 @@ from PyQt6.QtWidgets import (
 from src.core.encode.encode_progress_values import bytes_to_mb
 from src.core.formatting import format_size_mb
 from src.gui.dialogs.data_cleanup_preview_loader import PreviewLoader
+from src.gui.dialogs.encode_flow_layout import FlowLayout
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
-from src.gui.styles.stylesheet import build_stylesheet
+from src.gui.styles.stylesheet import build_stylesheet, set_state_property
 from src.gui.theme import ThemeAwareMixin
 from src.service.data_cleanup_service import (
     ALL_CLEANUP_ITEM_KEYS,
@@ -83,12 +83,16 @@ BADGE_TOOLTIP: str = "선택한 범위에서 이 항목을 정리할 때 지우�
 SELECT_ALL_TEXT: str = "범주 전체 선택"
 SELECT_ALL_TOOLTIP: str = "이 범주의 항목을 모두 선택하거나 모두 해제합니다."
 EXECUTE_TEXT: str = "선택 항목 정리"
-EXECUTE_TOOLTIP: str = "선택한 항목을 정리합니다. 설정 및 규칙 항목을 고르면 실행 전에 확인 창을 한 번 거칩니다."
+EXECUTE_TOOLTIP: str = "선택한 항목을 정리합니다. 설정 및 규칙, 재인코딩 완료 이력, 영상별 직접 지정을 고르면 실행 전에 확인 창을 한 번 거칩니다."
 CLOSE_TEXT: str = "닫기"
 CLOSE_TOOLTIP: str = "아무것도 정리하지 않고 창을 닫습니다."
 SCOPE_HEADING: str = "정리 범위"
 PRESET_HEADING: str = "빠른 프리셋"
 ITEMS_HEADING: str = "정리할 항목"
+PRESET_PILL_OBJECT_NAME: str = "DataCleanupPresetPill"
+PRESET_PILL_ICON_SIZE: int = 14
+PRESET_ACTIVE_PROPERTY: str = "presetActive"
+PRESET_WARNING_PROPERTY: str = "presetWarning"
 CURRENT_SCOPE_TOOLTIP: str = "현재 작업 폴더 안의 영상에 해당하는 기록과 캐시만 정리합니다."
 CURRENT_SCOPE_DISABLED_TOOLTIP: str = "작업 폴더를 먼저 선택하면 현재 작업 폴더만 정리할 수 있습니다."
 ALL_SCOPE_TOOLTIP: str = "저장된 모든 작업 폴더의 기록과 캐시, 화면 배치, 설정을 대상으로 합니다."
@@ -107,9 +111,11 @@ SAFETY_NOTE_TOOLTIP: str = (
 IRREVERSIBLE_WARNING_TEXT: str = "설정은 초기화 후 되돌릴 수 없습니다."
 IRREVERSIBLE_WARNING_ACCESSIBLE_NAME: str = "되돌릴 수 없는 설정 초기화 경고"
 CONFIRM_TITLE: str = "데이터 정리 확인"
-CONFIRM_TEXT_TEMPLATE: str = (
-    "설정 및 규칙 {count}개 항목을 초기화합니다. 초기화한 설정은 되돌릴 수 없습니다.\n계속할까요?"
-)
+CONFIRM_SETTINGS_TEXT_TEMPLATE: str = "설정 및 규칙 {count}개 항목을 초기화합니다. 초기화한 설정은 되돌릴 수 없습니다."
+CONFIRM_HISTORY_TEXT: str = "재인코딩 완료 이력을 지웁니다. 지운 기록은 되돌릴 수 없습니다."
+CONFIRM_TARGETS_TEXT: str = "영상별 출력 해상도 직접 지정을 지웁니다. 지운 지정은 되돌릴 수 없습니다."
+CONFIRM_QUESTION_TEXT: str = "계속할까요?"
+CONFIRM_ITEM_KEYS: tuple[CleanupItemKey, ...] = ("encode_output_history", "manual_targets")
 CATEGORY_SUBTITLES: dict[CleanupCategory, str] = {
     "encode": "(기록과 임시 파일)",
     "analysis": "(캐시와 영상별 지정)",
@@ -119,11 +125,18 @@ CATEGORY_SUBTITLES: dict[CleanupCategory, str] = {
 # - 범주와 프리셋 순서는 서비스 선언 순서를 그대로 따름(화면 순서와 프리셋 구성의 기준 정의 하나)
 CATEGORY_ORDER: tuple[CleanupCategory, ...] = tuple(CATEGORY_CLEANUP_ITEM_KEYS)
 PRESET_ORDER: tuple[CleanupPresetKey, ...] = tuple(CLEANUP_PRESETS)
+PRESET_WARNING_KEY: CleanupPresetKey = "reset_all"
+PRESET_ICONS: dict[CleanupPresetKey, str] = {
+    "part_only": "trash", "retry_encode": "rotate-ccw", "frame_only": "bar-chart",
+    "reanalyze_fresh": "search", "reset_layout": "panel-top-open", "reset_all": "alert-triangle",
+}
 PRESET_TOOLTIPS: dict[CleanupPresetKey, str] = {
-    "retry_encode": "재인코딩 기록과 임시 파일을 정리해 같은 영상을 다시 재인코딩 대상으로 되돌립니다.",
-    "reanalyze_fresh": "분석 캐시와 영상별 지정을 지워 다음 분석에서 영상을 처음부터 다시 측정합니다.",
-    "reset_layout": "표 열 배치, 정렬, 창 크기와 최근 폴더 기억만 기본값으로 되돌립니다.",
-    "reset_all": "19개 항목을 모두 골라 저장 기록과 화면 배치, 설정을 모두 초기화합니다.",
+    "part_only": "분류: 재인코딩 기록 및 임시 파일\n중간에 끊긴 인코딩이 남긴 .part 임시 파일을 휴지통으로 옮깁니다. 휴지통이 없는 드라이브의 파일은 남깁니다.",
+    "retry_encode": "분류: 재인코딩 기록 및 임시 파일\n임시 파일, 이전 폐기 기록, 재인코딩 완료 이력을 지워 같은 영상을 다시 재인코딩 대상으로 되돌립니다.",
+    "frame_only": "분류: 분석 캐시 및 영상별 지정\n화질 분석과 검은 여백 감지 결과를 지워 다음 분석 때 다시 계산합니다.",
+    "reanalyze_fresh": "분류: 분석 캐시 및 영상별 지정\n영상 분석 캐시, 화질 분석 캐시, 영상별 출력 해상도, 검은 여백 제외, 수동 VR 보호 지정을 지웁니다.",
+    "reset_layout": "분류: 화면 배치 및 기록\n표 열 순서와 너비, 표시 열, 정렬과 그룹, 창 크기와 위치, 최근 폴더 기억을 기본값으로 되돌립니다.",
+    "reset_all": "위의 모든 항목과 설정, 단축키, 예외 규칙까지 기본값으로 되돌립니다. 설정은 되돌릴 수 없습니다.",
 }
 ITEM_TOOLTIPS: dict[CleanupItemKey, str] = {
     "part_files": "인코딩이 중간에 끝나 남은 임시 .part 파일을 휴지통으로 옮깁니다. 휴지통이 없는 드라이브의 파일은 남깁니다.",
@@ -171,6 +184,20 @@ def is_irreversible_key(key: CleanupItemKey) -> bool:
     return cleanup_item_category(key) == IRREVERSIBLE_CATEGORY
 
 
+def needs_confirm_key(key: CleanupItemKey) -> bool:
+    """실행 전 확인 창을 한 번 더 거쳐야 하는 항목인지(설정 범주, 완료 이력, 영상별 직접 지정)"""
+    return is_irreversible_key(key) or key in CONFIRM_ITEM_KEYS
+
+
+def confirm_text(keys: Sequence[CleanupItemKey]) -> str:
+    """확인 창 본문: 고른 항목 종류별 문장을 모아 한 상자에 담음"""
+    settings_count = sum(1 for key in keys if is_irreversible_key(key))
+    lines = [CONFIRM_SETTINGS_TEXT_TEMPLATE.format(count=settings_count)] if settings_count else []
+    kinds = (("encode_output_history", CONFIRM_HISTORY_TEXT), ("manual_targets", CONFIRM_TARGETS_TEXT))
+    lines.extend(text for key, text in kinds if key in keys)
+    return "\n".join([*lines, CONFIRM_QUESTION_TEXT])
+
+
 def _empty_ui_preview() -> dict[CleanupItemKey, CleanupItemPreview]:
     """화면/설정 항목의 빈 미리보기. 화면 상태 확인 함수를 받지 못했을 때 씀"""
     return {key: CleanupItemPreview(key, 0, 0, True) for key in UI_RESET_CLEANUP_ITEM_KEYS}
@@ -192,6 +219,11 @@ class DataCleanupRequest:
     def irreversible_keys(self) -> tuple[CleanupItemKey, ...]:
         """되돌릴 수 없는 설정 범주 항목만 골라 반환"""
         return tuple(key for key in self.keys if is_irreversible_key(key))
+
+    @property
+    def confirm_keys(self) -> tuple[CleanupItemKey, ...]:
+        """실행 전 확인을 받아야 하는 항목만 골라 반환"""
+        return tuple(key for key in self.keys if needs_confirm_key(key))
 
 
 class DataCleanupDialog(QDialog, ThemeAwareMixin):
@@ -236,6 +268,8 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
         self._loader.failed.connect(self._on_storage_preview_failed)
 
         scope_bar, self._radio_current, self._radio_all, self.lbl_scope_hint = self._build_scope_bar()
+        self._preset_host = QWidget(self)
+        self._preset_flow = FlowLayout(self._preset_host)
         preset_bar = self._build_preset_bar()
         self.warning_box, self.lbl_warning_icon = self._build_warning_box()
         safety_note, self.lbl_safety_icon, self.lbl_safety_text = self._build_safety_note()
@@ -308,36 +342,31 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
         return box, radio_current, radio_all, hint
 
     def _build_preset_bar(self) -> QWidget:
-        """프리셋 네 개를 2x2 격자로 두는 빠른 선택 줄
+        """프리셋 여섯 개를 아이콘과 이름이 든 작은 알약으로 흐르게 두는 빠른 선택 줄
 
-        - 한 줄 배치는 13pt 글꼴과 최소 너비에서 버튼 글자가 잘리므로 두 열로 나눔
-        - 두 열 너비를 같게 나눠 어느 크기에서도 버튼이 자기 크기 힌트만큼 자리를 얻음
+        - 폭이 모자라면 다음 줄로 넘어가므로 좁은 창에서도 알약 글자가 잘리지 않음
         """
         bar = QWidget(self)
         layout = QVBoxLayout(bar)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-
         heading = QLabel(PRESET_HEADING, bar)
         heading.setObjectName("GroupHeaderTitle")
         layout.addWidget(heading)
-
-        button_grid = QGridLayout()
-        button_grid.setContentsMargins(0, 0, 0, 0)
-        button_grid.setHorizontalSpacing(6)
-        button_grid.setVerticalSpacing(6)
-        button_grid.setColumnStretch(0, 1)
-        button_grid.setColumnStretch(1, 1)
-        for index, preset in enumerate(PRESET_ORDER):
+        for preset in PRESET_ORDER:
             label = CLEANUP_PRESET_LABELS[preset]
-            button = QPushButton(label, bar)
-            button.setAutoDefault(False)
-            button.setToolTip(PRESET_TOOLTIPS[preset])
-            button.setAccessibleName(f"{label} 프리셋")
-            button.clicked.connect(partial(self._on_preset_clicked, preset))
-            button_grid.addWidget(button, index // 2, index % 2)
-            self._preset_buttons[preset] = button
-        layout.addLayout(button_grid)
+            pill = QPushButton(label, self._preset_host)
+            pill.setObjectName(PRESET_PILL_OBJECT_NAME)
+            pill.setAutoDefault(False)
+            pill.setCursor(Qt.CursorShape.PointingHandCursor)
+            pill.setIconSize(QSize(PRESET_PILL_ICON_SIZE, PRESET_PILL_ICON_SIZE))
+            pill.setToolTip(PRESET_TOOLTIPS[preset])
+            pill.setAccessibleName(f"{label} 프리셋")
+            pill.setProperty(PRESET_WARNING_PROPERTY, "true" if preset == PRESET_WARNING_KEY else "false")
+            pill.clicked.connect(partial(self.apply_preset, preset))
+            self._preset_buttons[preset] = pill
+            self._preset_flow.addWidget(pill)
+        layout.addWidget(self._preset_host)
         return bar
 
     def _build_items_area(self) -> QScrollArea:
@@ -554,15 +583,11 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
         self._loader.cancel()
         super().done(result_code)
 
-    def apply_preset(self, preset: CleanupPresetKey) -> None:
+    def apply_preset(self, preset: CleanupPresetKey, _checked: bool = False) -> None:
         """프리셋 하나를 골라 그 항목만 선택하고 해당 범주를 펼침"""
         keys = CLEANUP_PRESETS[preset]
         self._apply_keys(keys)
         self._expand_categories(keys)
-
-    def _on_preset_clicked(self, preset: CleanupPresetKey, _checked: bool = False) -> None:
-        """프리셋 버튼 클릭을 프리셋 적용으로 넘김"""
-        self.apply_preset(preset)
 
     def _apply_keys(self, keys: Sequence[CleanupItemKey]) -> None:
         """고른 항목만 체크하고 나머지는 해제한 뒤 버튼과 경고 상태를 갱신"""
@@ -622,6 +647,7 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
         self.warning_box.setVisible(irreversible)
         self._apply_execute_style(irreversible)
         self._sync_select_all()
+        self._sync_preset_highlight()
 
     def _apply_execute_style(self, irreversible: bool) -> None:
         """설정 범주를 고르면 실행 버튼을 위험 색 스타일로 바꿈"""
@@ -640,23 +666,30 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
             keys = CATEGORY_CLEANUP_ITEM_KEYS[category]
             select_all.setChecked(all(self._checkboxes[key].isChecked() for key in keys))
 
+    def _sync_preset_highlight(self) -> None:
+        """지금 선택한 항목 집합과 같은 프리셋 알약만 눌린 모양으로 표시"""
+        checked = set(self.checked_keys())
+        for preset, pill in self._preset_buttons.items():
+            active = bool(checked) and checked == set(CLEANUP_PRESETS[preset])
+            set_state_property(pill, PRESET_ACTIVE_PROPERTY, active)
+
     def _on_execute(self) -> None:
-        """선택 항목 정리를 확정. 설정 범주가 있으면 확인을 한 번 거침"""
+        """선택 항목 정리를 확정. 되돌릴 수 없는 항목이 있으면 확인을 한 번 거침"""
         request = self.selected_request()
         if request is None:
             return
-        if request.irreversible_keys and not self._confirm_fn():
+        if request.confirm_keys and not self._confirm_fn():
             return
         self.accept()
 
     def _ask_confirm(self) -> bool:
-        """설정 초기화 확인 상자를 띄우고 계속할지 답을 반환"""
+        """되돌릴 수 없는 항목을 종류별 문장으로 모아 한 확인 상자에 보여 주고 답을 반환"""
         request = self.selected_request()
-        count = len(request.irreversible_keys) if request is not None else 0
+        keys = request.confirm_keys if request is not None else ()
         answer = QMessageBox.warning(
             self,
             CONFIRM_TITLE,
-            CONFIRM_TEXT_TEMPLATE.format(count=count),
+            confirm_text(keys),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -665,6 +698,11 @@ class DataCleanupDialog(QDialog, ThemeAwareMixin):
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트로 스타일시트와 경고, 안내 아이콘 색상을 갱신"""
         self.setStyleSheet(build_stylesheet(palette))
+        for preset, pill in self._preset_buttons.items():
+            color = palette.badge_pending[1] if preset == PRESET_WARNING_KEY else palette.text_secondary
+            pill.setIcon(
+                get_icon(PRESET_ICONS[preset], color=color, size=PRESET_PILL_ICON_SIZE)
+            )
         self.lbl_warning_icon.setPixmap(
             get_icon(WARNING_ICON_NAME, color=palette.fg_maxrate_warn, size=WARNING_ICON_SIZE).pixmap(
                 WARNING_ICON_SIZE, WARNING_ICON_SIZE

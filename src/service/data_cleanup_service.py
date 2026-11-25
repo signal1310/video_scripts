@@ -119,15 +119,22 @@ UI_RESET_CLEANUP_ITEM_KEYS: tuple[CleanupItemKey, ...] = (
 )
 ALL_CLEANUP_ITEM_KEYS: tuple[CleanupItemKey, ...] = (*STORAGE_CLEANUP_ITEM_KEYS, *UI_RESET_CLEANUP_ITEM_KEYS)
 
-CleanupPresetKey = Literal["retry_encode", "reanalyze_fresh", "reset_layout", "reset_all"]
+CleanupPresetKey = Literal[
+    "part_only", "retry_encode", "frame_only", "reanalyze_fresh", "reset_layout", "reset_all"
+]
+# - 선언 순서가 화면 알약 순서를 그대로 결정하므로 세분화한 순서(단일 항목 -> 전체)를 유지
 CLEANUP_PRESETS: dict[CleanupPresetKey, tuple[CleanupItemKey, ...]] = {
-    "retry_encode": ("part_files", "discarded_history", "encode_output_history"),
-    "reanalyze_fresh": ("probe_cache", "frame_cache", "manual_targets", "crop_exclusions", "vr_overrides"),
+    "part_only": ("part_files",),
+    "retry_encode": (*(CATEGORY_CLEANUP_ITEM_KEYS["encode"]),),
+    "frame_only": ("frame_cache",),
+    "reanalyze_fresh": (*(CATEGORY_CLEANUP_ITEM_KEYS["analysis"]),),
     "reset_layout": CATEGORY_CLEANUP_ITEM_KEYS["layout"],
     "reset_all": ALL_CLEANUP_ITEM_KEYS,
 }
 CLEANUP_PRESET_LABELS: dict[CleanupPresetKey, str] = {
+    "part_only": "임시 파일만 정리",
     "retry_encode": "재인코딩 다시 시도",
+    "frame_only": "화질 분석만 다시",
     "reanalyze_fresh": "분석 처음부터 다시",
     "reset_layout": "화면 배치만 초기화",
     "reset_all": "전체 초기화",

@@ -2,6 +2,7 @@
 
 - 기본 폭에서는 아이콘과 범주 이름을, 좁은 폭에서는 아이콘만 남긴 52px 레일로 자동 축소
 - 검색 중에만 일치 개수 배지를 표시하고, 결과 항목을 목록 맨 위에 둠
+- 창 왼쪽과 아래 모서리에 밀착하도록 카드 바탕과 오른쪽 1px 구분선만 씀
 """
 
 from collections.abc import Mapping
@@ -24,7 +25,7 @@ from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
-WIDTH_EXPANDED: int = 184
+WIDTH_EXPANDED: int = 158
 WIDTH_RAIL: int = 52
 AUTO_RAIL_WIDTH: int = 620
 NAV_ICON_SIZE: int = 17

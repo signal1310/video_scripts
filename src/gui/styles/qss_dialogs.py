@@ -113,7 +113,6 @@ QTabWidget#SettingsTabs {{
 }}
 QTabWidget#SettingsTabs::pane {{
     border: none;
-    border-top: 1px solid {p.border_subtle};
     background-color: {p.bg_card};
 }}
 QTabWidget#SettingsTabs::tab-bar {{
@@ -263,10 +262,14 @@ QPushButton#ResetButton:hover {{
     background-color: {p.bg_hover};
 }}
 QWidget#SettingsSidebar {{
-    background-color: {p.bg_base};
+    background-color: {p.bg_card};
     border: none;
     border-right: 1px solid {p.border_subtle};
     border-radius: 0px;
+}}
+QFrame#SettingsHeaderDivider {{
+    background-color: {p.border_subtle};
+    border: none;
 }}
 QToolButton#SettingsNavButton, QToolButton#SettingsNavResults {{
     background-color: transparent;
@@ -303,6 +306,37 @@ QLabel#SettingsNavBadge {{
     font-size: 8pt;
     font-weight: 700;
     padding: 0px 6px;
+}}
+QPushButton#DataCleanupPresetPill {{
+    background-color: transparent;
+    color: {p.text_secondary};
+    border: 1px solid {p.btn_border};
+    border-radius: 10px;
+    padding: 3px 10px;
+    font-size: 9pt;
+    font-weight: 600;
+}}
+QPushButton#DataCleanupPresetPill:hover {{
+    background-color: {p.bg_hover};
+    color: {p.text_primary};
+}}
+QPushButton#DataCleanupPresetPill[presetWarning="true"] {{
+    color: {p.badge_pending[1]};
+    border: 1px solid {p.badge_pending[2]};
+}}
+QPushButton#DataCleanupPresetPill[presetWarning="true"]:hover {{
+    background-color: {p.bg_hover};
+    color: {p.badge_pending[1]};
+}}
+QPushButton#DataCleanupPresetPill[presetActive="true"] {{
+    background-color: {p.bg_selected};
+    color: {p.text_primary};
+    border: 1px solid {p.accent_blue};
+}}
+QPushButton#DataCleanupPresetPill[presetWarning="true"][presetActive="true"] {{
+    background-color: {p.badge_pending[0]};
+    color: {p.badge_pending[1]};
+    border: 1px solid {p.badge_pending[2]};
 }}
 QLineEdit#SettingsSearchEdit {{
     background-color: {p.bg_input};

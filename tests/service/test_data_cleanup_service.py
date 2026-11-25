@@ -251,14 +251,30 @@ class TestCleanupItemCatalog(unittest.TestCase):
         self.assertEqual(set(STORAGE_CLEANUP_ITEM_KEYS) & set(UI_RESET_CLEANUP_ITEM_KEYS), set())
 
     def test_presets_select_keys_of_their_categories(self) -> None:
-        self.assertEqual(len(CLEANUP_PRESETS), 4)
+        self.assertEqual(len(CLEANUP_PRESETS), 6)
+        self.assertEqual(
+            tuple(CLEANUP_PRESETS),
+            ("part_only", "retry_encode", "frame_only", "reanalyze_fresh", "reset_layout", "reset_all"),
+        )
         self.assertEqual(set(CLEANUP_PRESET_LABELS), set(CLEANUP_PRESETS))
+        self.assertEqual(CLEANUP_PRESETS["part_only"], ("part_files",))
         self.assertEqual(set(CLEANUP_PRESETS["retry_encode"]), set(CATEGORY_CLEANUP_ITEM_KEYS["encode"]))
+        self.assertEqual(CLEANUP_PRESETS["frame_only"], ("frame_cache",))
         self.assertEqual(set(CLEANUP_PRESETS["reanalyze_fresh"]), set(CATEGORY_CLEANUP_ITEM_KEYS["analysis"]))
         self.assertEqual(set(CLEANUP_PRESETS["reset_layout"]), set(CATEGORY_CLEANUP_ITEM_KEYS["layout"]))
         self.assertEqual(set(CLEANUP_PRESETS["reset_all"]), set(ALL_CLEANUP_ITEM_KEYS))
-        for key in ("retry_encode", "reanalyze_fresh", "reset_layout", "reset_all"):
-            self.assertTrue(CLEANUP_PRESET_LABELS[key])
+        self.assertEqual(len(CLEANUP_PRESETS["reset_all"]), 19)
+        self.assertEqual(
+            {preset: CLEANUP_PRESET_LABELS[preset] for preset in CLEANUP_PRESETS},
+            {
+                "part_only": "임시 파일만 정리",
+                "retry_encode": "재인코딩 다시 시도",
+                "frame_only": "화질 분석만 다시",
+                "reanalyze_fresh": "분석 처음부터 다시",
+                "reset_layout": "화면 배치만 초기화",
+                "reset_all": "전체 초기화",
+            },
+        )
 
     def test_every_key_reports_its_category(self) -> None:
         for category, keys in CATEGORY_CLEANUP_ITEM_KEYS.items():

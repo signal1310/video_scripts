@@ -13,7 +13,7 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from src.gui.dialogs import data_cleanup_dialog as dialog_module
 from src.gui.dialogs import data_cleanup_preview_loader as loader_module
@@ -22,6 +22,7 @@ from src.gui.dialogs.data_cleanup_dialog import (
     DIALOG_DEFAULT_WIDTH,
     DIALOG_MIN_WIDTH,
     LOADING_BADGE_TEXT,
+    PRESET_TOOLTIPS,
     SAFETY_NOTE_TEXT,
     DataCleanupDialog,
     DataCleanupRequest,
@@ -34,6 +35,7 @@ from src.service.data_cleanup_service import (
     ALL_CLEANUP_ITEM_KEYS,
     CATEGORY_CLEANUP_ITEM_KEYS,
     CLEANUP_ITEM_LABELS,
+    CLEANUP_PRESET_LABELS,
     CLEANUP_PRESETS,
     STORAGE_CLEANUP_ITEM_KEYS,
     UI_RESET_CLEANUP_ITEM_KEYS,
@@ -126,17 +128,31 @@ class DataCleanupDialogStructureTest(_ImmediateLoaderCase):
             self.assertIn("원본 영상", checkbox.toolTip())
             self.assertEqual(checkbox.toolTip(), item_tooltip(key))
 
-    def test_preset_buttons_match_service_presets(self) -> None:
+    def test_preset_pills_match_service_presets(self) -> None:
         dialog = _dialog(_Recorder())
-        self.assertEqual(len(dialog._preset_buttons), 4)
+        self.assertEqual(len(dialog._preset_buttons), 6)
         self.assertEqual(tuple(dialog._preset_buttons), tuple(CLEANUP_PRESETS))
-        labels = [button.text() for button in dialog._preset_buttons.values()]
+        labels = [pill.text() for pill in dialog._preset_buttons.values()]
         self.assertEqual(
             labels,
-            ["재인코딩 다시 시도", "분석 처음부터 다시", "화면 배치만 초기화", "전체 초기화"],
+            [
+                "임시 파일만 정리",
+                "재인코딩 다시 시도",
+                "화질 분석만 다시",
+                "분석 처음부터 다시",
+                "화면 배치만 초기화",
+                "전체 초기화",
+            ],
         )
-        for button in dialog._preset_buttons.values():
-            self.assertTrue(button.toolTip())
+        for preset, pill in dialog._preset_buttons.items():
+            self.assertEqual(pill.objectName(), "DataCleanupPresetPill")
+            self.assertEqual(pill.toolTip(), PRESET_TOOLTIPS[preset])
+            self.assertEqual(pill.accessibleName(), f"{CLEANUP_PRESET_LABELS[preset]} 프리셋")
+            self.assertFalse(pill.icon().isNull())
+        self.assertEqual(
+            [pill.property("presetWarning") for pill in dialog._preset_buttons.values()],
+            ["false", "false", "false", "false", "false", "true"],
+        )
 
     def test_initial_state_has_no_selection(self) -> None:
         dialog = _dialog(_Recorder())
@@ -176,6 +192,56 @@ class DataCleanupDialogPresetTest(_ImmediateLoaderCase):
         dialog.apply_preset("reanalyze_fresh")
         self.assertTrue(dialog._sections["analysis"].is_expanded())
         self.assertFalse(dialog._sections["encode"].is_expanded())
+
+    def test_preset_pill_highlight_follows_checked_set(self) -> None:
+        """체크한 항목 집합이 프리셋과 같을 때만 그 알약이 눌린 모양인지 검증"""
+        dialog = _dialog(_Recorder())
+        self.assertEqual(
+            {preset: pill.property("presetActive") for preset, pill in dialog._preset_buttons.items()},
+            {preset: "false" for preset in CLEANUP_PRESETS},
+        )
+        for preset in CLEANUP_PRESETS:
+            with self.subTest(preset=preset):
+                dialog.apply_preset(preset)
+                active = [
+                    key for key, pill in dialog._preset_buttons.items() if pill.property("presetActive") == "true"
+                ]
+                self.assertEqual(active, [preset])
+
+        dialog._checkboxes["part_files"].setChecked(False)
+        self.assertEqual(
+            [pill.property("presetActive") for pill in dialog._preset_buttons.values()],
+            ["false"] * len(CLEANUP_PRESETS),
+        )
+
+    def test_preset_pill_tooltips_are_verbatim(self) -> None:
+        """승인한 프리셋 툴팁 문구가 그대로 들어가는지 검증"""
+        dialog = _dialog(_Recorder())
+        self.assertEqual(
+            {preset: pill.toolTip() for preset, pill in dialog._preset_buttons.items()},
+            {
+                "part_only": (
+                    "분류: 재인코딩 기록 및 임시 파일\n"
+                    "중간에 끊긴 인코딩이 남긴 .part 임시 파일을 휴지통으로 옮깁니다. 휴지통이 없는 드라이브의 파일은 남깁니다."
+                ),
+                "retry_encode": (
+                    "분류: 재인코딩 기록 및 임시 파일\n"
+                    "임시 파일, 이전 폐기 기록, 재인코딩 완료 이력을 지워 같은 영상을 다시 재인코딩 대상으로 되돌립니다."
+                ),
+                "frame_only": (
+                    "분류: 분석 캐시 및 영상별 지정\n화질 분석과 검은 여백 감지 결과를 지워 다음 분석 때 다시 계산합니다."
+                ),
+                "reanalyze_fresh": (
+                    "분류: 분석 캐시 및 영상별 지정\n"
+                    "영상 분석 캐시, 화질 분석 캐시, 영상별 출력 해상도, 검은 여백 제외, 수동 VR 보호 지정을 지웁니다."
+                ),
+                "reset_layout": (
+                    "분류: 화면 배치 및 기록\n"
+                    "표 열 순서와 너비, 표시 열, 정렬과 그룹, 창 크기와 위치, 최근 폴더 기억을 기본값으로 되돌립니다."
+                ),
+                "reset_all": "위의 모든 항목과 설정, 단축키, 예외 규칙까지 기본값으로 되돌립니다. 설정은 되돌릴 수 없습니다.",
+            },
+        )
 
     def test_category_select_all_toggles_every_item(self) -> None:
         dialog = _dialog(_Recorder())
@@ -310,6 +376,143 @@ class DataCleanupDialogSelectionTest(_ImmediateLoaderCase):
             self.assertFalse(dialog._ask_confirm())
 
 
+class DataCleanupDialogConfirmTest(_ImmediateLoaderCase):
+    """되돌릴 수 없는 항목(설정, 완료 이력, 영상별 직접 지정)의 실행 전 확인"""
+
+    _CONFIRM_TRIGGERS: tuple[CleanupItemKey, ...] = (
+        "criteria_settings",
+        "encode_output_history",
+        "manual_targets",
+    )
+    _NO_CONFIRM: tuple[CleanupItemKey, ...] = (
+        "part_files",
+        "discarded_history",
+        "probe_cache",
+        "frame_cache",
+        "crop_exclusions",
+        "vr_overrides",
+        "column_order",
+        "column_widths",
+        "column_visibility",
+        "table_sort_group",
+        "window_geometry",
+        "recent_dirs_selection",
+    )
+
+    def test_confirm_asked_for_each_irreversible_trigger(self) -> None:
+        """되돌릴 수 없는 세 항목은 하나만 골라도 확인을 한 번 거치는지 검증"""
+        for key in self._CONFIRM_TRIGGERS:
+            with self.subTest(key=key):
+                recorder = _Recorder()
+                dialog = _dialog(recorder)
+                dialog._checkboxes[key].setChecked(True)
+                dialog._on_execute()
+                self.assertEqual(recorder.confirm_calls, 1)
+                self.assertEqual(dialog.result(), int(DataCleanupDialog.DialogCode.Accepted))
+
+    def test_confirm_skipped_for_every_other_item(self) -> None:
+        """나머지 항목은 확인 없이 바로 실행하는지 검증"""
+        for key in self._NO_CONFIRM:
+            with self.subTest(key=key):
+                recorder = _Recorder()
+                dialog = _dialog(recorder)
+                dialog._checkboxes[key].setChecked(True)
+                dialog._on_execute()
+                self.assertEqual(recorder.confirm_calls, 0)
+                self.assertEqual(dialog.result(), int(DataCleanupDialog.DialogCode.Accepted))
+
+    def test_declining_one_trigger_keeps_dialog_open(self) -> None:
+        """확인을 거절하면 창을 닫지 않고 선택을 그대로 두는지 검증"""
+        recorder = _Recorder(confirm=False)
+        dialog = _dialog(recorder)
+        dialog._checkboxes["manual_targets"].setChecked(True)
+        dialog._on_execute()
+        self.assertEqual(recorder.confirm_calls, 1)
+        self.assertNotEqual(dialog.result(), int(DataCleanupDialog.DialogCode.Accepted))
+        self.assertEqual(dialog.checked_keys(), ("manual_targets",))
+
+    def test_ask_confirm_text_lists_each_selected_kind(self) -> None:
+        """여러 종류를 고르면 한 상자에 종류별 문장이 모두 들어가는지 검증"""
+        dialog = _dialog(_Recorder())
+        single_kinds: tuple[tuple[CleanupItemKey, ...], ...] = (
+            ("criteria_settings",),
+            ("encode_output_history",),
+            ("manual_targets",),
+        )
+        expected_lines = (
+            "설정 및 규칙 1개 항목을 초기화합니다",
+            "재인코딩 완료 이력을 지웁니다",
+            "영상별 출력 해상도 직접 지정을 지웁니다",
+        )
+        for keys, line in zip(single_kinds, expected_lines, strict=True):
+            with self.subTest(keys=keys):
+                dialog._apply_keys(keys)
+                with mock.patch.object(
+                    QMessageBox, "warning", return_value=QMessageBox.StandardButton.Yes
+                ) as warn:
+                    self.assertTrue(dialog._ask_confirm())
+                text = warn.call_args[0][2]
+                self.assertIn("되돌릴 수 없습니다", text)
+                self.assertTrue(text.endswith("계속할까요?"))
+                self.assertIn(line, text)
+                self.assertEqual(
+                    warn.call_args[0][3],
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                self.assertEqual(warn.call_args[0][4], QMessageBox.StandardButton.No)
+
+        dialog._apply_keys(("criteria_settings", "encode_output_history", "manual_targets", "part_files"))
+        with mock.patch.object(
+            QMessageBox, "warning", return_value=QMessageBox.StandardButton.No
+        ) as warn:
+            self.assertFalse(dialog._ask_confirm())
+        text = warn.call_args[0][2]
+        self.assertIn("설정 및 규칙 1개 항목을 초기화합니다", text)
+        self.assertIn("재인코딩 완료 이력을 지웁니다", text)
+        self.assertIn("영상별 출력 해상도 직접 지정을 지웁니다", text)
+        self.assertEqual(text.count("계속할까요?"), 1)
+        self.assertEqual(
+            warn.call_args[0][3],
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        self.assertEqual(warn.call_args[0][4], QMessageBox.StandardButton.No)
+
+    def test_confirm_text_helper_composes_kinds(self) -> None:
+        """확인 문구 조합 함수가 종류별 문장만 모으는지 검증"""
+        self.assertEqual(
+            dialog_module.confirm_text(()),
+            "계속할까요?",
+        )
+        self.assertEqual(
+            dialog_module.confirm_text(("part_files", "column_order")),
+            "계속할까요?",
+        )
+        combined = dialog_module.confirm_text(
+            ("encode_output_history", "discarded_history", "manual_targets")
+        )
+        self.assertNotIn("설정 및 규칙", combined)
+        self.assertIn("재인코딩 완료 이력", combined)
+        self.assertIn("영상별 출력 해상도 직접 지정", combined)
+        self.assertTrue(combined.endswith("계속할까요?"))
+        settings_and_history = dialog_module.confirm_text(
+            ("criteria_settings", "exception_rules", "encode_output_history")
+        )
+        self.assertIn("설정 및 규칙 2개 항목을 초기화합니다", settings_and_history)
+        self.assertIn("재인코딩 완료 이력", settings_and_history)
+        self.assertNotIn("영상별 출력 해상도 직접 지정", settings_and_history)
+
+    def test_request_confirm_keys_filters_irreversible_items(self) -> None:
+        """요청이 확인 대상 항목만 따로 모으는지 검증"""
+        request = DataCleanupRequest(
+            "all", ("part_files", "encode_output_history", "manual_targets", "criteria_settings")
+        )
+        self.assertEqual(
+            request.confirm_keys,
+            ("encode_output_history", "manual_targets", "criteria_settings"),
+        )
+        self.assertEqual(DataCleanupRequest("all", ()).confirm_keys, ())
+
+
 class DataCleanupDialogThemeTest(_ImmediateLoaderCase):
     """테마 전환과 미리보기 대체 경로"""
 
@@ -432,27 +635,66 @@ class DataCleanupDialogPendingTest(unittest.TestCase):
 
 
 class DataCleanupDialogLayoutTest(_ImmediateLoaderCase):
-    """13pt 글꼴과 최소 너비에서도 프리셋 버튼이 잘리지 않는지"""
+    """13pt 글꼴과 좁은 폭에서도 프리셋 알약이 잘리지 않고 줄바꿈되는지"""
 
-    def test_preset_buttons_fit_at_13pt_min_and_default_width(self) -> None:
+    def test_preset_pills_fit_and_wrap_at_13pt(self) -> None:
         dialog = _dialog(_Recorder())
         font = QFont(dialog.font())
         font.setPointSize(13)
-        dialog.setFont(font)
+        for widget in (dialog, *dialog.findChildren(QWidget)):
+            widget.setFont(font)
         dialog.show()
         try:
-            for width, height in ((DIALOG_MIN_WIDTH, 520), (DIALOG_DEFAULT_WIDTH, DIALOG_DEFAULT_HEIGHT)):
-                with self.subTest(width=width, height=height):
-                    dialog.resize(width, height)
-                    QApplication.processEvents()
-                    for preset, button in dialog._preset_buttons.items():
-                        self.assertGreaterEqual(
-                            button.geometry().width(),
-                            button.sizeHint().width(),
-                            preset,
-                        )
+            dialog.resize(DIALOG_DEFAULT_WIDTH, DIALOG_DEFAULT_HEIGHT)
+            QApplication.processEvents()
+            for preset, pill in dialog._preset_buttons.items():
+                self.assertGreaterEqual(
+                    pill.geometry().width(),
+                    pill.sizeHint().width(),
+                    preset,
+                )
+            wide = dialog._preset_flow.heightForWidth(dialog._preset_host.width())
+            dialog.resize(DIALOG_MIN_WIDTH, 520)
+            QApplication.processEvents()
+            for preset, pill in dialog._preset_buttons.items():
+                self.assertGreaterEqual(
+                    pill.geometry().width(),
+                    pill.sizeHint().width(),
+                    preset,
+                )
+                self.assertLessEqual(
+                    pill.geometry().right(), dialog._preset_host.width(), preset
+                )
+            narrow = dialog._preset_flow.heightForWidth(dialog._preset_host.width())
+            single_line = dialog._preset_flow.heightForWidth(5000)
+            self.assertGreater(narrow, single_line)
+            self.assertGreaterEqual(wide, narrow)
+            self.assertGreaterEqual(dialog._preset_host.height(), narrow)
         finally:
             dialog.close()
+
+    def test_preset_pill_style_uses_palette_tokens(self) -> None:
+        """알약 스타일이 팔레트 토큰만 쓰는지 검증"""
+        dialog = _dialog(_Recorder())
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            with self.subTest(palette=palette.name):
+                dialog.apply_theme(palette)
+                sheet = dialog.styleSheet()
+                self.assertIn("QPushButton#DataCleanupPresetPill {", sheet)
+                self.assertIn(f"border: 1px solid {palette.btn_border};", sheet)
+                self.assertIn(f"color: {palette.text_secondary};", sheet)
+                self.assertIn(
+                    f'QPushButton#DataCleanupPresetPill[presetActive="true"] {{\n'
+                    f"    background-color: {palette.bg_selected};\n"
+                    f"    color: {palette.text_primary};\n"
+                    f"    border: 1px solid {palette.accent_blue};",
+                    sheet,
+                )
+                self.assertIn(f"background-color: {palette.bg_hover};", sheet)
+                self.assertIn(f"color: {palette.badge_pending[1]};", sheet)
+                self.assertIn(f"border: 1px solid {palette.badge_pending[2]};", sheet)
+                for preset, pill in dialog._preset_buttons.items():
+                    self.assertFalse(pill.icon().isNull(), preset)
 
 
 class DataCleanupHelpersTest(unittest.TestCase):

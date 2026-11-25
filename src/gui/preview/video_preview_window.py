@@ -431,6 +431,18 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._crop_enabled = enabled
         self._update_crop_overlay()
 
+    def _toggle_crop_preview(self) -> None:
+        """여백 미리 보기 단축키: 대상 영상이 아니거나 비교 모드면 아무것도 하지 않음
+
+        - 버튼 토글 한 경로만 써서 아이콘, 겹침, 상태가 함께 바뀌게 함
+        - 알림은 키로 바꿨을 때만 띄워, 영상 전환이나 창 닫기로 꺼질 때 토스트가 남지 않게 함
+        """
+        if self._crop_active_frame() is None:
+            return
+        button = self._controls.crop_button
+        button.toggle()
+        self.show_notice(preview.crop_notice(button.isChecked()), duration_ms=preview.FEEDBACK_MS)
+
     def _reset_crop_preview(self) -> None:
         """여백 미리 보기를 끄고 버튼 체크도 풀어 새로 연 창이 꺼진 상태에서 시작하게 함"""
         self._crop_enabled = False
@@ -680,6 +692,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             rate=lambda: self._player.playbackRate(),
             hide=self.hide,
             toggle_compare=self._on_compare_requested,
+            toggle_crop=self._toggle_crop_preview,
         )
 
     def _on_compare_requested(self) -> None:

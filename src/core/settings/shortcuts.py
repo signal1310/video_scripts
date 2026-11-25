@@ -107,6 +107,7 @@ _PREVIEW_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_mute", "음소거", "M", "미리 보기 영상의 음소거를 전환합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_fullscreen", "전체화면 전환", "F", "미리 보기 창을 전체화면과 이전 창 크기 사이에서 전환합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_info", "정보 표시 전환", "I", "영상 위의 정보 표시를 끔, 요약, 상세 순서로 전환합니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_crop", "여백 미리 보기", "B", "인코딩할 때 잘라낼 검은 여백을 영상 위에 표시합니다."),
 )
 
 # - 화질 비교 창 전용 명령: 창이 열린 동안만 키 입력을 처리하도록 앱 전역 단축키로 바인딩하지 않음

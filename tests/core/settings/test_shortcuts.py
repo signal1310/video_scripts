@@ -98,5 +98,27 @@ class CompareWindowShortcutTests(unittest.TestCase):
         )
 
 
+class CropPreviewShortcutTests(unittest.TestCase):
+    """여백 미리 보기 단축키가 미리 보기 그룹에 B로 등록되고 유일한 소유자인지 검증"""
+
+    def test_crop_preview_uses_b_in_the_preview_group(self) -> None:
+        spec = next(spec for spec in SHORTCUT_SPECS if spec.action_id == "preview.toggle_crop")
+        self.assertEqual(spec.group_key, "preview")
+        self.assertEqual(spec.label, "여백 미리 보기")
+        self.assertEqual(spec.default_key, "B")
+        self.assertEqual(spec.description, "인코딩할 때 잘라낼 검은 여백을 영상 위에 표시합니다.")
+        self.assertEqual(DEFAULT_SHORTCUTS["preview.toggle_crop"], "B")
+        owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "B"]
+        self.assertEqual(owners, ["preview.toggle_crop"])
+
+    def test_crop_preview_follows_the_info_toggle_in_the_preview_group(self) -> None:
+        """안내 표 순서를 맞추려고 정보 표시 전환 바로 뒤에 두는지 검증"""
+        action_ids = [spec.action_id for spec in SHORTCUT_SPECS]
+        self.assertEqual(
+            action_ids.index("preview.toggle_crop"),
+            action_ids.index("preview.toggle_info") + 1,
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

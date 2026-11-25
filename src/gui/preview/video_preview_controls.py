@@ -47,9 +47,12 @@ _PIN_TEXT: str = "항상 위에 표시"
 _PIN_EXIT_TEXT: str = "항상 위에 표시 해제"
 _COMPARE_TIP: str = "현재 재생 시점으로 화질 비교 창으로 전환합니다."
 _COMPARE_EXIT_TIP: str = "일반 미리 보기로 돌아갑니다."
-_CROP_TEXT: str = "여백 잘라내기 미리 보기"
+_CROP_TEXT: str = "여백 미리 보기"
+_CROP_EXIT_TEXT: str = "여백 미리 보기 해제"
 _CROP_TIP: str = "인코딩할 때 잘라낼 검은 여백을 영상 위에 표시합니다."
+_CROP_EXIT_TIP: str = "여백 표시를 끕니다."
 _CROP_ICON: str = "crop"
+_CROP_OFF_ICON: str = "crop-off"
 _FRAME_BACK_TIP: str = "한 프레임 뒤로 이동합니다."
 _FRAME_FORWARD_TIP: str = "한 프레임 앞으로 이동합니다."
 _FULLSCREEN_TIP: str = "창을 전체화면으로 전환합니다."
@@ -85,6 +88,7 @@ PREVIEW_GUIDE_ACTIONS: tuple[str, ...] = (
     "preview.toggle_mute",
     "preview.toggle_fullscreen",
     "preview.toggle_info",
+    "preview.toggle_crop",
     "preview.previous",
     "preview.next",
     "classify.compare_selected",
@@ -212,7 +216,7 @@ class PlaybackControls(QWidget):
         self._btn_compare.clicked.connect(lambda _checked=False: self.compare_requested.emit())
         self._btn_fullscreen.clicked.connect(lambda _checked=False: self.fullscreen_requested.emit())
         self._btn_pin.clicked.connect(lambda _checked=False: self._toggle_pin())
-        self._btn_crop.toggled.connect(self.crop_preview_toggled)
+        self._btn_crop.toggled.connect(self._on_crop_button_toggled)
         # - 트랙 클릭과 핸들 끌기 모두 이동 요청으로 전달, 재생 중 자동 갱신은 set_position에서 신호 없이 반영
         self._slider_position.track_value_requested.connect(self.seek_requested)
         self._slider_position.sliderMoved.connect(self.seek_requested)
@@ -261,7 +265,7 @@ class PlaybackControls(QWidget):
 
     @property
     def crop_button(self) -> QToolButton:
-        """여백 잘라내기 미리 보기를 켜고 끄는 아이콘 버튼"""
+        """여백 미리 보기를 켜고 끄는 아이콘 버튼"""
         return self._btn_crop
 
     @property
@@ -278,6 +282,7 @@ class PlaybackControls(QWidget):
         self._apply_rate_tooltip()
         self._apply_fullscreen_text()
         self._apply_compare_tip()
+        self._refresh_crop_button()
         self._btn_guide.refresh_entries()
 
     def set_compare_mode(
@@ -309,6 +314,11 @@ class PlaybackControls(QWidget):
         self._btn_crop.setVisible(available)
         if not available:
             self._btn_crop.setChecked(False)
+
+    def _on_crop_button_toggled(self, checked: bool) -> None:
+        """켜고 끈 상태를 아이콘과 이름, 툴팁에 반영하고 창에 상태 변경을 알림"""
+        self._refresh_crop_button()
+        self.crop_preview_toggled.emit(checked)
 
     def set_guide_mode(self, title: str, action_ids: Sequence[str]) -> None:
         """단축키 안내의 제목과 표시할 명령 목록을 바꿈, 다음 단계의 단일 창 전환에 대비"""
@@ -499,8 +509,17 @@ class PlaybackControls(QWidget):
         self._btn_compare.setIcon(get_icon(_COMPARE_ICON, color=palette.media_fg, size=_ICON_SIZE))
 
     def _refresh_crop_button(self) -> None:
+        """여백 미리 보기 상태에 맞춰 아이콘, 접근성 이름, 툴팁을 바꿈"""
         palette = get_active_palette()
-        self._btn_crop.setIcon(get_icon(_CROP_ICON, color=palette.media_fg, size=_ICON_SIZE))
+        checked = self._btn_crop.isChecked()
+        icon_name = _CROP_OFF_ICON if checked else _CROP_ICON
+        base = _CROP_EXIT_TEXT if checked else _CROP_TEXT
+        tip = _CROP_EXIT_TIP if checked else _CROP_TIP
+        self._btn_crop.setIcon(get_icon(icon_name, color=palette.media_fg, size=_ICON_SIZE))
+        self._btn_crop.setAccessibleName(base)
+        self._btn_crop.setToolTip(
+            format_tooltip_with_shortcut(tip, self._shortcut("preview.toggle_crop"))
+        )
 
     def _update_time_label(self, position_ms: int) -> None:
         self._label_time.setText(

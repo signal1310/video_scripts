@@ -47,7 +47,7 @@ QToolButton#PreviewRateButton::menu-indicator {{
 QToolButton#PreviewSettingsButton, QToolButton#PreviewRateButton,
 QToolButton#PreviewCompareButton, QToolButton#PreviewPrevButton,
 QToolButton#PreviewNextButton, QToolButton#PreviewPinButton,
-QToolButton#PreviewFullscreenButton {{
+QToolButton#PreviewCropButton, QToolButton#PreviewFullscreenButton {{
     background-color: transparent;
     border: none;
     border-radius: 13px;
@@ -58,6 +58,7 @@ QToolButton#PreviewCompareButton:hover, QToolButton#PreviewCompareButton:pressed
 QToolButton#PreviewPrevButton:hover, QToolButton#PreviewPrevButton:pressed,
 QToolButton#PreviewNextButton:hover, QToolButton#PreviewNextButton:pressed,
 QToolButton#PreviewPinButton:hover, QToolButton#PreviewPinButton:pressed,
+QToolButton#PreviewCropButton:hover, QToolButton#PreviewCropButton:pressed,
 QToolButton#PreviewFullscreenButton:hover, QToolButton#PreviewFullscreenButton:pressed {{
     background-color: {p.media_track};
 }}

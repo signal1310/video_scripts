@@ -172,6 +172,22 @@ class CompareButtonTests(GuiTestCase):
         self.assertIn("(Ctrl+Shift+V)", self.controls.compare_button.toolTip())
         self.assertEqual(self.controls.guide_button.accessibleName(), "단축키 안내")
 
+    def test_guide_actions_include_the_crop_preview_toggle(self) -> None:
+        """단축키 안내 표에 여백 미리 보기 명령이 들어가는지 검증"""
+        from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
+        from src.gui.preview.video_preview_controls import PREVIEW_GUIDE_ACTIONS
+
+        self.assertIn("preview.toggle_crop", PREVIEW_GUIDE_ACTIONS)
+        controls = PlaybackControls(None, lambda: DEFAULT_SHORTCUTS)
+        self.addCleanup(controls.deleteLater)
+        guide = controls.guide_button
+        guide.open_guide()
+        _APP.processEvents()
+        popover = guide._popover
+        assert popover is not None
+        self.assertIn("여백 미리 보기", [entry.label for entry in popover._entries])
+        guide.close_guide()
+
     def test_clicking_compare_emits_the_request(self) -> None:
         requests: list[bool] = []
         self.controls.compare_requested.connect(lambda: requests.append(True))

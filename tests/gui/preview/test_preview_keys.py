@@ -99,6 +99,7 @@ class CompareActionTests(unittest.TestCase):
             rate=lambda: 1.0,
             hide=lambda: None,
             toggle_compare=lambda: toggles.append(True),
+            toggle_crop=lambda: None,
         )
         return keys.PreviewKeyRouter(
             get_shortcuts=lambda: {"classify.compare_selected": key},
@@ -134,6 +135,45 @@ class CompareActionTests(unittest.TestCase):
         )
         self.assertFalse(router.handle_key(shift_space))
         self.assertEqual(toggles, [True])
+
+
+class CropToggleActionTests(unittest.TestCase):
+    """여백 미리 보기 단축키 판정과 상태 문구"""
+
+    def _router(self, calls: list[bool]) -> keys.PreviewKeyRouter:
+        handlers = keys.PreviewActionHandlers(
+            seek_by=lambda _ms: None,
+            step_frame=lambda _direction: None,
+            toggle_playback=lambda: None,
+            toggle_mute=lambda: None,
+            set_rate=lambda _rate: None,
+            toggle_fullscreen=lambda: None,
+            cycle_info=lambda: None,
+            request_step=lambda _direction: None,
+            rate=lambda: 1.0,
+            hide=lambda: None,
+            toggle_compare=lambda: None,
+            toggle_crop=lambda: calls.append(True),
+        )
+        return keys.PreviewKeyRouter(
+            get_shortcuts=lambda: {"preview.toggle_crop": "B"},
+            forward_key=lambda _key: False,
+            get_actions=lambda: handlers,
+            is_visible=lambda: True,
+            is_active=lambda: True,
+            seek_seconds=lambda: 5,
+        )
+
+    def test_b_runs_the_crop_toggle(self) -> None:
+        calls: list[bool] = []
+        router = self._router(calls)
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.NoModifier)
+        self.assertTrue(router.handle_key(event))
+        self.assertEqual(calls, [True])
+
+    def test_crop_notice_matches_the_state(self) -> None:
+        self.assertEqual(keys.crop_notice(True), "여백 미리 보기")
+        self.assertEqual(keys.crop_notice(False), "여백 미리 보기 해제")
 
 
 class NoticeTests(unittest.TestCase):

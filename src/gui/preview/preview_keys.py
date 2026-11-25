@@ -70,6 +70,7 @@ ACTION_TOGGLE_PLAYBACK: str = "preview.toggle_playback"
 ACTION_TOGGLE_MUTE: str = "preview.toggle_mute"
 ACTION_TOGGLE_FULLSCREEN: str = "preview.toggle_fullscreen"
 ACTION_TOGGLE_INFO: str = "preview.toggle_info"
+ACTION_TOGGLE_CROP: str = "preview.toggle_crop"
 ACTION_FRAME_BACKWARD: str = "preview.frame_backward"
 ACTION_FRAME_FORWARD: str = "preview.frame_forward"
 FEEDBACK_MS: int = 1200
@@ -77,6 +78,8 @@ FULLSCREEN_NOTICE: str = "전체화면"
 WINDOW_MODE_NOTICE: str = "창 모드"
 PIN_NOTICE: str = "항상 위에 표시"
 PIN_OFF_NOTICE: str = "항상 위에 표시 해제"
+CROP_NOTICE: str = "여백 미리 보기"
+CROP_OFF_NOTICE: str = "여백 미리 보기 해제"
 _MS_PER_SECOND: int = 1000
 _TEXT_INPUT_TYPES: tuple[type[QWidget], ...] = (
     QLineEdit,
@@ -138,6 +141,11 @@ def resolve_frame_rate(info_fps: float, metadata_value: object) -> float:
 def pin_notice(pinned: bool) -> str:
     """핀 상태에 맞는 문구"""
     return PIN_NOTICE if pinned else PIN_OFF_NOTICE
+
+
+def crop_notice(enabled: bool) -> str:
+    """여백 미리 보기 상태에 맞는 문구"""
+    return CROP_NOTICE if enabled else CROP_OFF_NOTICE
 
 
 def preview_action_for_key(shortcuts: Mapping[str, str], pressed: str) -> str | None:
@@ -268,6 +276,7 @@ class PreviewActionHandlers:
     rate: Callable[[], float]
     hide: Callable[[], None]
     toggle_compare: Callable[[], None]
+    toggle_crop: Callable[[], None]
 
 
 class PreviewKeyRouter:
@@ -374,6 +383,8 @@ class PreviewKeyRouter:
             actions.toggle_fullscreen()
         elif action_id == ACTION_TOGGLE_INFO:
             actions.cycle_info()
+        elif action_id == ACTION_TOGGLE_CROP:
+            actions.toggle_crop()
         elif action_id == ACTION_FRAME_BACKWARD:
             actions.step_frame(-1)
         elif action_id == ACTION_FRAME_FORWARD:

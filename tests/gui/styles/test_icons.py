@@ -49,6 +49,17 @@ class SvgTests(unittest.TestCase):
         self.assertIn("maximize-2", module.SVG_TEMPLATES)
 
 
+    def test_crop_off_icon_adds_one_diagonal_slash_to_the_crop_paths(self) -> None:
+        """끈 상태 아이콘이 crop 패스에 대각선 하나를 더한 모양인지 검증"""
+        crop = module.SVG_TEMPLATES["crop"]
+        crop_off = module.SVG_TEMPLATES["crop-off"]
+        self.assertTrue(crop_off.startswith(crop))
+        self.assertEqual(crop_off[len(crop) :], '<path d="m2 2 20 20"/>')
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            icon = get_icon("crop-off", color=palette.media_fg, size=16)
+            self.assertFalse(icon.pixmap(16, 16).toImage().isNull())
+
+
 class PaletteTests(unittest.TestCase):
     """활성 팔레트 전환"""
 

@@ -50,6 +50,8 @@ class TuningPhase:
     probe_total: int = 0
     precise_quality: float | None = None
     precise_reason: str = ""
+    # - 정밀 결정이 확정한 해상도 선택(`DECISION_KEEP_ORIGINAL`/`DECISION_KEEP_DOWNSCALE`). 그 밖은 빈 문자열
+    precise_resolution: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,11 +82,13 @@ def main_phase_event(
     precise_quality: float | None = None,
     precise_reason: str = "",
     previous_quality: float | None = None,
+    precise_resolution: str = "",
 ) -> EncodeEvent:
     """샘플 단계 배지를 해제하는 본 인코딩 시작 이벤트
 
     - adjusted_quality가 있으면 사전 예측에서 품질값을 올렸으므로 진행 창이 그 사실을 함께 표시
     - precise_quality가 있으면 품질값 정밀 결정이 확정한 값이며, previous_quality는 결정 전 계획 값
+    - precise_resolution은 정밀 결정의 해상도 판정이며, 원본 유지일 때 화면이 그 사실을 함께 표시
     """
     return EncodeEvent(
         kind=EVENT_PHASE,
@@ -98,6 +102,7 @@ def main_phase_event(
             adjusted_quality=adjusted_quality,
             precise_quality=precise_quality,
             precise_reason=precise_reason,
+            precise_resolution=precise_resolution,
         ),
     )
 

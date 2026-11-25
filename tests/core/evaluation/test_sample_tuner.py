@@ -6,6 +6,7 @@
 import unittest
 
 from src.core.evaluation.sample_tuner import (
+    COMPARE_CANDIDATE_SMALLER,
     REASON_CONVERGED,
     REASON_FALLBACK_BASELINE,
     REASON_UNMEASURABLE,
@@ -13,9 +14,11 @@ from src.core.evaluation.sample_tuner import (
     QualityProbe,
     TuneTarget,
     compare_downscale,
+    format_comparison_reason,
     format_result_reason,
     probe_passes,
     quality_granularity,
+    relative_bitrate_saving_percent,
     search_quality,
     tune_bounds,
 )
@@ -175,6 +178,42 @@ class TestFormatResultReason(unittest.TestCase):
         self.assertEqual(format_result_reason(fallback), "품질값 22.0 유지 (기준 미달)")
         unmeasurable = search_quality(lambda _quality: None, 22.0, 28.0)
         self.assertEqual(format_result_reason(unmeasurable), "품질값 22.0 유지 (화질 측정 불가)")
+
+
+class TestFormatComparisonReason(unittest.TestCase):
+    """축소 비교 사유 문구가 확정 해상도와 비트레이트 차이를 반영하는지 확인"""
+
+    def _probe(self, kbps: float, *, vmaf: float = 99.0) -> QualityProbe:
+        return QualityProbe(quality=22.0, vmaf=vmaf, ssim=0.999, bitrate_kbps=kbps)
+
+    def test_original_kept_for_both_reasons(self) -> None:
+        failed = compare_downscale(self._probe(100.0, vmaf=90.0), self._probe(1200.0))
+        self.assertEqual(
+            format_comparison_reason(failed),
+            "품질값 정밀 결정: 원본 해상도 유지 (축소 시 화질 기준 미달)",
+        )
+        not_larger = compare_downscale(self._probe(1300.0), self._probe(1200.0))
+        self.assertEqual(
+            format_comparison_reason(not_larger),
+            "품질값 정밀 결정: 원본 해상도 유지 (축소 이득 없음)",
+        )
+
+    def test_downscale_kept_reports_saving_percent(self) -> None:
+        smaller = compare_downscale(self._probe(900.0), self._probe(1200.0))
+        self.assertEqual(smaller.reason, COMPARE_CANDIDATE_SMALLER)
+        self.assertEqual(
+            format_comparison_reason(smaller),
+            "품질값 정밀 결정: 축소 유지 (원본 해상도 대비 25% 작음)",
+        )
+        only_pass = compare_downscale(self._probe(900.0), self._probe(1200.0, vmaf=90.0))
+        self.assertEqual(
+            format_comparison_reason(only_pass),
+            "품질값 정밀 결정: 축소 유지 (원본 해상도는 화질 기준 미달)",
+        )
+
+    def test_zero_original_bitrate_reports_zero_percent(self) -> None:
+        comparison = compare_downscale(self._probe(900.0), self._probe(0.0))
+        self.assertEqual(relative_bitrate_saving_percent(comparison), 0)
 
 
 if __name__ == "__main__":

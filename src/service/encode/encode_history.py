@@ -48,6 +48,8 @@ ITEM_UPDATABLE_COLUMNS: frozenset[str] = frozenset(
         "tuned_quality",
         "sample_predicted_bytes",
         "tune_retry_count",
+        # - 정밀 결정이 확정한 해상도 선택을 계획 JSON에 남겨 이어서 인코딩할 때 비교를 반복하지 않음
+        "plan_json",
     }
 )
 _ITEM_COLUMNS: tuple[str, ...] = (

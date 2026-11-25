@@ -145,6 +145,15 @@ class EncodeJob:
     baseline_quality: float | None = None
     # - 품질값 정밀 결정(결정 18) 대상 여부. 배치를 만들 때 설정과 판정으로 정해 기록에 남김
     precise_tune: bool = False
+    # - 축소 후보 비교(6a-3) 입력: 축소 전 원본(크롭) 화소 크기와 원본 해상도 기준 보정 목표 비트레이트.
+    #   원본 옵션이 이기면 job의 출력 크기, scale, maxrate를 이 값으로 다시 계산. 모르면 None/0
+    source_width: int | None = None
+    source_height: int | None = None
+    original_target_kbps: float | None = None
+    # - 출력 해상도를 영상별로 직접 지정했는지. 직접 지정은 사용자 의도이므로 축소 비교를 하지 않음
+    manual_downscale: bool = False
+    # - 축소 비교 확정 결과(원본 유지/축소 유지). 이어서 인코딩할 때 비교를 다시 하지 않도록 기록에 남김
+    downscale_decision: str = ""
 
 
 def job_to_json(job: EncodeJob) -> str:
@@ -171,6 +180,11 @@ def job_to_json(job: EncodeJob) -> str:
         "crop_filter": job.crop_filter,
         "baseline_quality": job.baseline_quality,
         "precise_tune": job.precise_tune,
+        "source_width": job.source_width,
+        "source_height": job.source_height,
+        "original_target_kbps": job.original_target_kbps,
+        "manual_downscale": job.manual_downscale,
+        "downscale_decision": job.downscale_decision,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -201,7 +215,17 @@ def job_from_json(text: str) -> EncodeJob:
         crop_filter=None if raw.get("crop_filter") is None else str(raw["crop_filter"]),
         baseline_quality=_optional_float(raw.get("baseline_quality")),
         precise_tune=bool(raw.get("precise_tune", False)),
+        source_width=_optional_int(raw.get("source_width")),
+        source_height=_optional_int(raw.get("source_height")),
+        original_target_kbps=_optional_float(raw.get("original_target_kbps")),
+        manual_downscale=bool(raw.get("manual_downscale", False)),
+        downscale_decision=str(raw.get("downscale_decision", "")),
     )
+
+
+def _optional_int(value: object) -> int | None:
+    """기록 JSON의 선택 정수 값. 없거나 null이면 None"""
+    return int(value) if isinstance(value, int | float) else None
 
 
 def _optional_float(value: object) -> float | None:
@@ -246,6 +270,10 @@ def jobs_from_evaluations(
         scale_filter: str | None = None
         maxrate: int | None = None
         corrected = corrected_target_kbps(ev.target_optimal_kbps, encoder or None)
+        # - 축소 비교의 원본 옵션은 크롭을 적용한 화소 크기를 씀. 잘라내기 확정 영상은 활성 화면 크기
+        frame = ev.active_frame
+        source_width = ev.video.width if frame is None else frame.width
+        source_height = ev.video.height if frame is None else frame.height
         if ev.is_downscaled and ev.target_width is not None and ev.target_height is not None and tier is not None:
             output_size = (ev.target_width, ev.target_height)
             scale_filter = build_scale_expression(tier, scale_algorithm)
@@ -282,6 +310,14 @@ def jobs_from_evaluations(
                     config is not None
                     and should_precise_tune(ev, config.encode.precise_quality_mode, config)
                 ),
+                source_width=source_width,
+                source_height=source_height,
+                original_target_kbps=(
+                    corrected_target_kbps(ev.original_target_optimal_kbps, encoder or None)
+                    if ev.original_target_optimal_kbps > 0
+                    else None
+                ),
+                manual_downscale=ev.manual_target is not None,
             )
         )
     return jobs

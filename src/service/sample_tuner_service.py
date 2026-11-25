@@ -6,6 +6,8 @@
 - 취소는 `threading.Event`로 전달하며 실행기와 샘플 엔진이 자식 프로세스를 kill함
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
@@ -560,10 +562,12 @@ def compare_downscale_samples(
     has_vmaf: bool = True,
     black_ratios: Sequence[float] | None = None,
     metric_runner: Callable[[list[str], str], tuple[int, str]] | None = None,
+    candidate_probe: QualityProbe | None = None,
 ) -> DownscaleComparison:
     """[원본(크롭) 해상도 + 보호 품질값]과 [축소 해상도 + 기준 품질값]을 같은 구간 샘플로 비교
 
     - 두 계획은 원본 경로가 같아야 하고, 비트레이트는 각 계획의 샘플 산출물 실측값으로 비교
+    - `candidate_probe`를 주면 이미 잰 축소 계획 프로브를 다시 인코딩하지 않음(정밀 탐색 결과 재사용)
     - 판정은 순수 함수 `compare_downscale`이 맡음
     """
     factory = process_factory if process_factory is not None else default_process_factory
@@ -579,17 +583,111 @@ def compare_downscale_samples(
         has_vmaf=has_vmaf,
         cancel_event=cancel_event,
     )
-    candidate_probe = _measure_probe(
-        plan=candidate_plan,
-        segments=segments,
-        quality=baseline_quality,
-        ffmpeg_exec=ffmpeg_exec,
-        process_factory=factory,
-        metric_runner=runner,
-        has_vmaf=has_vmaf,
-        cancel_event=cancel_event,
+    measured_candidate = (
+        _measure_probe(
+            plan=candidate_plan,
+            segments=segments,
+            quality=baseline_quality,
+            ffmpeg_exec=ffmpeg_exec,
+            process_factory=factory,
+            metric_runner=runner,
+            has_vmaf=has_vmaf,
+            cancel_event=cancel_event,
+        )
+        if candidate_probe is None
+        else candidate_probe
     )
-    return compare_downscale(candidate_probe, original_probe, target)
+    return compare_downscale(measured_candidate, original_probe, target)
+
+
+def comparison_plan_hash(candidate_plan: EncodePlan, original_plan: EncodePlan) -> str:
+    """축소 비교 캐시 키의 계획 해시. 두 옵션의 계획 서명을 함께 넣어 한쪽만 바뀌어도 무효화"""
+    return f"{plan_signature(candidate_plan)}+{plan_signature(original_plan)}"
+
+
+def record_from_comparison(
+    key: TuneCacheKey,
+    comparison: DownscaleComparison,
+    *,
+    measured_at: str | None = None,
+) -> SampleTuneRecord:
+    """비교 결과를 캐시 레코드로 변환. `converged` 자리에 축소 유지 여부를 담음
+
+    - 프로브는 (축소 후보, 원본 규격) 순서로 저장하고 복원할 때 같은 순서를 씀
+    """
+    winner = comparison.candidate_probe if comparison.use_downscale else comparison.original_probe
+    return SampleTuneRecord(
+        key=key,
+        best_quality=winner.quality,
+        converged=comparison.use_downscale,
+        reason=comparison.reason,
+        probes=(comparison.candidate_probe, comparison.original_probe),
+        measured_at=measured_at if measured_at is not None else _utc_now_iso(),
+    )
+
+
+def comparison_from_record(record: SampleTuneRecord) -> DownscaleComparison | None:
+    """캐시 레코드를 비교 결과로 복원. 프로브 두 개가 아니면 None(캐시 미스로 처리)"""
+    if len(record.probes) != 2:
+        return None
+    candidate, original = record.probes
+    return DownscaleComparison(record.converged, candidate, original, record.reason)
+
+
+def compare_downscale_cached(
+    *,
+    job: TuneJob,
+    candidate_plan: EncodePlan,
+    original_plan: EncodePlan,
+    candidate_probe: QualityProbe,
+    original_quality: float,
+    cache: SampleTunerCache,
+    target: TuneTarget | None = None,
+    process_factory: ProcessFactory | None = None,
+    ffmpeg_exec: str = FFMPEG_EXECUTABLE_DEFAULT,
+    cancel_event: threading.Event | None = None,
+    has_vmaf: bool = True,
+    metric_runner: Callable[[list[str], str], tuple[int, str]] | None = None,
+) -> DownscaleComparison:
+    """축소 비교를 캐시 먼저 확인하고, 없으면 원본 옵션만 샘플 인코딩해 판정한 뒤 저장
+
+    - 캐시 키에는 두 옵션의 계획 해시를 함께 넣어 어느 한쪽 계획만 바뀌어도 다시 비교
+    - 축소 옵션 프로브는 정밀 탐색이 이미 잰 값을 받아 추가 인코딩 없이 씀
+    - 취소된 비교는 오염을 막으려고 저장하지 않음
+    """
+    resolved_target = target if target is not None else TuneTarget()
+    key = TuneCacheKey(
+        source_path=job.source_path,
+        filesize_bytes=job.source_size,
+        mtime_ns=job.source_mtime_ns,
+        encoder=job.encoder,
+        baseline_quality=original_quality,
+        plan_hash=comparison_plan_hash(candidate_plan, original_plan),
+        target_key=resolved_target.cache_key,
+    )
+    cached = cache.load(key)
+    if cached is not None:
+        restored = comparison_from_record(cached)
+        if restored is not None:
+            return restored
+    comparison = compare_downscale_samples(
+        job=job,
+        original_plan=original_plan,
+        candidate_plan=candidate_plan,
+        baseline_quality=candidate_probe.quality,
+        protect_quality=original_quality,
+        ffmpeg_exec=ffmpeg_exec,
+        process_factory=process_factory,
+        cancel_event=cancel_event,
+        target=resolved_target,
+        has_vmaf=has_vmaf,
+        metric_runner=metric_runner,
+        candidate_probe=candidate_probe,
+    )
+    cancelled = cancel_event is not None and cancel_event.is_set()
+    if not cancelled and comparison.original_probe.measurable:
+        cache.save(record_from_comparison(key, comparison))
+    return comparison
 
 
 class SampleTunerCache:

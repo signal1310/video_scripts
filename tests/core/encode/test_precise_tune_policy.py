@@ -14,6 +14,8 @@ from src.core.config import (
 )
 from src.core.encode.precise_tune_policy import (
     PRECISE_TUNE_BOUNDARY_MARGIN,
+    original_resolution_maxrate_kbps,
+    should_compare_downscale,
     should_precise_tune,
 )
 from src.core.models import VideoEvaluation
@@ -67,6 +69,27 @@ class TestShouldPreciseTune(unittest.TestCase):
 
     def test_boundary_margin_constant_is_the_documented_value(self) -> None:
         self.assertAlmostEqual(PRECISE_TUNE_BOUNDARY_MARGIN, 0.15)
+
+
+class TestShouldCompareDownscale(unittest.TestCase):
+    """축소 비교 실행 여부와 원본 규격 최대 비트레이트 계산을 확인"""
+
+    def test_comparison_requires_precise_tune_downscale_and_auto_target(self) -> None:
+        self.assertTrue(should_compare_downscale(True, False, True))
+        self.assertFalse(should_compare_downscale(False, False, True))
+        self.assertFalse(should_compare_downscale(True, False, False))
+        self.assertFalse(should_compare_downscale(True, True, True))
+        self.assertFalse(should_compare_downscale(True, False, True, already_decided=True))
+
+    def test_original_maxrate_uses_tier_cap_or_none(self) -> None:
+        """원본이 4K면 2160p 상한, 상한이 걸리지 않으면 여유 배수 값 그대로"""
+        self.assertEqual(original_resolution_maxrate_kbps(1000.0, 3840, 2160), 1500)
+        self.assertEqual(original_resolution_maxrate_kbps(12000.0, 3840, 2160), 16600)
+        self.assertEqual(original_resolution_maxrate_kbps(1000.0, 1920, 1080), 1500)
+
+    def test_original_maxrate_is_none_without_target_or_size(self) -> None:
+        self.assertIsNone(original_resolution_maxrate_kbps(None, 3840, 2160))
+        self.assertIsNone(original_resolution_maxrate_kbps(1000.0, 0, 0))
 
 
 if __name__ == "__main__":

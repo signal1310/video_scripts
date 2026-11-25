@@ -19,6 +19,7 @@ from src.core.encode.stream_layout import parse_stream_layout
 from src.core.evaluation.sample_tuner import (
     REASON_CONVERGED,
     REASON_FALLBACK_BASELINE,
+    DownscaleComparison,
     QualityProbe,
     TuneResult,
     TuneTarget,
@@ -28,13 +29,18 @@ from src.service import sample_tuner_service as service
 from src.service.sample_tuner_service import (
     CACHE_COLUMNS,
     SampleTunerCache,
+    SampleTuneRecord,
     TuneCacheKey,
     TuneJob,
     build_segment_metric_command,
+    compare_downscale_cached,
+    comparison_from_record,
+    comparison_plan_hash,
     plan_signature,
     probe_bitrate_kbps,
     probes_from_json,
     probes_to_json,
+    record_from_comparison,
     record_from_result,
     record_to_row,
     row_to_record,
@@ -530,7 +536,36 @@ class TestSampleTunerCache(unittest.TestCase):
             )
             self.assertEqual(cache.count(), 0)
 
-    def test_open_default_cache_uses_shared_db(self) -> None:
+    def test_cancel_mid_comparison_leaves_no_temp_dirs(self) -> None:
+        """비교 중 취소되면 샘플 임시 폴더를 남기지 않고 원본 옵션 결과도 저장하지 않음"""
+        with TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            cache = self._cache(tmp)
+            cancel = threading.Event()
+            tracker = _QualityTracker()
+
+            def _runner(args: list[str], work_dir: str) -> tuple[int, str]:
+                cancel.set()
+                return tracker.runner(args, work_dir)
+
+            with mock.patch("tempfile.tempdir", tmp):
+                comparison = compare_downscale_cached(
+                    job=_job(),
+                    candidate_plan=_plan(tmp, scale_filter="scale=1920:1080"),
+                    original_plan=_plan(tmp),
+                    candidate_probe=QualityProbe(quality=24.0, vmaf=98.5, ssim=0.998, bitrate_kbps=900.0),
+                    original_quality=26.0,
+                    cache=cache,
+                    process_factory=tracker.factory,
+                    metric_runner=_runner,
+                    cancel_event=cancel,
+                )
+            self.assertTrue(cancel.is_set())
+            self.assertFalse(comparison.original_probe.measurable)
+            leftovers = [path.name for path in tmp_root.iterdir() if path.name.startswith("d18_tuner_")]
+            self.assertEqual(leftovers, [])
+            self.assertEqual(cache.count(), 0)
+
         with TemporaryDirectory() as tmp:
             with mock.patch.object(service, "get_data_dir", return_value=tmp):
                 cache = service.open_default_cache()
@@ -564,6 +599,109 @@ class TestCompareDownscaleSamples(unittest.TestCase):
             self.assertTrue(comparison.use_downscale)
             self.assertEqual(comparison.reason, "candidate_smaller")
             self.assertLess(comparison.candidate_probe.bitrate_kbps, comparison.original_probe.bitrate_kbps)
+
+
+class TestCompareDownscaleCache(unittest.TestCase):
+    """축소 비교 캐시가 두 옵션 계획 해시로 키를 만들고, 재실행 때 샘플 인코딩을 건너뛰는지 확인"""
+
+    def _cache(self, tmp: str) -> SampleTunerCache:
+        return SampleTunerCache(os.path.join(tmp, "video_cache.sqlite3"))
+
+    def test_comparison_roundtrip_and_cache_hit(self) -> None:
+        with TemporaryDirectory() as tmp:
+            cache = self._cache(tmp)
+            comparison = DownscaleComparison(
+                True,
+                QualityProbe(quality=22.0, vmaf=99.0, ssim=0.999, bitrate_kbps=900.0),
+                QualityProbe(quality=26.0, vmaf=99.0, ssim=0.999, bitrate_kbps=1200.0),
+                "candidate_smaller",
+            )
+            key = TuneCacheKey(
+                source_path="C:/work/in.mp4",
+                filesize_bytes=1000,
+                mtime_ns=42,
+                encoder="hevc_nvenc",
+                baseline_quality=26.0,
+                plan_hash="a" * 16 + "+" + "b" * 16,
+                target_key=TuneTarget().cache_key,
+            )
+            cache.save(record_from_comparison(key, comparison))
+            record = cache.load(key)
+            assert record is not None
+            restored = comparison_from_record(record)
+            assert restored is not None
+            self.assertEqual(restored, comparison)
+            self.assertEqual(restored.candidate_probe.bitrate_kbps, 900.0)
+
+    def test_single_probe_record_is_treated_as_a_miss(self) -> None:
+        record = SampleTuneRecord(
+            key=_cache_key(),
+            best_quality=24.0,
+            converged=True,
+            reason=REASON_CONVERGED,
+            probes=(QualityProbe(quality=24.0),),
+            measured_at="2026-01-01T00:00:00Z",
+        )
+        self.assertIsNone(comparison_from_record(record))
+
+    def test_plan_hash_combines_both_options(self) -> None:
+        with TemporaryDirectory() as tmp:
+            candidate = _plan(tmp, scale_filter="scale=1920:1080")
+            original = _plan(tmp)
+            combined = comparison_plan_hash(candidate, original)
+            self.assertEqual(combined, f"{plan_signature(candidate)}+{plan_signature(original)}")
+            other = comparison_plan_hash(_plan(tmp, scale_filter="scale=1280:720"), original)
+            self.assertNotEqual(combined, other)
+
+    def test_cached_comparison_skips_sample_encoding(self) -> None:
+        """두 번째 비교는 캐시를 먼저 확인해 샘플 인코딩을 한 번도 하지 않음"""
+        with TemporaryDirectory() as tmp:
+            cache = self._cache(tmp)
+            probe = QualityProbe(quality=24.0, vmaf=98.5, ssim=0.998, bitrate_kbps=900.0)
+            tracker = _QualityTracker(at_baseline=99.0, slope=0.1)
+            first = compare_downscale_cached(
+                job=_job(),
+                candidate_plan=_plan(tmp, scale_filter="scale=1920:1080"),
+                original_plan=_plan(tmp),
+                candidate_probe=probe,
+                original_quality=26.0,
+                cache=cache,
+                process_factory=tracker.factory,
+                metric_runner=tracker.runner,
+            )
+            second = compare_downscale_cached(
+                job=_job(),
+                candidate_plan=_plan(tmp, scale_filter="scale=1920:1080"),
+                original_plan=_plan(tmp),
+                candidate_probe=probe,
+                original_quality=26.0,
+                cache=cache,
+                process_factory=_QualityTracker().factory,
+                metric_runner=lambda _args, _work: (1, ""),
+            )
+            self.assertEqual(first, second)
+            self.assertTrue(first.original_probe.measurable)
+
+    def test_cancelled_comparison_is_not_saved(self) -> None:
+        with TemporaryDirectory() as tmp:
+            cache = self._cache(tmp)
+            cancel = threading.Event()
+            cancel.set()
+            compare_downscale_cached(
+                job=_job(),
+                candidate_plan=_plan(tmp, scale_filter="scale=1920:1080"),
+                original_plan=_plan(tmp),
+                candidate_probe=QualityProbe(quality=24.0, vmaf=98.5, ssim=0.998),
+                original_quality=26.0,
+                cache=cache,
+                process_factory=_factory(),
+                metric_runner=lambda _args, _work: (1, ""),
+                cancel_event=cancel,
+            )
+            self.assertEqual(cache.count(), 0)
+
+
+
 
 
 

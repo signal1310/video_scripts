@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_progress import ProgressSample
+from src.core.evaluation.sample_tuner import DECISION_KEEP_ORIGINAL
 from src.gui.dialogs.encode_graph_legend import GraphLegend
 from src.gui.dialogs.encode_progress_card import (
     CAPTION_TIPS,
@@ -23,6 +24,9 @@ from src.gui.dialogs.encode_progress_card import (
     NO_EXPECTED_TIP,
     NO_POSITION_TIP,
     NO_VALUE_TIP,
+    PRECISE_KEEP_ORIGINAL_TEXT,
+    PRECISE_KEEP_ORIGINAL_TIP,
+    PRECISE_RESOLUTION_NOTICE,
     PRECISE_TUNE_RESULT_TIP,
     PRECISE_TUNE_TIP,
     PROGRESS_STEPS,
@@ -443,6 +447,37 @@ class CardFieldsTests(unittest.TestCase):
         self.assertEqual(
             notice.text(),
             "품질값 정밀 결정 CQ22.0 -> CQ23.0\n품질값 자동 조정 CQ23.0 -> CQ25.0",
+        )
+
+    def test_original_resolution_decision_shows_kept_original_and_planned_size(self) -> None:
+        """정밀 결정이 축소를 취소하면 해상도 칸과 안내 줄이 원본 유지와 계획한 축소를 함께 보여 주는지 검증"""
+        phase = TuningPhase(
+            stage=PHASE_MAIN, baseline_quality=22.0, current_quality=24.0, previous_quality=22.0,
+            precise_quality=24.0, precise_resolution=DECISION_KEEP_ORIGINAL,
+        )
+        fields = card_fields(
+            _sample(), _job(), 10.0, 0.5, 2000.0, 150 * 1024 * 1024, "HEVC NVENC", phase=phase
+        )
+        self.assertEqual(fields[10].text, PRECISE_KEEP_ORIGINAL_TEXT)
+        self.assertEqual(PRECISE_KEEP_ORIGINAL_TEXT, "원본 해상도 유지 (정밀 결정)")
+        self.assertIn(PRECISE_KEEP_ORIGINAL_TIP, fields[10].tip)
+        self.assertIn("720p", fields[10].tip)
+        card = JobCard("clip.mp4")
+        self.addCleanup(card.deleteLater)
+        apply_card_phase(
+            card,
+            _job(),
+            "HEVC NVENC",
+            phase,
+            set_chip_phase=lambda _badge, _tip: None,
+            set_chip_progress=lambda _frac: None,
+            set_chip_pre_encode=lambda _pre: None,
+        )
+        notice = card.findChild(QLabel, "EncodeRetryNotice")
+        assert notice is not None
+        self.assertEqual(
+            notice.text(),
+            f"{PRECISE_RESOLUTION_NOTICE}\n품질값 정밀 결정 CQ22.0 -> CQ24.0",
         )
 
     def test_missing_position_and_projection_explain_why(self) -> None:

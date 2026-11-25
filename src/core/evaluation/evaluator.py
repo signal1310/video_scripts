@@ -228,6 +228,7 @@ class VideoEvaluator:
             after_mb, delta_mb = vid.vid_size_MB, 0.0
 
         # - 축소 후보가 있으면 출력 기준 지표와 인코딩 시간을 표시(원본 디코딩 부하 미반영)
+        original_target_optimal_kbps = target_opt_kbps
         if downscale is not None:
             target_opt_kbps = downscale.target_optimal_kbps
             target_ratio = downscale.target_bitrate_ratio
@@ -246,6 +247,7 @@ class VideoEvaluator:
             hypothetical_delta_mb=hyp_delta_mb,
             estimated_encode_sec=display_encode_sec,
             target_optimal_kbps=target_opt_kbps,
+            original_target_optimal_kbps=original_target_optimal_kbps,
             target_bitrate_ratio=target_ratio,
             use_low_quality_preset=decision.use_low_quality_preset,
             output_cq=output_cq,

@@ -144,6 +144,8 @@ class VideoEvaluation:
     hypothetical_delta_mb: float | None = None
     estimated_encode_sec: float = 0.0
     target_optimal_kbps: int = 0
+    # - 축소 후보를 적용하기 전, 원본(크롭) 해상도 기준 출력 목표 비트레이트. 축소 비교의 원본 옵션 계산에 씀
+    original_target_optimal_kbps: int = 0
     target_bitrate_ratio: float = 0.0  # 출력 코덱 기준 비트레이트 비율 (r_out = B_curr / B_opt_out)
     use_low_quality_preset: bool = False  # 저화질 보호 프리셋(저화질/노이즈/역전/정적 화면) 라우팅 여부
     # - 실제 적용 품질값(기준 또는 저화질 보호 품질값), 권장 처리 명칭과 옵션의 {cq} 자리에 표기. None이면 기본 설정 값으로 유도

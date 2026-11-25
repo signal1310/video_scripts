@@ -42,6 +42,7 @@ from src.core.encode.power_state import prevent_sleep
 from src.core.encode.quality_tuning import format_saving_adjustment
 from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
 from src.core.encoder_specs import get_encode_codec_family
+from src.core.evaluation.sample_tuner import DECISION_KEEP_DOWNSCALE, DECISION_KEEP_ORIGINAL
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
 from src.service.analysis_store import AnalysisStore
 from src.service.encode import encode_reasons as reasons
@@ -55,14 +56,14 @@ from src.service.encode.encode_events import (
     main_phase_event,
 )
 from src.service.encode.encode_history import EncodeHistory, ItemRow, utc_now_iso
-from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json, resolve_workers
+from src.service.encode.encode_job import EncodeJob, EncodeSettings, job_from_json, job_to_json, resolve_workers
 from src.service.encode.encode_outcome import EncodeAttempt, ItemOutcome, build_finish_fields, outcome_with_tuning
 from src.service.encode.encode_output_history import EncodeOutputHistory, query_known_tag_names, record_done_output
 from src.service.encode.encode_path_claims import ResultPathClaims
 from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_placement import place_result
 from src.service.encode.encode_ports import ProbeFn, ProcessFactory, default_probe, default_process_factory
-from src.service.encode.encode_precise_tune import PreciseQualityTuner
+from src.service.encode.encode_precise_tune import PreciseQualityTuner, replace_downscale_with_original
 from src.service.encode.encode_quality_tuner import RetryWatch, tune_and_encode
 from src.service.encode.encode_sample_predict import predict_saving_size
 from src.service.encode.encode_tag_io import build_tagged_plan, merge_mp4_output_tags, write_result_tags
@@ -251,6 +252,7 @@ class EncodeRunner:
         precise_quality: float | None = None
         precise_reason = ""
         precise_previous: float | None = None
+        precise_resolution = ""
         base_quality = job.quality
         if job.purpose is GatePurpose.SAVING and job.precise_tune:
             tuned = self._precise_tuner()(batch_id, job, plan)
@@ -263,6 +265,16 @@ class EncodeRunner:
                 job = dataclasses.replace(job, quality=precise_quality)
                 plan = dataclasses.replace(plan, quality=precise_quality)
             precise_reason = tuned.reason
+            precise_resolution = tuned.decision
+            if tuned.decision == DECISION_KEEP_ORIGINAL:
+                # - 축소 후보가 원본 규격에 밀리면 출력 크기를 원본(크롭)으로 되돌리고 scale을 뺌
+                #   최대 비트레이트는 원본 화소 크기가 담기는 규격 상한으로 다시 계산
+                job, plan = replace_downscale_with_original(job, plan, tuned.maxrate_kbps)
+            elif tuned.decision == DECISION_KEEP_DOWNSCALE:
+                job = dataclasses.replace(job, downscale_decision=DECISION_KEEP_DOWNSCALE)
+            if tuned.decision:
+                # - 확정한 해상도 판정을 작업 기록에 남겨 이어서 인코딩할 때 같은 비교를 반복하지 않음
+                self._update(batch_id, source, {"plan_json": job_to_json(job)})
         if job.purpose is GatePurpose.SAVING:
             prediction = predict_saving_size(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
@@ -283,7 +295,7 @@ class EncodeRunner:
             self._emit(main_phase_event(
                 batch_id, source, job.quality, adjusted_quality=adjusted_quality,
                 precise_quality=precise_quality, precise_reason=precise_reason,
-                previous_quality=precise_previous,
+                previous_quality=precise_previous, precise_resolution=precise_resolution,
             ))
         if job.purpose is GatePurpose.KEYFRAME_FIX:
             plan, attempt = tune_and_encode(
@@ -312,6 +324,9 @@ class EncodeRunner:
             attempt = dataclasses.replace(
                 attempt, tuned_quality=precise_quality, tuning_reason=precise_reason,
             )
+        elif precise_reason:
+            # - 정밀 결정이 계획한 품질값을 그대로 확인한 경우에도 판정 근거와 해상도 선택을 사유 줄에 남김
+            attempt = dataclasses.replace(attempt, tuning_reason=precise_reason)
         if attempt.cancelled or self._abort.is_set():
             self._remove_part(plan.part_path)
             return ItemOutcome(EncodeState.PENDING)

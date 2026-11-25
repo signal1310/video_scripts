@@ -36,6 +36,7 @@ from src.core.encode.encode_progress_view import (
     remaining_sec,
     speed_text,
 )
+from src.core.evaluation.sample_tuner import DECISION_KEEP_ORIGINAL
 from src.core.quality_target import format_cq_value
 from src.gui.dialogs.encode_graph_legend import GraphLegend
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
@@ -118,6 +119,13 @@ PRECISE_TUNE_RESULT_TIP: str = (
     "품질값 정밀 결정으로 정한 목표 품질값입니다. 대표 구간을 실제로 인코딩해 잰 화질 점수가 기준을 넘는 가장 높은 값입니다."
 )
 PRECISE_TUNE_NOTICE: str = "품질값 정밀 결정 CQ{previous} -> CQ{current}"
+# - 축소 후보 비교(6a-3) 결과 안내. 원본을 유지하면 확정 전 계획한 축소를 쓰지 않았다는 뜻
+PRECISE_KEEP_ORIGINAL_TEXT: str = "원본 해상도 유지 (정밀 결정)"
+PRECISE_KEEP_ORIGINAL_TIP: str = (
+    "정밀 결정에서 같은 구간을 축소 후보와 원본 해상도로 각각 인코딩해 비교한 결과, 원본 해상도를 유지하기로 했습니다. "
+    "축소하면 화질 기준에 미달하거나, 원본을 그대로 두는 편이 비트레이트가 더 낮았습니다."
+)
+PRECISE_RESOLUTION_NOTICE: str = "정밀 결정: 원본 해상도 유지 (축소 취소)"
 GRAPH_TITLE_TIP: str = "시간에 따른 초당 데이터량(비트레이트) 변화를 보여 줍니다. 오른쪽 안내 아이콘에서 선 모양별 뜻을 확인할 수 있습니다."
 NO_VALUE_TIP: str = "인코딩을 시작한 지 얼마 안 되었거나 이 영상에서는 측정할 수 없습니다."
 NO_POSITION_TIP: str = (
@@ -185,7 +193,7 @@ def card_fields(
         _field(None if projected_mb is None else size_text(projected_mb), no_projection_tip, CAPTION_TIPS[7]),
         _field(None if job.expected_after_mb is None else size_text(job.expected_after_mb), NO_VALUE_TIP, CAPTION_TIPS[8]),
         target_q_field,
-        CardField(resolution_text(job.output_size), CAPTION_TIPS[10]),
+        _resolution_field(job, phase),
         CardField(encoder_label, CAPTION_TIPS[11]),
         _field(None if instant_kbps is None else kbps_text(instant_kbps), NO_VALUE_TIP, CAPTION_TIPS[12]),
     )
@@ -264,6 +272,17 @@ def _target_quality_field(job: EncodeJob, phase: TuningPhase | None) -> CardFiel
         )
         return CardField(f"{cur_txt} (기준 {base_txt})", f"{reason}\n{CAPTION_TIPS[9]}")
     return CardField(quality_text(job.quality), CAPTION_TIPS[9])
+
+
+def _resolution_field(job: EncodeJob, phase: TuningPhase | None) -> CardField:
+    """출력 해상도 칸. 정밀 결정이 축소를 취소했으면 계획한 축소 대신 원본 유지로 표시"""
+    if phase is not None and phase.precise_resolution == DECISION_KEEP_ORIGINAL:
+        planned = resolution_text(job.output_size)
+        tip = PRECISE_KEEP_ORIGINAL_TIP
+        if job.output_size is not None:
+            tip = f"{tip}\n계획한 출력 해상도는 {planned}이었습니다."
+        return CardField(PRECISE_KEEP_ORIGINAL_TEXT, tip)
+    return CardField(resolution_text(job.output_size), CAPTION_TIPS[10])
 
 
 def _speed_text(sample: ProgressSample) -> str | None:
@@ -523,6 +542,8 @@ def apply_card_phase(
         set_chip_phase(f"재시도 {phase.retry_count}/1", notice)
     else:
         notices: list[str] = []
+        if phase.precise_resolution == DECISION_KEEP_ORIGINAL:
+            notices.append(PRECISE_RESOLUTION_NOTICE)
         if phase.precise_quality is not None and phase.previous_quality is not None:
             notices.append(
                 PRECISE_TUNE_NOTICE.format(

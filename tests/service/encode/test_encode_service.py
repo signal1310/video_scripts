@@ -24,6 +24,8 @@ from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EARLY_STOP_MIN_PR
 from src.core.encode.encode_state import EncodeState
 from src.core.encode.quality_tuning import adjust_saving_quality, format_saving_adjustment
 from src.core.evaluation.sample_tuner import (
+    DECISION_KEEP_DOWNSCALE,
+    DECISION_KEEP_ORIGINAL,
     REASON_CONVERGED,
     QualityProbe,
     TuneResult,
@@ -1237,11 +1239,15 @@ class _FakePreciseTuner:
         adopted: float | None = None,
         converged: bool = True,
         cancel: threading.Event | None = None,
+        decision: str = "",
+        maxrate_kbps: int | None = None,
     ) -> None:
         self.calls: list[int] = []
         self._adopted: float | None = adopted
         self._converged: bool = converged
         self._cancel: threading.Event | None = cancel
+        self._decision: str = decision
+        self._maxrate_kbps: int | None = maxrate_kbps
 
     def __call__(self, batch_id: int, job: EncodeJob, plan: Any) -> Any:
         self.calls.append(batch_id)
@@ -1258,6 +1264,8 @@ class _FakePreciseTuner:
             previous_quality=previous,
             adopted_quality=adopted,
             reason=reason,
+            decision=self._decision,
+            maxrate_kbps=self._maxrate_kbps,
         )
 
 
@@ -1298,6 +1306,84 @@ class TestPreciseQualityTuneFlow(_ServiceCase):
         self.assertEqual(item.tuned_quality, 25.0)
         self.assertIn("품질값 정밀 결정", item.reason)
         self.assertAlmostEqual(self._quality_arg(encoder.main_calls[0]), 0.45 * 25.0 + 9.45, places=1)
+
+    def test_original_resolution_decision_replaces_scale_and_maxrate(self) -> None:
+        """원본 해상도 확정이 본 인코딩 인자에서 scale을 빼고 원본 규격 최대 비트레이트를 씀"""
+        path = self._source()
+        tuner = _FakePreciseTuner(adopted=26.0, decision=DECISION_KEEP_ORIGINAL, maxrate_kbps=3000)
+        encoder = _FakeEncoder(sample_bytes=1)
+        job = self._saving_job(
+            path,
+            precise_tune=True,
+            quality=26.0,
+            output_size=(1920, 1080),
+            scale_filter="scale=1920:1080",
+            maxrate_kbps=5400,
+            source_width=3840,
+            source_height=2160,
+            original_target_kbps=2000.0,
+        )
+        item = self._run_job(job, tuner=tuner, encoder=encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        args = encoder.main_calls[0]
+        self.assertFalse(any("scale=" in token for token in args))
+        self.assertIn("3000k", args)
+        self.assertNotIn("5400k", args)
+        self.assertEqual(item.reason, "품질값 정밀 결정: 26.0 -> 26.0 (품질값 26.0 확인 (정밀 시험 2회))")
+
+    def test_original_resolution_decision_is_recorded_in_the_job_json(self) -> None:
+        """확정한 해상도 판정을 계획 JSON에 남겨 이어서 인코딩할 때 비교를 반복하지 않음"""
+        path = self._source()
+        tuner = _FakePreciseTuner(adopted=26.0, decision=DECISION_KEEP_ORIGINAL, maxrate_kbps=3000)
+        job = self._saving_job(
+            path,
+            precise_tune=True,
+            quality=26.0,
+            output_size=(1920, 1080),
+            scale_filter="scale=1920:1080",
+            maxrate_kbps=5400,
+            source_width=3840,
+            source_height=2160,
+            original_target_kbps=2000.0,
+        )
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        self._runner(settings, encoder=_FakeEncoder(sample_bytes=1), tuner=tuner).run(batch_id)
+        row = self.history.list_items(batch_id)[0]
+        recorded = job_from_json(row.plan_json)
+        self.assertEqual(recorded.downscale_decision, DECISION_KEEP_ORIGINAL)
+        self.assertEqual(recorded.output_size, (3840, 2160))
+        self.assertIsNone(recorded.scale_filter)
+        self.assertEqual(recorded.maxrate_kbps, 3000)
+        self.assertEqual(recorded.corrected_target_kbps, 2000.0)
+
+    def test_downscale_decision_is_recorded_and_keeps_the_scaled_plan(self) -> None:
+        """축소 유지가 이기면 계획한 축소 출력과 상한을 그대로 쓰고 판정만 기록"""
+        path = self._source()
+        tuner = _FakePreciseTuner(adopted=26.0, decision=DECISION_KEEP_DOWNSCALE)
+        encoder = _FakeEncoder(sample_bytes=1)
+        job = self._saving_job(
+            path,
+            precise_tune=True,
+            quality=26.0,
+            output_size=(1920, 1080),
+            scale_filter="scale=1920:1080",
+            maxrate_kbps=5400,
+            source_width=3840,
+            source_height=2160,
+            original_target_kbps=2000.0,
+        )
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        self._runner(settings, encoder=encoder, tuner=tuner).run(batch_id)
+        row = self.history.list_items(batch_id)[0]
+        args = encoder.main_calls[0]
+        self.assertTrue(any("scale=1920:1080" in token for token in args))
+        self.assertIn("5400k", args)
+        recorded = job_from_json(row.plan_json)
+        self.assertEqual(recorded.downscale_decision, DECISION_KEEP_DOWNSCALE)
+        self.assertEqual(recorded.output_size, (1920, 1080))
+        self.assertEqual(recorded.maxrate_kbps, 5400)
 
     def test_keyframe_fix_purpose_never_calls_the_tuner(self) -> None:
         path = self._source()

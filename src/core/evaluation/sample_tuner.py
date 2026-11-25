@@ -17,7 +17,7 @@ from src.core.quality_target import (
 )
 
 # - 결과 캐시 무효화 판. 판정 규칙이나 탐색 방식이 바뀌면 올림
-SAMPLE_TUNER_VERSION: int = 1
+SAMPLE_TUNER_VERSION: int = 2
 # - 결정 18: 영상당 3~4회 샘플 인코딩을 넘기지 않음
 TUNE_MAX_PROBES: int = 4
 # - 인코더 품질 눈금. 정수 척도 인코더는 1.0, 소수 첫째 자리 인코더는 0.1(`snap_quality`와 같은 규칙)
@@ -27,6 +27,16 @@ QUALITY_GRANULARITY_DECIMAL: float = 0.1
 REASON_CONVERGED: str = "converged"
 REASON_FALLBACK_BASELINE: str = "fallback_baseline"
 REASON_UNMEASURABLE: str = "unmeasurable"
+# - 축소 후보 비교 판정 코드(`compare_downscale` 반환값). 작업 JSON과 사유 문구가 같은 값을 씀
+COMPARE_CANDIDATE_FAILED: str = "candidate_failed"
+COMPARE_CANDIDATE_ONLY_PASS: str = "candidate_only_pass"
+COMPARE_CANDIDATE_SMALLER: str = "candidate_smaller"
+COMPARE_ORIGINAL_NOT_LARGER: str = "original_not_larger"
+# - 확정 해상도 선택. 작업 JSON에 그대로 남겨 이어서 인코딩할 때 비교를 다시 하지 않음
+DECISION_KEEP_ORIGINAL: str = "original"
+DECISION_KEEP_DOWNSCALE: str = "downscale"
+# - 축소 후보가 이기는 비교 사유. 나머지 사유는 원본 해상도 유지
+_DOWNSCALE_WIN_REASONS: frozenset[str] = frozenset({COMPARE_CANDIDATE_ONLY_PASS, COMPARE_CANDIDATE_SMALLER})
 
 
 def quality_granularity(integer_scale: bool) -> float:
@@ -201,12 +211,38 @@ def compare_downscale(
     resolved_target = target if target is not None else TuneTarget()
     candidate_passes = probe_passes(candidate_probe, resolved_target)
     if not candidate_passes:
-        return DownscaleComparison(False, candidate_probe, original_probe, "candidate_failed")
+        return DownscaleComparison(False, candidate_probe, original_probe, COMPARE_CANDIDATE_FAILED)
     if not probe_passes(original_probe, resolved_target):
-        return DownscaleComparison(True, candidate_probe, original_probe, "candidate_only_pass")
+        return DownscaleComparison(True, candidate_probe, original_probe, COMPARE_CANDIDATE_ONLY_PASS)
     if candidate_probe.bitrate_kbps < original_probe.bitrate_kbps:
-        return DownscaleComparison(True, candidate_probe, original_probe, "candidate_smaller")
-    return DownscaleComparison(False, candidate_probe, original_probe, "original_not_larger")
+        return DownscaleComparison(True, candidate_probe, original_probe, COMPARE_CANDIDATE_SMALLER)
+    return DownscaleComparison(False, candidate_probe, original_probe, COMPARE_ORIGINAL_NOT_LARGER)
+
+
+def format_comparison_reason(comparison: DownscaleComparison) -> str:
+    """축소 후보 비교 결과를 사유 한 줄로 바꿈
+
+    - 축소를 유지하면 원본 규격 대비 비트레이트 차이를 함께 적어 판단 근거를 남김
+    """
+    if not comparison.use_downscale:
+        return (
+            "품질값 정밀 결정: 원본 해상도 유지 (축소 시 화질 기준 미달)"
+            if comparison.reason == COMPARE_CANDIDATE_FAILED
+            else "품질값 정밀 결정: 원본 해상도 유지 (축소 이득 없음)"
+        )
+    saving = relative_bitrate_saving_percent(comparison)
+    if comparison.reason == COMPARE_CANDIDATE_ONLY_PASS:
+        return "품질값 정밀 결정: 축소 유지 (원본 해상도는 화질 기준 미달)"
+    return f"품질값 정밀 결정: 축소 유지 (원본 해상도 대비 {saving}% 작음)"
+
+
+def relative_bitrate_saving_percent(comparison: DownscaleComparison) -> int:
+    """축소 후보가 원본 규격보다 작은 비트레이트 비율(%). 원본 비트레이트를 모르면 0"""
+    original = comparison.original_probe.bitrate_kbps
+    if original <= 0:
+        return 0
+    ratio = 1.0 - comparison.candidate_probe.bitrate_kbps / original
+    return max(0, round(ratio * 100))
 
 
 def format_result_reason(result: TuneResult) -> str:

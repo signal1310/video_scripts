@@ -8,6 +8,7 @@ import unittest
 from src.core.config import ClassifierConfig, EncodeConfig
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN
+from src.core.evaluation.sample_tuner import DECISION_KEEP_ORIGINAL
 from src.core.models import ActiveFrame
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, build_scale_expression
 from src.core.smart_action import SmartAction
@@ -65,6 +66,70 @@ class TestEncodeSettingsSnapshot(unittest.TestCase):
 
 class TestEncodeJobSerialization(unittest.TestCase):
     """EncodeJob 직렬화와 배치 생성을 검증"""
+
+    def test_downscale_comparison_fields_round_trip_and_default(self) -> None:
+        """축소 비교 입력과 확정 결과가 JSON 왕복에서 유지되고, 옛 기록은 안전한 기본값으로 읽힘"""
+        job = EncodeJob(
+            filename="clip.mp4",
+            root_dir="/root",
+            source_path="/root/clip.mp4",
+            source_size=1234,
+            source_mtime_ns=5678,
+            source_duration_sec=12.5,
+            source_ext="mp4",
+            fps=30.0,
+            quality=26.0,
+            purpose=GatePurpose.SAVING,
+            output_size=(1920, 1080),
+            scale_filter="scale=1920:1080",
+            maxrate_kbps=5400,
+            corrected_target_kbps=3000.0,
+            baseline_quality=22.0,
+            precise_tune=True,
+            source_width=3840,
+            source_height=2160,
+            original_target_kbps=4500.0,
+            manual_downscale=True,
+            downscale_decision=DECISION_KEEP_ORIGINAL,
+        )
+        restored = job_from_json(job_to_json(job))
+        self.assertEqual(restored, job)
+        legacy = json.loads(job_to_json(job))
+        for key in (
+            "source_width",
+            "source_height",
+            "original_target_kbps",
+            "manual_downscale",
+            "downscale_decision",
+        ):
+            del legacy[key]
+        old = job_from_json(json.dumps(legacy))
+        self.assertIsNone(old.source_width)
+        self.assertIsNone(old.original_target_kbps)
+        self.assertFalse(old.manual_downscale)
+        self.assertEqual(old.downscale_decision, "")
+
+    def test_downscale_job_carries_original_size_and_manual_flag(self) -> None:
+        """축소 판정에서 원본(크롭) 화소 크기와 원본 목표 비트레이트, 직접 지정 여부를 남김"""
+        tier = RESOLUTION_TIER_BY_KEY["1080p"]
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "clip.mp4"), "wb") as handle:
+                handle.write(b"video")
+            ev = make_eval(
+                make_video(filename="clip.mp4", width=3840, height=2160),
+                smart_action=SmartAction.ENCODE_DOWNSCALE,
+                target_tier=tier,
+                target_width=1600,
+                target_height=900,
+                target_optimal_kbps=1200,
+                original_target_optimal_kbps=3600,
+                manual_target="1080p",
+            )
+            job = jobs_from_evaluations([ev], tmp)[0]
+        self.assertEqual((job.source_width, job.source_height), (3840, 2160))
+        self.assertTrue(job.manual_downscale)
+        self.assertEqual(job.downscale_decision, "")
+        self.assertIsNotNone(job.original_target_kbps)
 
     def test_job_json_round_trip_and_create_batch(self) -> None:
         job = EncodeJob(

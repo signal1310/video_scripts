@@ -11,6 +11,8 @@ from src.core.config import (
 )
 from src.core.encode.encode_gate import GatePurpose, purpose_for_evaluation
 from src.core.models import VideoEvaluation
+from src.core.quality_target import general_maxrate_kbps
+from src.core.resolution_tiers import find_source_tier
 
 # - 선택 적용에서 정밀 결정 대상을 넓히는 판정 경계 여유. 비율이 경계에 이만큼 가까우면 판정이 흔들릴 수 있음
 PRECISE_TUNE_BOUNDARY_MARGIN: float = 0.15
@@ -40,3 +42,34 @@ def should_precise_tune(ev: VideoEvaluation, mode: str, config: ClassifierConfig
     over = config.thresholds.over_bitrate_ratio
     low = config.thresholds.low_bitrate_ratio
     return abs(ratio - over) <= limit or abs(ratio - low) <= limit
+
+
+def should_compare_downscale(
+    job_precise_tune: bool,
+    manual_downscale: bool,
+    has_downscale: bool,
+    already_decided: bool = False,
+) -> bool:
+    """축소 후보와 원본 규격을 비교할지 판정
+
+    - 정밀 결정 대상이 아니거나 축소 후보가 없으면 비교하지 않음
+    - 출력 해상도를 직접 지정한 영상은 사용자 의도이므로 비교하지 않고 축소를 그대로 씀
+    - 이전 실행에서 확정한 기록이 있으면 같은 판정을 다시 하지 않음
+    """
+    return job_precise_tune and has_downscale and not manual_downscale and not already_decided
+
+
+def original_resolution_maxrate_kbps(
+    original_target_kbps: float | None,
+    width: int,
+    height: int,
+) -> int | None:
+    """원본 해상도 옵션의 최대 비트레이트(kbps). 규격 상한이 없으면 상한 없음(None)
+
+    - 5d-2 규칙과 같은 `general_maxrate_kbps`를 쓰고, 원본 화소 크기가 담기는 규격의 상한만 적용
+    - 목표 비트레이트를 모르면 상한을 걸 수 없으므로 None
+    """
+    if original_target_kbps is None or width <= 0 or height <= 0:
+        return None
+    tier = find_source_tier(width, height)
+    return general_maxrate_kbps(original_target_kbps, None if tier is None else tier.max_bitrate_kbps) or None

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import functools
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ from src.service.frame_compare_service import ExtractedFrames, FrameCompareFileM
 
 EXTRACT_DEBOUNCE_MS: int = 120
 DEDUPE_TIME_EPSILON_SEC: float = 0.001
+# - 조율자가 먼저 지워지면 스레드도 함께 파괴되어 Qt가 프로세스를 중단시키므로, 끝날 때까지 붙잡아 둠
+_RUNNING_WORKERS: set[FrameCompareWorker] = set()
 
 
 class FrameExtractor(Protocol):
@@ -143,11 +146,21 @@ class FrameCompareWorker(QThread):
         )
 
 
+def discard_running_worker(worker: FrameCompareWorker) -> None:
+    """끝난 스레드를 붙잡아 둔 목록에서 빼고 지연 삭제
+
+    - 스레드가 끝난 뒤 `finished` 신호에서 한 번만 불림
+    """
+    _RUNNING_WORKERS.discard(worker)
+    worker.deleteLater()
+
+
 class FrameCompareExtraction(QObject):
     """시점과 대상이 바뀔 때 이전 요청을 취소하고 최신 요청만 실행하는 조율자
 
     - 같은 시점과 대상을 이미 불러왔으면 다시 추출하지 않음
     - 즉시가 아닌 요청은 짧게 모아 빠른 시점 이동에서 추출을 한 번만 함
+    - 실행 중인 스레드는 조율자가 먼저 지워져도 파괴되지 않도록 따로 붙잡음
     """
 
     started = pyqtSignal()
@@ -222,10 +235,11 @@ class FrameCompareExtraction(QObject):
             request.frame_width,
             request.frame_height,
             threading.Event(),
-            self,
         )
         worker.completed.connect(self._on_completed)
+        worker.finished.connect(functools.partial(discard_running_worker, worker))
         self._worker = worker
+        _RUNNING_WORKERS.add(worker)
         worker.start()
 
     def _on_completed(self, outcome: object) -> None:

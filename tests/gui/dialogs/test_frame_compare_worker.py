@@ -10,9 +10,12 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6 import sip
+from PyQt6.QtCore import QEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.core.analysis.frame_compare import FrameSource
+from src.gui.dialogs import frame_compare_worker as worker_module
 from src.gui.dialogs.frame_compare_worker import (
     ExtractionRequest,
     ExtractOutcome,
@@ -204,6 +207,35 @@ class ExtractionRunnerTests(unittest.TestCase):
         self.assertEqual(self.extractor.calls, [])
         self.assertEqual(self.extractor.released, 1)
         self.assertFalse(self.runner.busy)
+
+    def test_running_worker_survives_the_coordinator_being_destroyed(self) -> None:
+        """추출이 진행 중인 조율자를 지워도 실행 중인 스레드가 파괴되지 않는지 검증
+
+        - 실행 중인 QThread를 쥔 채 파괴하면 Qt가 중단으로 프로세스를 죽임
+        """
+        started = threading.Event()
+        finish = threading.Event()
+
+        class BlockingExtractor(_Extractor):
+            def extract_pair(self, *args: object, **kwargs: object) -> ExtractedFrames:
+                del args, kwargs
+                started.set()
+                finish.wait(_WAIT_SECONDS)
+                return ExtractedFrames(original_bytes=b"a", compared_bytes=b"b")
+
+        runner = FrameCompareExtraction(BlockingExtractor())
+        self.assertTrue(runner.request(_request(1.0)))
+        self.assertTrue(started.wait(_WAIT_SECONDS))
+        worker = runner._worker
+        assert worker is not None
+        runner.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.assertTrue(sip.isdeleted(runner))
+        self.assertIn(worker, worker_module._RUNNING_WORKERS)
+        finish.set()
+        self.assertTrue(worker.wait(int(_WAIT_SECONDS * 1000)))
+        _APP.processEvents()
+        self.assertNotIn(worker, worker_module._RUNNING_WORKERS)
 
     def test_stale_outcome_is_discarded(self) -> None:
         self.runner._request_id = 5

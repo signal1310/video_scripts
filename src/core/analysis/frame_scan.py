@@ -3,22 +3,19 @@
 - `PyAV` 컨테이너를 한 번만 열어 키프레임의 Y 평면을 직접 읽어 외부 프로세스 없이 검은 화면과 검은 여백을 찾음
 - `numpy` 없이 `bytes.translate` 룩업 테이블과 `memoryview`/`bytes` 슬라이스 합만으로 픽셀 비율과 줄, 열 평균을 계산
 - PyAV 열기나 디코딩이 실패하거나 테스트가 실행기를 주입하면 FFmpeg CLI 9지점 키프레임 스캔으로 폴백
+- CLI 폴백도 지점마다 8-bit 회색조 한 장을 받아 같은 `luma_frame_stats` 규칙으로 판정해 두 경로의 여백 정의를 하나로 유지
 """
 
 from __future__ import annotations
 
 import logging
-import re
 import threading
+import uuid
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, cast
 
-from src.core.analysis.frame_analysis import (
-    CROP_DETECT_LIMIT,
-    CROP_DETECT_ROUND,
-    CropBox,
-    parse_cropdetect_boxes,
-)
+from src.core.analysis.frame_analysis import CropBox
 from src.core.command_history import STAGE_FRAME_ANALYSIS, command_scope
 from src.core.file_sharing import open_shared_binary
 
@@ -51,12 +48,14 @@ TEXT_ISLAND_MIN_GAP_LINES: int = 2
 TEXT_ISLAND_BLOCK_FACTOR: int = 3
 # - 줄 편차 중앙값에 쓰는 표본 상한. 줄이 길어도 계산량을 일정하게 유지
 SPREAD_SAMPLE_LIMIT: int = 64
-SCAN_BLACKFRAME_THRESHOLD: int = 24
 FULL_TURN_DEGREES: int = 360
 HALF_TURN_DEGREES: int = 180
 QUARTER_TURN_DEGREES: int = 90
 FALLBACK_TIME_BASE_SEC: float = 1.0 / 1000.0
-BLACKFRAME_PBLACK_RE: re.Pattern[str] = re.compile(r"pblack:\s*(\d+)")
+# - CLI 폴백이 받는 회색조 한 장의 매직과 최대값. FFmpeg `pgm` 인코더는 8-bit `P5`만 냄
+PGM_MAGIC: bytes = b"P5"
+PGM_MAX_VALUE: int = 255
+PGM_HEADER_TOKEN_LIMIT: int = 4
 _EIGHT_BIT_LUMA_FORMATS: frozenset[str] = frozenset(
     {"gray", "yuv420p", "yuv422p", "yuv444p", "yuvj420p", "yuvj422p", "yuvj444p", "nv12", "nv21"}
 )
@@ -84,12 +83,17 @@ def build_scan_command(
     source_path: str,
     start_sec: float,
     fast_keyframe_seek: bool,
+    frame_path: str,
 ) -> list[str]:
-    """CLI 9지점 폴백에서 키프레임 한 장의 검은 화면과 활성 화면을 재는 인자 목록"""
+    """CLI 9지점 폴백에서 키프레임 한 장을 8-bit 회색조 PGM 파일로 받는 인자 목록
+
+    - PyAV 경로와 같은 판정을 쓰려고 로그 대신 픽셀을 받음. 한 지점에 프로세스 한 번
+    """
     args = [
         ffmpeg_executable,
         "-hide_banner",
         "-nostdin",
+        "-y",
         "-ss",
         f"{start_sec:.3f}",
     ]
@@ -104,23 +108,58 @@ def build_scan_command(
             "-frames:v",
             "1",
             "-vf",
-            (
-                f"blackframe=amount=0:threshold={SCAN_BLACKFRAME_THRESHOLD},"
-                f"cropdetect={CROP_DETECT_LIMIT}:{CROP_DETECT_ROUND}:0:0"
-            ),
+            "format=gray",
             "-an",
             "-f",
-            "null",
-            "-",
+            "image2",
+            "-c:v",
+            "pgm",
+            frame_path,
         ]
     )
     return args
 
 
-def parse_blackframe_pixel_ratio(stderr_text: str) -> float:
-    """`blackframe` 로그의 검은 픽셀 비율(0.0 ~ 1.0), 로그가 없으면 0"""
-    ratios = [min(100, int(raw)) / 100.0 for raw in BLACKFRAME_PBLACK_RE.findall(stderr_text)]
-    return max(ratios, default=0.0)
+def _pgm_header_tokens(data: bytes) -> tuple[list[bytes], int]:
+    """PGM 머리말 토큰과 픽셀 데이터가 시작하는 위치. 주석 줄은 건너뜀"""
+    index = 0
+    tokens: list[bytes] = []
+    length = len(data)
+    while len(tokens) < PGM_HEADER_TOKEN_LIMIT and index < length:
+        current = data[index : index + 1]
+        if current.isspace():
+            index += 1
+            continue
+        if current == b"#":
+            while index < length and data[index : index + 1] not in (b"\n", b"\r"):
+                index += 1
+            continue
+        start = index
+        while index < length and not data[index : index + 1].isspace():
+            index += 1
+        tokens.append(data[start:index])
+    return (tokens, index + 1)
+
+
+def parse_gray_frame(data: bytes) -> tuple[bytes, int, int] | None:
+    """FFmpeg가 쓴 8-bit 회색조 PGM을 (Y 평면, 너비, 높이)로 해석, 형식이 다르면 None
+
+    - 머리말은 매직, 너비, 높이, 최대값 순이며 주석이 끼어도 됨
+    - 픽셀 데이터가 머리말의 너비, 높이보다 짧으면 잘린 파일로 보고 None
+    """
+    tokens, offset = _pgm_header_tokens(data)
+    if len(tokens) < PGM_HEADER_TOKEN_LIMIT or tokens[0] != PGM_MAGIC:
+        return None
+    try:
+        width, height, max_value = (int(token) for token in tokens[1:PGM_HEADER_TOKEN_LIMIT])
+    except ValueError:
+        return None
+    if max_value != PGM_MAX_VALUE or width <= 0 or height <= 0:
+        return None
+    plane = data[offset : offset + width * height]
+    if len(plane) != width * height:
+        return None
+    return (plane, width, height)
 
 
 def _median_deviation(samples: Sequence[int], mean: float) -> float:
@@ -403,6 +442,40 @@ def _scan_with_pyav(
             source.close()
 
 
+def _read_gray_frame(
+    *,
+    source_path: str,
+    start_sec: float,
+    ffmpeg_executable: str,
+    runner: ScanCommandRunner,
+    work_dir: str,
+    fast_keyframe_seek: bool,
+    cancel_event: threading.Event | None,
+) -> tuple[bytes, int, int] | None:
+    """지점 키프레임 한 장을 CLI로 받아 (Y 평면, 너비, 높이)로 반환, 실패하면 None
+
+    - `work_dir`는 여러 작업이 공유하므로 지점마다 다른 임시 파일 이름을 씀
+    - 받은 파일은 읽은 뒤 바로 지움
+    """
+    frame_path = str(Path(work_dir, f"scan_{uuid.uuid4().hex}.pgm"))
+    args = build_scan_command(
+        ffmpeg_executable=ffmpeg_executable,
+        source_path=source_path,
+        start_sec=start_sec,
+        fast_keyframe_seek=fast_keyframe_seek,
+        frame_path=frame_path,
+    )
+    try:
+        with command_scope(STAGE_FRAME_ANALYSIS, args, target=source_path) as handle:
+            returncode, _stderr = runner(args, work_dir)
+            handle.exit_code = returncode
+        if returncode != 0:
+            return None
+        return parse_gray_frame(Path(frame_path).read_bytes())
+    finally:
+        Path(frame_path).unlink(missing_ok=True)
+
+
 def scan_with_cli(
     *,
     source_path: str,
@@ -414,29 +487,34 @@ def scan_with_cli(
     cancel_event: threading.Event | None,
     on_point: PointCallback | None,
 ) -> KeyframeScanResult:
-    """FFmpeg CLI 9지점 키프레임 통합 스캔. 실패한 지점은 검은 화면으로 봄"""
+    """FFmpeg CLI 9지점 키프레임 스캔. 실패한 지점은 검은 화면으로 봄
+
+    - PyAV 경로와 같은 `luma_frame_stats` 규칙으로 판정하므로 검은 화면, 검은 여백 기준이 하나임
+    - FFmpeg가 회전 메타데이터를 반영해 픽셀을 내주므로 표시 방향 전치가 필요 없음
+    """
     boxes: list[CropBox] = []
     black_points: list[int] = []
     total = len(points)
     for index, start_sec in enumerate(points):
         _check_cancel(cancel_event)
-        args = build_scan_command(
-            ffmpeg_executable=ffmpeg_executable,
+        frame = _read_gray_frame(
             source_path=source_path,
             start_sec=start_sec,
+            ffmpeg_executable=ffmpeg_executable,
+            runner=runner,
+            work_dir=work_dir,
             fast_keyframe_seek=fast_keyframe_seek,
+            cancel_event=cancel_event,
         )
-        with command_scope(STAGE_FRAME_ANALYSIS, args, target=source_path) as handle:
-            returncode, stderr = runner(args, work_dir)
-            handle.exit_code = returncode
-        if returncode != 0:
+        if frame is None:
             black_points.append(index)
         else:
-            black_ratio = parse_blackframe_pixel_ratio(stderr)
+            data, width, height = frame
+            box, black_ratio = luma_frame_stats(data, width, width, height)
             if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
                 black_points.append(index)
-            else:
-                boxes.extend(parse_cropdetect_boxes(stderr))
+            elif box is not None:
+                boxes.append(box)
         if on_point is not None:
             on_point(index + 1, total)
     return KeyframeScanResult(boxes, black_points)

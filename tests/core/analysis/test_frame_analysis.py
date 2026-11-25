@@ -5,8 +5,6 @@ from dataclasses import dataclass
 
 from src.core.analysis.frame_analysis import (
     ACTIVE_AREA_NO_BARS_RATIO,
-    CROP_DETECT_LIMIT,
-    CROP_DETECT_ROUND,
     CROP_SCAN_VERSION,
     DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     EDGE_SNAP_MIN_PX,
@@ -45,7 +43,6 @@ from src.core.analysis.frame_analysis import (
     merge_crop_union,
     next_round_tier_keys,
     normalize_manual_active_frame,
-    parse_cropdetect_boxes,
     rejudge_candidate_tier,
     resolve_crop_frame,
     score_passes,
@@ -59,11 +56,6 @@ from src.core.models import ActiveFrame
 from src.core.quality_probe import VMAF_THREADS
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, SCALE_ALGORITHM_VALUES
 
-_CROP_LINE: str = (
-    "[Parsed_cropdetect_0 @ 0x1] x1:1312 x2:2527 y1:0 y2:2159 w:1216 h:2160 x:1312 y:0 "
-    "pts:12345 pts_time:1.234 limit:24 round:2 reset:0 skip:0 crop=1216:2160:1312:0\n"
-)
-
 
 class TestApprovedConstants(unittest.TestCase):
     """12.17절 승인 확정값과 측정 규칙 버전이 고정값인지 검증"""
@@ -75,8 +67,6 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(VR_MIN_LONG_SIDE, 2560)
         self.assertEqual(ROUNDTRIP_VMAF_THRESHOLD, 98.0)
         self.assertEqual(ROUNDTRIP_SSIM_THRESHOLD, 0.996)
-        self.assertEqual(CROP_DETECT_LIMIT, 24)
-        self.assertEqual(CROP_DETECT_ROUND, 2)
         self.assertEqual(EDGE_SNAP_RATIO, 0.02)
         self.assertEqual(EDGE_SNAP_MIN_PX, 8)
         self.assertEqual(MANUAL_FRAME_MIN_SIZE_PX, 32)
@@ -122,12 +112,7 @@ class TestActiveRegion(unittest.TestCase):
 
 
 class TestCropDetection(unittest.TestCase):
-    """cropdetect 출력 파싱과 합집합 확정 검증"""
-
-    def test_parse_boxes_collects_all_lines_in_order(self) -> None:
-        boxes = parse_cropdetect_boxes(_CROP_LINE + "[Parsed_cropdetect_0 @ 0x2] crop=720:1080:600:0\n")
-        self.assertEqual(boxes, [CropBox(1216, 2160, 1312, 0), CropBox(720, 1080, 600, 0)])
-        self.assertEqual(parse_cropdetect_boxes("no crop here"), [])
+    """검출 상자 합집합 확정 검증"""
 
     def test_no_boxes_returns_full_frame(self) -> None:
         region = merge_crop_union([], 1920, 1080)

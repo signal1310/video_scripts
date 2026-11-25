@@ -53,6 +53,8 @@ class _RunnerTestCase(unittest.TestCase):
         on_stage: Callable[[str, int, int], None] | None = None,
         crop_only: bool = False,
     ) -> FrameAnalysisResult:
+        # - 대역이 만드는 회색조 프레임을 분석 대상 크기와 맞춰, 스캔이 같은 크기를 보게 함
+        runner.frame_size = (width, height)
         return analyze_frames(
             source_path="movie.mp4",
             width=width,
@@ -88,7 +90,7 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.valid_segment_count, 1)
         self.assertEqual(result.total_segment_count, _SEGMENT_COUNT)
         self.assertEqual(result.analysis_version, 222)
-        self.assertEqual(runner.count_commands("blackframe"), _SEGMENT_COUNT)
+        self.assertEqual(runner.count_commands("pgm"), _SEGMENT_COUNT)
 
     def test_fast_mode_uses_half_second_segments_and_fast_seek(self) -> None:
         runner = FakeStderrRunner()
@@ -159,7 +161,7 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.valid_segment_count, 0)
 
     def test_black_segments_are_unmeasurable(self) -> None:
-        runner = FakeStderrRunner(black_ratio=0.6)
+        runner = FakeStderrRunner(black_frame=True)
         result = self.analyze(runner)
         self.assertTrue(result.unmeasurable)
         self.assertEqual(result.valid_segment_count, 0)
@@ -199,7 +201,7 @@ class TestAnalyzeFrames(_RunnerTestCase):
             on_stage=lambda stage, _done, _total: stages.append(stage),
             crop_only=True,
         )
-        self.assertEqual(runner.count_commands("blackframe"), _SEGMENT_COUNT)
+        self.assertEqual(runner.count_commands("pgm"), _SEGMENT_COUNT)
         self.assertEqual(runner.count_commands("-filter_complex"), 0)
         self.assertEqual(stages, [STAGE_SCAN] * _SEGMENT_COUNT)
         self.assertEqual(result.active_region, ActiveRegion(720, 1080, 600, 0, True))

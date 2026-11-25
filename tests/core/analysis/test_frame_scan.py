@@ -1,9 +1,11 @@
 """화질 분석 9지점 키프레임 스캔의 Y 평면 계산, CLI 폴백, 회전 전치 검증"""
 
+import os
 import tempfile
 import threading
 import unittest
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, ClassVar, cast
 from unittest import mock
@@ -12,12 +14,13 @@ from src.core.analysis.frame_analysis import CropBox, merge_crop_union
 from src.core.analysis.frame_scan import (
     BLACK_FRAME_PIXEL_RATIO,
     KeyframeScanResult,
+    ScanCommandRunner,
     _declared_rotation,
     _luma_bytes,
     _scan_with_pyav,
     build_scan_command,
     luma_frame_stats,
-    parse_blackframe_pixel_ratio,
+    parse_gray_frame,
     scan_keyframe_points,
     scan_with_cli,
     transpose_crop_box,
@@ -226,26 +229,48 @@ class TestBarEdgeRules(unittest.TestCase):
 
 
 
-class TestScanCommandAndParsing(unittest.TestCase):
-    """CLI 스캔 명령과 blackframe 비율 파싱 검증"""
+class TestScanCommandAndGrayFrame(unittest.TestCase):
+    """CLI 스캔 명령과 회색조 PGM 해석 검증"""
 
-    def test_scan_command_uses_keyframe_and_metrics(self) -> None:
+    def test_scan_command_writes_one_gray_frame(self) -> None:
         args = build_scan_command(
-            ffmpeg_executable="ffmpeg", source_path="movie.mp4", start_sec=1.5, fast_keyframe_seek=True
+            ffmpeg_executable="ffmpeg",
+            source_path="movie.mp4",
+            start_sec=1.5,
+            fast_keyframe_seek=True,
+            frame_path="frame.pgm",
         )
         self.assertEqual(args[args.index("-ss") + 1], "1.500")
         self.assertIn("-noaccurate_seek", args)
         self.assertEqual(args[args.index("-skip_frame") + 1], "nokey")
-        self.assertIn("blackframe=amount=0:threshold=24,cropdetect=24:2:0:0", args)
+        self.assertEqual(args[args.index("-vf") + 1], "format=gray")
+        self.assertEqual(args[args.index("-c:v") + 1], "pgm")
+        self.assertEqual(args[-1], "frame.pgm")
+        self.assertNotIn("-", args)
+        self.assertNotIn("blackframe=amount=0:threshold=24,cropdetect=24:2:0:0", args)
         slow = build_scan_command(
-            ffmpeg_executable="ffmpeg", source_path="movie.mp4", start_sec=0.0, fast_keyframe_seek=False
+            ffmpeg_executable="ffmpeg",
+            source_path="movie.mp4",
+            start_sec=0.0,
+            fast_keyframe_seek=False,
+            frame_path="frame.pgm",
         )
         self.assertNotIn("-noaccurate_seek", slow)
+        self.assertIn("-y", slow)
 
-    def test_parse_blackframe_ratio_takes_max(self) -> None:
-        text = "pblack:10\n[Parsed_blackframe_0] pblack:100\npblack:200"
-        self.assertEqual(parse_blackframe_pixel_ratio(text), 1.0)
-        self.assertEqual(parse_blackframe_pixel_ratio("no log"), 0.0)
+    def test_parse_gray_frame_reads_header_and_plane(self) -> None:
+        data = b"P5\n4 2\n255\n" + bytes(range(8))
+        self.assertEqual(parse_gray_frame(data), (bytes(range(8)), 4, 2))
+        commented = b"P5\n# comment\n4 2\n255\n" + bytes(range(8))
+        self.assertEqual(parse_gray_frame(commented), (bytes(range(8)), 4, 2))
+
+    def test_parse_gray_frame_rejects_other_shapes(self) -> None:
+        self.assertIsNone(parse_gray_frame(b""))
+        self.assertIsNone(parse_gray_frame(b"P2\n4 2\n255\n" + bytes(range(8))))
+        self.assertIsNone(parse_gray_frame(b"P5\n4 2\n65535\n" + bytes(16)))
+        self.assertIsNone(parse_gray_frame(b"P5\n0 2\n255\n"))
+        self.assertIsNone(parse_gray_frame(b"P5\n4 2\n255\n" + bytes(7)))
+        self.assertIsNone(parse_gray_frame(b"P5\nwide 2\n255\n" + bytes(8)))
 
 
 class TestRotation(unittest.TestCase):
@@ -366,6 +391,24 @@ class TestScanWithCli(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.work_dir = tmp.name
 
+    def _scan(
+        self,
+        runner: FakeStderrRunner | ScanCommandRunner,
+        *,
+        points: Sequence[float] = (0.0,),
+        cancel_event: threading.Event | None = None,
+    ) -> KeyframeScanResult:
+        return scan_with_cli(
+            source_path="movie.mp4",
+            points=list(points),
+            ffmpeg_executable="ffmpeg",
+            runner=runner,
+            work_dir=self.work_dir,
+            fast_keyframe_seek=True,
+            cancel_event=cancel_event,
+            on_point=None,
+        )
+
     def test_cli_scan_collects_boxes_and_black_points(self) -> None:
         runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
         seen: list[tuple[int, int]] = []
@@ -383,29 +426,45 @@ class TestScanWithCli(unittest.TestCase):
         self.assertEqual(result.black_points, frozenset())
         self.assertEqual(seen, [(1, 3), (2, 3), (3, 3)])
 
+    def test_cli_scan_uses_one_process_per_point_and_leaves_no_file(self) -> None:
+        runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
+        self._scan(runner, points=(0.0, 5.0))
+        self.assertEqual(len(runner.commands), 2)
+        self.assertEqual(os.listdir(self.work_dir), [])
+        self.assertTrue(Path(runner.commands[0][-1]).name.startswith("scan_"))
+
+    def test_cli_scan_keeps_full_frame_for_dark_vignette(self) -> None:
+        """완만한 어두운 비네트는 CLI 경로에서도 여백이 아니라 전체 프레임"""
+        runner = FakeStderrRunner(boxes=[(1920, 1080, 0, 0)])
+        result = self._scan(runner)
+        self.assertEqual(result.boxes, (CropBox(1920, 1080, 0, 0),))
+
     def test_cli_scan_treats_black_or_failed_point_as_invalid(self) -> None:
-        black = scan_with_cli(
-            source_path="movie.mp4",
-            points=[0.0],
-            ffmpeg_executable="ffmpeg",
-            runner=FakeStderrRunner(black_ratio=0.9),
-            work_dir=self.work_dir,
-            fast_keyframe_seek=True,
-            cancel_event=None,
-            on_point=None,
-        )
+        black = self._scan(FakeStderrRunner(black_frame=True))
         self.assertEqual(black.black_points, frozenset({0}))
-        failed = scan_with_cli(
-            source_path="movie.mp4",
-            points=[0.0],
-            ffmpeg_executable="ffmpeg",
-            runner=FakeStderrRunner(black_returncode=1),
-            work_dir=self.work_dir,
-            fast_keyframe_seek=True,
-            cancel_event=None,
-            on_point=None,
-        )
+        failed = self._scan(FakeStderrRunner(black_returncode=1))
         self.assertEqual(failed.black_points, frozenset({0}))
+
+    def test_cli_scan_treats_unreadable_frame_as_invalid(self) -> None:
+        def truncated(args: list[str], work_dir: str) -> tuple[int, str]:
+            _ = work_dir
+            Path(args[-1]).write_bytes(b"P5\n4 2\n255\nshort")
+            return (0, "")
+
+        result = self._scan(truncated)
+        self.assertEqual(result.boxes, ())
+        self.assertEqual(result.black_points, frozenset({0}))
+        self.assertEqual(os.listdir(self.work_dir), [])
+
+    def test_cli_scan_removes_frame_when_runner_raises(self) -> None:
+        def failing(args: list[str], work_dir: str) -> tuple[int, str]:
+            _ = work_dir
+            Path(args[-1]).write_bytes(b"P5\n4 2\n255\n" + bytes(8))
+            raise RuntimeError("boom")
+
+        with self.assertRaises(RuntimeError):
+            self._scan(failing)
+        self.assertEqual(os.listdir(self.work_dir), [])
 
     def test_pyav_failure_falls_back_to_cli(self) -> None:
         runner = FakeStderrRunner(boxes=[(1280, 720, 0, 0)])
@@ -419,7 +478,7 @@ class TestScanWithCli(unittest.TestCase):
             prefer_pyav=True,
         )
         self.assertEqual(result.boxes, (CropBox(1280, 720, 0, 0),))
-        self.assertEqual(runner.count_commands("blackframe"), 1)
+        self.assertEqual(runner.count_commands("pgm"), 1)
 
     def test_prefer_pyav_off_uses_cli_and_cancel_stops(self) -> None:
         runner = FakeStderrRunner()
@@ -432,7 +491,7 @@ class TestScanWithCli(unittest.TestCase):
             fast_keyframe_seek=False,
             prefer_pyav=False,
         )
-        self.assertEqual(runner.count_commands("blackframe"), 1)
+        self.assertEqual(runner.count_commands("pgm"), 1)
         cancel = threading.Event()
         cancel.set()
         with self.assertRaises(InterruptedError):
@@ -446,6 +505,7 @@ class TestScanWithCli(unittest.TestCase):
                 cancel_event=cancel,
                 prefer_pyav=False,
             )
+        self.assertEqual(runner.count_commands("pgm"), 1)
 
     def test_scan_result_keeps_order(self) -> None:
         result = KeyframeScanResult([CropBox(1, 1, 0, 0), CropBox(2, 2, 0, 0)], [1, 1, 2])

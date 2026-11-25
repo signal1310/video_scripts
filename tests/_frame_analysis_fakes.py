@@ -14,7 +14,42 @@ _DISTORTED_RE: re.Pattern[str] = re.compile(
 )
 _STATS_RE: re.Pattern[str] = re.compile(r"stats_file=([^\[\];]+)")
 _VMAF_LOG_RE: re.Pattern[str] = re.compile(r"log_path=([^:]+):log_fmt=json")
-_BLACKFRAME_RE: re.Pattern[str] = re.compile(r"pblack:(\d+)")
+_GRAY_BAR_LUMA: int = 16
+_GRAY_PICTURE_LUMA: int = 120
+# - 대역이 회색조 프레임을 만들 때 쓰는 기본 영상 크기. 실제 크기를 아는 호출자는 `frame_size`로 바꿈
+DEFAULT_FAKE_FRAME_SIZE: tuple[int, int] = (1920, 1080)
+
+
+def _gray_plane(
+    frame_size: tuple[int, int], box: tuple[int, int, int, int] | None, *, black: bool
+) -> bytes:
+    """검은 화면이거나 `box` 밖을 검은 띠로 채운 회색조 평면
+
+    - 실제 프레임과 같이 검은 띠는 평탄하고 그림과의 경계가 계단이 되게 채움
+    """
+    width, height = frame_size
+    if black:
+        return bytes([_GRAY_BAR_LUMA]) * (width * height)
+    plane = bytearray([_GRAY_PICTURE_LUMA]) * (width * height)
+    if box is None:
+        return bytes(plane)
+    box_width, box_height, left, top = box
+    x0, y0 = max(0, left), max(0, top)
+    x1, y1 = min(width, left + box_width), min(height, top + box_height)
+    for y in range(y0, y1):
+        offset = y * width
+        plane[offset : offset + x0] = bytes([_GRAY_BAR_LUMA]) * x0
+        plane[offset + x1 : offset + width] = bytes([_GRAY_BAR_LUMA]) * (width - x1)
+    for y in range(y0):
+        plane[y * width : (y + 1) * width] = bytes([_GRAY_BAR_LUMA]) * width
+    for y in range(y1, height):
+        plane[y * width : (y + 1) * width] = bytes([_GRAY_BAR_LUMA]) * width
+    return bytes(plane)
+
+
+def _pgm_bytes(plane: bytes, width: int, height: int) -> bytes:
+    """8-bit `P5` PGM 파일 바이트"""
+    return f"P5\n{width} {height}\n255\n".encode("ascii") + plane
 
 
 def tier_of_sizes(out_width: int, out_height: int, active_width: int, active_height: int) -> str:
@@ -57,10 +92,11 @@ def chain_tier_logs(chain: str) -> dict[str, str]:
 
 
 class FakeStderrRunner:
-    """명령 종류별 표준 오류와 지표 로그를 만드는 실행기
+    """명령 종류별 표준 오류, 회색조 프레임, 지표 로그를 만드는 실행기
 
-    - `black_ratio`: CLI 스캔 지점을 검은 화면으로 볼 비율
-    - `boxes`: CLI 스캔이 돌려줄 cropdetect 사각형 목록
+    - `boxes`: CLI 스캔이 쓸 회색조 프레임의 첫 사각형. 있으면 그 밖을 어둡게 채움
+    - `frame_size`: CLI 스캔이 돌려줄 회색조 프레임 크기
+    - `black_frame`: CLI 스캔 지점을 검은 화면으로 볼지
     - `ssim_by_tier`, `vmaf_by_tier`: 규격 키별 지표 값, 없으면 통과 값
     - `on_call`: 명령 실행 직전에 호출(취소 신호 주입 등)
     """
@@ -68,17 +104,19 @@ class FakeStderrRunner:
     def __init__(
         self,
         *,
-        black_ratio: float = 0.0,
+        black_frame: bool = False,
         black_returncode: int = 0,
         boxes: Sequence[tuple[int, int, int, int]] = (),
+        frame_size: tuple[int, int] = DEFAULT_FAKE_FRAME_SIZE,
         ssim_by_tier: dict[str, tuple[float, float]] | None = None,
         vmaf_by_tier: dict[str, float] | None = None,
         fail_metric: bool = False,
         on_call: Callable[[list[str]], None] | None = None,
     ) -> None:
-        self.black_ratio: float = black_ratio
+        self.black_frame: bool = black_frame
         self.black_returncode: int = black_returncode
         self.boxes: tuple[tuple[int, int, int, int], ...] = tuple(boxes)
+        self.frame_size: tuple[int, int] = frame_size
         self.ssim_by_tier: dict[str, tuple[float, float]] = ssim_by_tier or {}
         self.vmaf_by_tier: dict[str, float] = vmaf_by_tier or {}
         self.fail_metric: bool = fail_metric
@@ -109,21 +147,19 @@ class FakeStderrRunner:
         return found
 
     def __call__(self, args: list[str], work_dir: str) -> tuple[int, str]:
-        """명령을 해석해 표준 오류와 지표 로그를 반환"""
+        """명령을 해석해 회색조 프레임 파일, 표준 오류와 지표 로그를 반환"""
         with self._lock:
             self.commands.append(args)
         if self.on_call is not None:
             self.on_call(args)
-        if any("blackframe" in token for token in args):
+        if any(token == "pgm" for token in args):
             if self.black_returncode != 0:
                 return (self.black_returncode, "")
-            black = 100 if self.black_ratio >= 0.5 else 0
-            lines = f"[Parsed_blackframe_0 @ 0x1] frame:0 pblack:{black} pts:0\n"
-            lines += "".join(
-                f"[Parsed_cropdetect_0 @ 0x1] crop={width}:{height}:{left}:{top}\n"
-                for width, height, left, top in self.boxes
-            )
-            return (0, lines)
+            width, height = self.frame_size
+            plane = _gray_plane(self.frame_size, self.boxes[0] if self.boxes else None, black=self.black_frame)
+            with open(args[-1], "wb") as handle:
+                handle.write(_pgm_bytes(plane, width, height))
+            return (0, "")
         if "-filter_complex" in args:
             return self._metric(args, work_dir)
         return (0, "")

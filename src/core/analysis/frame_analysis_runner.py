@@ -99,7 +99,7 @@ def _terminate_process(proc: subprocess.Popen[bytes]) -> None:
 class ProcessStderrRunner:
     """표준 오류를 임시 파일로 받아 두는 기본 실행기
 
-    - 파이프 대신 임시 파일을 써서 cropdetect처럼 줄이 많은 출력에서도 교착이 생기지 않게 함
+    - 파이프 대신 임시 파일을 써서 줄이 많은 표준 오류에서도 교착이 생기지 않게 함
     - 취소 신호를 받으면 실행 중인 프로세스를 kill하고 `InterruptedError`를 냄
     """
 

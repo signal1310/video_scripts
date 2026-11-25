@@ -7,7 +7,6 @@
 
 import json
 import math
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -71,12 +70,9 @@ VMAF_SCORE_MIN: float = 0.0
 VMAF_SUBSAMPLE: int = 2
 # - 적응형 라운드 순서: 가운데 50% -> 양옆 -> 양 끝 -> 나머지(누적 1, 3, 5, 9구간)
 ROUND_POINT_INDICES: tuple[tuple[int, ...], ...] = ((4,), (2, 6), (0, 8), (1, 3, 5, 7))
-CROP_DETECT_LIMIT: int = 24
-CROP_DETECT_ROUND: int = 2
 # - 직접 지정 활성 화면의 최소 크기와 짝수 정렬 단위(인코더 crop 필터는 짝수 크기를 요구)
 MANUAL_FRAME_MIN_SIZE_PX: int = 32
 MANUAL_FRAME_ALIGN: int = 2
-CROP_MARKER_RE: re.Pattern[str] = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
 # - 명령 필터 체인의 지표 입력 레이블, `build_metric_filter`의 기본 레이블을 이 값으로 바꿔 재사용
 _METRIC_INPUT_LABELS: str = "[0:v][1:v]"
 _DISTORTED_REFERENCE_LABELS: str = "[sc][ref]"
@@ -168,7 +164,7 @@ def analysis_version_for_mode(mode: str, algorithm: str = DEFAULT_SCALE_ALGORITH
 
 @dataclass(frozen=True, slots=True)
 class CropBox:
-    """`cropdetect`가 제안한 활성 화면 사각형"""
+    """키프레임 휘도 스캔이 찾은 활성 화면 사각형"""
 
     width: int
     height: int
@@ -328,14 +324,6 @@ def is_vr_protected(
         return False
     aspect = long_side / short_side
     return VR_ASPECT_RATIO_MIN <= aspect <= VR_ASPECT_RATIO_MAX and long_side >= VR_MIN_LONG_SIDE
-
-
-def parse_cropdetect_boxes(stderr_text: str) -> list[CropBox]:
-    """`cropdetect` 표준 오류에서 제안 사각형을 등장 순서대로 수집"""
-    return [
-        CropBox(width=int(width), height=int(height), x=int(x), y=int(y))
-        for width, height, x, y in CROP_MARKER_RE.findall(stderr_text)
-    ]
 
 
 def _even_floor(value: int) -> int:

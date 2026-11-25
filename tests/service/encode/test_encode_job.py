@@ -5,7 +5,7 @@ import os
 import tempfile
 import unittest
 
-from src.core.config import ClassifierConfig
+from src.core.config import ClassifierConfig, EncodeConfig
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode_tag import ENCODE_TAG_MODE_HIDDEN
 from src.core.models import ActiveFrame
@@ -253,6 +253,44 @@ class TestEncodeJobSerialization(unittest.TestCase):
         self.assertEqual(configured.baseline_quality, 22.0)
         self.assertEqual(configured.quality, 22.0)
         self.assertIsNone(absent.baseline_quality)
+
+    def test_precise_tune_flag_round_trip_and_legacy_json_reads_false(self) -> None:
+        """정밀 결정 대상 여부가 작업 기록을 왕복하고, 이전 기록 JSON에 없으면 거짓으로 읽히는지 검증"""
+        job = EncodeJob(
+            filename="clip.mp4",
+            root_dir="/root",
+            source_path="/root/clip.mp4",
+            source_size=1234,
+            source_mtime_ns=5678,
+            source_duration_sec=12.5,
+            source_ext="mp4",
+            fps=30.0,
+            quality=22.0,
+            purpose=GatePurpose.SAVING,
+            output_size=None,
+            scale_filter=None,
+            maxrate_kbps=None,
+            precise_tune=True,
+        )
+        self.assertTrue(job_from_json(job_to_json(job)).precise_tune)
+        legacy = json.loads(job_to_json(job))
+        del legacy["precise_tune"]
+        self.assertFalse(job_from_json(json.dumps(legacy)).precise_tune)
+
+    def test_jobs_carry_the_precise_tune_selection_from_the_config(self) -> None:
+        """설정을 넘기면 적용 범위 판정 결과가 작업에 담기고, 넘기지 않으면 거짓인지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "clip.mp4"), "wb") as handle:
+                handle.write(b"video")
+            evaluation = make_eval(make_video(filename="clip.mp4"), bitrate_ratio=1.3)
+            (selected,) = jobs_from_evaluations([evaluation], tmp, config=ClassifierConfig())
+            (off_config,) = jobs_from_evaluations(
+                [evaluation], tmp, config=ClassifierConfig(encode=EncodeConfig(precise_quality_mode="off"))
+            )
+            (absent,) = jobs_from_evaluations([evaluation], tmp)
+        self.assertTrue(selected.precise_tune)
+        self.assertFalse(off_config.precise_tune)
+        self.assertFalse(absent.precise_tune)
 
 
 if __name__ == "__main__":

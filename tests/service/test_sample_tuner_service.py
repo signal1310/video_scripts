@@ -331,6 +331,22 @@ class TestTuneQualityForVideo(unittest.TestCase):
             self.assertEqual(result.reason, REASON_FALLBACK_BASELINE)
             self.assertEqual(result.best_quality, 22.0)
 
+    def test_probe_callback_reports_index_and_total(self) -> None:
+        """탐색이 프로브를 재기 전에 차례와 상한, 품질값을 콜백으로 알리는지 확인"""
+        with TemporaryDirectory() as tmp:
+            tracker = _QualityTracker()
+            seen: list[tuple[int, int, float]] = []
+            result = tune_quality_for_video(
+                job=_job(),
+                plan=_plan(tmp),
+                process_factory=tracker.factory,
+                metric_runner=tracker.runner,
+                on_probe=lambda index, total, quality: seen.append((index, total, quality)),
+            )
+            self.assertEqual([index for index, _total, _q in seen], list(range(1, len(result.probes) + 1)))
+            self.assertTrue(all(total == 4 for _index, total, _q in seen))
+            self.assertGreater(seen[0][2], 0.0)
+
     def test_cancel_mid_search_leaves_no_temp_dirs(self) -> None:
         with TemporaryDirectory() as tmp:
             tmp_root = Path(tmp)

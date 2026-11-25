@@ -23,6 +23,8 @@ from src.gui.dialogs.encode_progress_card import (
     NO_EXPECTED_TIP,
     NO_POSITION_TIP,
     NO_VALUE_TIP,
+    PRECISE_TUNE_RESULT_TIP,
+    PRECISE_TUNE_TIP,
     PROGRESS_STEPS,
     RETRY_POSITION_TIP,
     SAMPLE_POSITION_TIP,
@@ -41,6 +43,7 @@ from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets.bitrate_graph import LegendEntry
 from src.service.encode.encode_events import (
     PHASE_MAIN,
+    PHASE_PRECISE_TUNE,
     PHASE_RETRY,
     PHASE_SAMPLE_PREDICT,
     PHASE_SAMPLING,
@@ -358,6 +361,89 @@ class CardFieldsTests(unittest.TestCase):
         assert notice is not None
         self.assertEqual(notice.text(), "품질값 자동 조정 CQ22.0 -> CQ24.1")
         self.assertFalse(notice.isHidden())
+
+    def test_precise_tune_phase_shows_probe_count_and_result(self) -> None:
+        """품질값 정밀 결정 단계가 진행 위치, 목표 품질값, 안내 문구로 표시되는지 검증"""
+        running = TuningPhase(
+            stage=PHASE_PRECISE_TUNE, baseline_quality=22.0, previous_quality=22.0,
+            probe_index=2, probe_total=4,
+        )
+        fields = card_fields(_sample(), _job(), 1.0, None, None, None, "HEVC NVENC", phase=running)
+        self.assertEqual(fields[0].text, "품질값 정밀 결정 2/4")
+        self.assertTrue(fields[0].tip.startswith(PRECISE_TUNE_TIP))
+        self.assertEqual(fields[9].text, "정밀 결정 중 (계획 22.0)")
+        self.assertIn("22.0", fields[9].tip)
+
+        done = TuningPhase(
+            stage=PHASE_PRECISE_TUNE, baseline_quality=22.0, previous_quality=22.0,
+            current_quality=24.5, probe_index=2, probe_total=4, precise_quality=24.5,
+            precise_reason="품질값 정밀 결정: 22.0 -> 24.5 / 품질값 24.5 확인 (정밀 시험 2회)",
+        )
+        done_fields = card_fields(_sample(), _job(), 1.0, None, None, None, "HEVC NVENC", phase=done)
+        self.assertEqual(done_fields[9].text, "24.5 (정밀 결정)")
+        self.assertIn(PRECISE_TUNE_RESULT_TIP, done_fields[9].tip)
+
+    def test_precise_tune_phase_sets_bar_progress_and_chip_badge(self) -> None:
+        """정밀 결정 단계가 진행 막대 비율과 진행 칩 문구, 본 인코딩 전 단계 색을 바꾸는지 검증"""
+        phase = TuningPhase(
+            stage=PHASE_PRECISE_TUNE, baseline_quality=22.0, previous_quality=22.0,
+            probe_index=1, probe_total=4,
+        )
+        card = JobCard("clip.mp4")
+        self.addCleanup(card.deleteLater)
+        badges: list[str] = []
+        tips: list[str] = []
+        fractions: list[float] = []
+        pre_encodes: list[bool] = []
+
+        def _phase_sink(badge: str, tip: str) -> None:
+            badges.append(badge)
+            tips.append(tip)
+
+        apply_card_phase(
+            card,
+            _job(),
+            "HEVC NVENC",
+            phase,
+            set_chip_phase=_phase_sink,
+            set_chip_progress=fractions.append,
+            set_chip_pre_encode=pre_encodes.append,
+        )
+        self.assertEqual(badges, ["품질값 정밀 결정 1/4"])
+        self.assertEqual(tips, [PRECISE_TUNE_TIP])
+        self.assertEqual(fractions, [0.25])
+        self.assertEqual(pre_encodes, [True])
+        self.assertEqual(card._bar.value(), round(0.25 * PROGRESS_STEPS))
+
+    def test_main_phase_shows_precise_result_and_both_notices(self) -> None:
+        """본 인코딩 단계가 정밀 결정 결과와 자동 조정 안내를 함께 보여 주는지 검증"""
+        phase = TuningPhase(
+            stage=PHASE_MAIN, baseline_quality=23.0, current_quality=25.0, previous_quality=22.0,
+            adjusted_quality=25.0, precise_quality=23.0,
+            precise_reason="품질값 정밀 결정: 22.0 -> 23.0 / 품질값 23.0 확인 (정밀 시험 2회)",
+        )
+        fields = card_fields(
+            _sample(), _job(), 10.0, 0.5, 2000.0, 150 * 1024 * 1024, "HEVC NVENC", phase=phase
+        )
+        self.assertEqual(fields[9].text, "25.0 (자동 조정)")
+        self.assertIn("23.0", fields[9].tip)
+        card = JobCard("clip.mp4")
+        self.addCleanup(card.deleteLater)
+        apply_card_phase(
+            card,
+            _job(),
+            "HEVC NVENC",
+            phase,
+            set_chip_phase=lambda _badge, _tip: None,
+            set_chip_progress=lambda _frac: None,
+            set_chip_pre_encode=lambda _pre: None,
+        )
+        notice = card.findChild(QLabel, "EncodeRetryNotice")
+        assert notice is not None
+        self.assertEqual(
+            notice.text(),
+            "품질값 정밀 결정 CQ22.0 -> CQ23.0\n품질값 자동 조정 CQ23.0 -> CQ25.0",
+        )
 
     def test_missing_position_and_projection_explain_why(self) -> None:
         """진행 위치가 없으면 위치와 예상 최종 크기가 정보 없음이고 각각 사유를 보여 주는지 검증"""

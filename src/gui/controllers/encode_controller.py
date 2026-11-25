@@ -171,6 +171,7 @@ class EncodeController(QObject):
             scale_algorithm=config.encode.scale_algorithm,
             encoder=config.encode.encode_codec,
             baseline_quality=config.encode.baseline_cq,
+            config=config,
         )
         if not jobs:
             return None

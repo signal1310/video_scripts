@@ -47,6 +47,7 @@ from src.core.quality_probe import (
 )
 from src.core.sample_points import SegmentQuality, is_invalid_segment
 from src.service.analysis_store import ANALYSIS_DB_FILENAME
+from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_ports import ProcessFactory, default_process_factory
 from src.service.encode.encode_sample_engine import run_sample_pass
 
@@ -337,19 +338,22 @@ def _measure_probe(
     metric_runner: Callable[[list[str], str], tuple[int, str]],
     has_vmaf: bool,
     cancel_event: threading.Event | None,
+    control: PauseControl | None = None,
+    batch_id: int = 0,
 ) -> QualityProbe:
     """품질값 하나의 표본을 만듭니다: 구간별 샘플 인코딩 뒤 VMAF(없으면 SSIM) 중앙값
 
     - 산출물은 임시 폴더에만 쓰고 지표 측정이 끝나면 폴더째 지움
     - 취소되면 점수 없는 프로브를 돌려주고 다음 탐색이 멈추게 함
     - VMAF 측정이 모두 실패하면 같은 산출물로 SSIM을 재서 대체(결정 18의 지표 우선순위)
+    - control을 주면 샘플 프로세스 묶음을 실행 항목으로 등록해 일시중지와 중지가 전파됨
     """
     if not segments or quality <= 0:
         return QualityProbe(quality=quality)
     model = vmaf_model_for(plan.output_size[0], plan.output_size[1]) if plan.output_size else VMAF_MODEL_DEFAULT
     with tempfile.TemporaryDirectory(prefix=SAMPLE_TUNER_TEMP_PREFIX) as tmp_dir:
         outcome = run_sample_pass(
-            batch_id=0,
+            batch_id=batch_id,
             source_path=plan.source_path,
             plan=plan,
             ffmpeg_exec=ffmpeg_exec,
@@ -358,6 +362,7 @@ def _measure_probe(
             segments=tuple(segments),
             quality=quality,
             build_args=build_sample_ffmpeg_args,
+            control=control,
             temp_prefix=SAMPLE_TUNER_TEMP_PREFIX,
             output_dir=tmp_dir,
         )
@@ -453,6 +458,9 @@ def tune_quality_for_video(
     max_probes: int = TUNE_MAX_PROBES,
     delta_max: float | None = None,
     metric_runner: Callable[[list[str], str], tuple[int, str]] | None = None,
+    on_probe: Callable[[int, int, float], None] | None = None,
+    control: PauseControl | None = None,
+    batch_id: int = 0,
 ) -> TuneResult:
     """영상 한 개의 품질값 정밀 결정을 실제 샘플 인코딩과 지표 측정으로 수행
 
@@ -460,6 +468,8 @@ def tune_quality_for_video(
     - 취소되면 그때까지 통과한 최고값을 담고 `converged=False`로 돌려줌
     - `delta_max`가 없으면 저화질 보호 기본 한도(`PROTECT_CQ_DELTA_MAX`)를 씀
     - `metric_runner`를 주면 지표 실행기를 바꿔 끼움(단위 테스트가 FFmpeg 없이 검증)
+    - `on_probe`는 프로브를 재기 직전에 (차례, 전체 상한, 품질값)으로 불려 진행 표시에 씀
+    - `control`을 주면 정밀 결정 샘플도 일시중지와 중지 대상이 됨
     """
     resolved_target = target if target is not None else TuneTarget()
     spec = get_encoder_spec(job.encoder)
@@ -469,11 +479,16 @@ def tune_quality_for_video(
     segments = tuning_segments(job.source_duration_sec, black_ratios)
     factory = process_factory if process_factory is not None else default_process_factory
     runner = metric_runner if metric_runner is not None else _metric_runner(cancel_event)
+    probe_count = 0
 
     def _measure(quality: float) -> QualityProbe:
         """품질값 하나를 실제로 재서 프로브로 돌려줌. 취소면 점수 없음"""
+        nonlocal probe_count
         if cancel_event is not None and cancel_event.is_set():
             return QualityProbe(quality=quality)
+        probe_count += 1
+        if on_probe is not None:
+            on_probe(probe_count, max_probes, quality)
         return _measure_probe(
             plan=plan,
             segments=segments,
@@ -483,6 +498,8 @@ def tune_quality_for_video(
             metric_runner=runner,
             has_vmaf=has_vmaf,
             cancel_event=cancel_event,
+            control=control,
+            batch_id=batch_id,
         )
 
     return search_quality(
@@ -738,6 +755,9 @@ def tune_quality_cached(
     max_probes: int = TUNE_MAX_PROBES,
     delta_max: float | None = None,
     metric_runner: Callable[[list[str], str], tuple[int, str]] | None = None,
+    on_probe: Callable[[int, int, float], None] | None = None,
+    control: PauseControl | None = None,
+    batch_id: int = 0,
 ) -> TuneResult:
     """캐시를 먼저 확인하고 없으면 샘플 인코딩으로 탐색한 뒤 결과를 저장
 
@@ -769,6 +789,9 @@ def tune_quality_cached(
         max_probes=max_probes,
         delta_max=delta_max,
         metric_runner=metric_runner,
+        on_probe=on_probe,
+        control=control,
+        batch_id=batch_id,
     )
     cancelled = cancel_event is not None and cancel_event.is_set()
     if not cancelled and result.reason != REASON_UNMEASURABLE:

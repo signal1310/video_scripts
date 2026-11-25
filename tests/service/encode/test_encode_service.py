@@ -23,12 +23,18 @@ from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EARLY_STOP_MIN_PROGRESS, LONG_RUN_NOTICE_SEC
 from src.core.encode.encode_state import EncodeState
 from src.core.encode.quality_tuning import adjust_saving_quality, format_saving_adjustment
+from src.core.evaluation.sample_tuner import (
+    REASON_CONVERGED,
+    QualityProbe,
+    TuneResult,
+)
 from src.core.quality_target import PROTECT_CQ_DELTA_MAX
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
 from src.service.encode.encode_events import (
     EVENT_LONG_PAUSE,
     PHASE_MAIN,
+    PHASE_PRECISE_TUNE,
     PHASE_SAMPLE_PREDICT,
     EncodeEvent,
     TuningPhase,
@@ -43,6 +49,7 @@ from src.service.encode.encode_job import (
     jobs_from_evaluations,
     resolve_workers,
 )
+from src.service.encode.encode_precise_tune import PreciseQualityTuner, PreciseTuneOutcome
 from src.service.encode.encode_reasons import (
     EARLY_STOP_REASON,
     PART_LEFT,
@@ -51,6 +58,7 @@ from src.service.encode.encode_reasons import (
 )
 from src.service.encode.encode_resume import find_unrecorded_parts, prepare_resume
 from src.service.encode.encode_service import EncodeRunner
+from src.service.sample_tuner_service import SampleTunerCache
 from tests._factories import make_eval, make_video
 
 SOURCE_BYTES: int = 1000
@@ -304,8 +312,9 @@ class _ServiceCase(unittest.TestCase):
         probe: _FakeProbe | None = None,
         encoder: _FakeEncoder | None = None,
         clock: Any = None,
+        tuner: Any = None,
     ) -> EncodeRunner:
-        return EncodeRunner(
+        runner = EncodeRunner(
             self.history,
             settings,
             probe=probe if probe is not None else _FakeProbe(),
@@ -314,6 +323,9 @@ class _ServiceCase(unittest.TestCase):
             cpu_count=1,
             clock=clock if clock is not None else time.monotonic,
         )
+        if tuner is not None:
+            runner.set_precise_tuner(tuner)
+        return runner
 
     def _run_one(
         self,
@@ -322,9 +334,10 @@ class _ServiceCase(unittest.TestCase):
         *,
         probe: _FakeProbe | None = None,
         encoder: _FakeEncoder | None = None,
+        tuner: Any = None,
     ) -> ItemRow:
         batch_id = create_batch(self.history, settings, self.root, [self._job(path)])
-        self._runner(settings, probe=probe, encoder=encoder).run(batch_id)
+        self._runner(settings, probe=probe, encoder=encoder, tuner=tuner).run(batch_id)
         return self.history.list_items(batch_id)[0]
 
 
@@ -1213,6 +1226,144 @@ class TestSavingQualityAdjustmentFlow(_ServiceCase):
         self.assertIs(item.state, EncodeState.DISCARDED)
         self.assertEqual(item.reason, SAMPLE_PREDICT_REASON)
         self.assertEqual(encoder.main_calls, [])
+
+
+class _FakePreciseTuner:
+    """정밀 결정 실행을 흉내 내는 대체 실행기. 호출 기록과 확정 값, 취소 여부를 돌려줌"""
+
+    def __init__(
+        self,
+        *,
+        adopted: float | None = None,
+        converged: bool = True,
+        cancel: threading.Event | None = None,
+    ) -> None:
+        self.calls: list[int] = []
+        self._adopted: float | None = adopted
+        self._converged: bool = converged
+        self._cancel: threading.Event | None = cancel
+
+    def __call__(self, batch_id: int, job: EncodeJob, plan: Any) -> Any:
+        self.calls.append(batch_id)
+        if self._cancel is not None:
+            self._cancel.set()
+            return None
+        previous = job.quality
+        adopted = previous if self._adopted is None else self._adopted
+        reason = (
+            f"품질값 정밀 결정: {previous:.1f} -> {adopted:.1f} (품질값 {adopted:.1f} 확인 (정밀 시험 2회))"
+        )
+        return PreciseTuneOutcome(
+            result=TuneResult(best_quality=adopted, probes=(), converged=self._converged, reason=REASON_CONVERGED),
+            previous_quality=previous,
+            adopted_quality=adopted,
+            reason=reason,
+        )
+
+
+class TestPreciseQualityTuneFlow(_ServiceCase):
+    """품질값 정밀 결정 대상 여부와 확정 값 반영, 취소 경로를 확인"""
+
+    def _saving_job(self, path: str, **overrides: Any) -> EncodeJob:
+        return dataclasses.replace(self._job(path), **overrides)
+
+    def _run_job(self, job: EncodeJob, *, tuner: Any = None, encoder: _FakeEncoder | None = None) -> ItemRow:
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        self._runner(settings, encoder=encoder, tuner=tuner).run(batch_id)
+        return self.history.list_items(batch_id)[0]
+
+    @staticmethod
+    def _quality_arg(args: Sequence[str]) -> float:
+        for index, token in enumerate(args):
+            if token.startswith("-crf") or token.startswith("-cq"):
+                return float(args[index + 1])
+        raise AssertionError(f"품질값 인자가 없습니다: {args}")
+
+    def test_job_without_precise_tune_skips_the_phase(self) -> None:
+        path = self._source()
+        tuner = _FakePreciseTuner(adopted=24.0)
+        item = self._run_job(self._saving_job(path), tuner=tuner, encoder=_FakeEncoder(sample_bytes=1))
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(tuner.calls, [])
+        self.assertIsNone(item.tuned_quality)
+
+    def test_adopted_quality_reaches_the_main_encode_and_result_reason(self) -> None:
+        path = self._source()
+        tuner = _FakePreciseTuner(adopted=25.0)
+        encoder = _FakeEncoder(sample_bytes=1)
+        item = self._run_job(self._saving_job(path, precise_tune=True), tuner=tuner, encoder=encoder)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(len(tuner.calls), 1)
+        self.assertEqual(item.tuned_quality, 25.0)
+        self.assertIn("품질값 정밀 결정", item.reason)
+        self.assertAlmostEqual(self._quality_arg(encoder.main_calls[0]), 0.45 * 25.0 + 9.45, places=1)
+
+    def test_keyframe_fix_purpose_never_calls_the_tuner(self) -> None:
+        path = self._source()
+        tuner = _FakePreciseTuner(adopted=25.0)
+        job = self._saving_job(path, precise_tune=True, purpose=GatePurpose.KEYFRAME_FIX)
+        item = self._run_job(job, tuner=tuner, encoder=_FakeEncoder(sample_bytes=1))
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(tuner.calls, [])
+
+    def test_cancel_during_the_phase_returns_the_item_to_pending(self) -> None:
+        path = self._source()
+        cancel = threading.Event()
+        tuner = _FakePreciseTuner(cancel=cancel)
+        encoder = _FakeEncoder(sample_bytes=1)
+        item = self._run_job(self._saving_job(path, precise_tune=True), tuner=tuner, encoder=encoder)
+        self.assertIs(item.state, EncodeState.PENDING)
+        self.assertEqual(encoder.main_calls, [])
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+
+    def test_precise_phase_events_precede_sample_prediction(self) -> None:
+        """실제 정밀 결정 실행기가 낸 단계 이벤트가 사전 예측과 본 인코딩보다 먼저 나가는지 검증"""
+        path = self._source()
+        result = TuneResult(
+            best_quality=25.0,
+            probes=(QualityProbe(quality=25.0, vmaf=98.2, ssim=0.998),),
+            converged=True,
+            reason=REASON_CONVERGED,
+        )
+
+        def _tune(**kwargs: Any) -> TuneResult:
+            on_probe = kwargs.get("on_probe")
+            if on_probe is not None:
+                on_probe(1, 4, 25.0)
+            return result
+
+        runner = EncodeRunner(
+            self.history,
+            self._settings(),
+            probe=_FakeProbe(),
+            process_factory=_FakeEncoder(sample_bytes=1).factory,
+            on_event=self.events.append,
+            cpu_count=1,
+        )
+        runner.set_precise_tuner(
+            PreciseQualityTuner(
+                ffmpeg_exec="ffmpeg",
+                process_factory=_FakeEncoder(sample_bytes=1).factory,
+                abort=threading.Event(),
+                emit=self.events.append,
+                cache=SampleTunerCache(os.path.join(self._tmp.name, "video_cache.sqlite3")),
+                tune=_tune,
+            )
+        )
+        batch_id = create_batch(self.history, self._settings(), self.root, [self._saving_job(path, precise_tune=True)])
+        runner.run(batch_id)
+        self.assertIs(self.history.list_items(batch_id)[0].state, EncodeState.DONE)
+        stages = [event.phase.stage for event in self.events if event.phase is not None]
+        self.assertIn(PHASE_PRECISE_TUNE, stages)
+        self.assertLess(stages.index(PHASE_PRECISE_TUNE), stages.index(PHASE_SAMPLE_PREDICT))
+        precise = [event.phase for event in self.events if event.phase is not None and event.phase.stage == PHASE_PRECISE_TUNE]
+        assert precise[-1] is not None
+        self.assertEqual(precise[-1].precise_quality, 25.0)
+        main = [event.phase for event in self.events if event.phase is not None and event.phase.stage == PHASE_MAIN]
+        assert main[0] is not None
+        self.assertEqual(main[0].precise_quality, 25.0)
+        self.assertEqual(main[0].previous_quality, 22.0)
 
 
 PROGRESS_STEP_SEC: float = 6.0

@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 from src.core.analysis.system_probe import detect_recommended_encode_speed
 from src.core.config import (
     ENCODE_CODEC_CHOICES,
+    PRECISE_QUALITY_MODE_CHOICES,
     RESULT_POLICY_ARCHIVE,
     RESULT_POLICY_SEPARATE,
     EncodeConfig,
@@ -127,6 +128,16 @@ _TOOLTIP_SAMPLE_DISCARD: str = (
 _TOOLTIP_EARLY_STOP: str = (
     "인코딩 중 진행률로 환산한 예상 크기가 원본의 이 비율을 넘으면 인코딩을 멈추고 결과를 버립니다. "
     "원본은 그대로 두며, 기본값은 120 %입니다."
+)
+_PRECISE_MODE_KEY: str = "analysis.encode.precise_quality_mode"
+_PRECISE_MODE_TITLE: str = "품질값 정밀 결정"
+_TOOLTIP_PRECISE_MODE: str = (
+    "본 인코딩 전에 영상마다 대표 구간 몇 곳을 짧게 인코딩해 화질을 재고, "
+    "화질 기준을 지키는 가장 높은 품질값을 찾습니다. "
+    "영상 하나에 1~3분쯤 더 걸리지만 결과 용량이 목표에 더 가까워지고, "
+    "같은 조건으로 다시 인코딩할 때는 측정 결과를 저장해 두었다가 다시 씁니다. "
+    "'선택 적용'은 축소 후보와 화질 판정 경계에 가까운 영상만, '모든 대상'은 절약 목적 영상 전부를 정밀 결정합니다. "
+    "키프레임 교정 영상은 대상이 아닙니다."
 )
 
 
@@ -300,6 +311,10 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             self.rows, card_auto, ExecutionConfig, "early_stop_margin", "인코딩 중 자동 중단 기준",
             _TOOLTIP_EARLY_STOP, 5, row_key="execution.early_stop_margin",
         )
+        self.combo_precise_mode = make_combo_row(
+            self.rows, card_auto, EncodeConfig, "precise_quality_mode", _PRECISE_MODE_TITLE,
+            _TOOLTIP_PRECISE_MODE, PRECISE_QUALITY_MODE_CHOICES, row_key=_PRECISE_MODE_KEY,
+        )
         section_advanced.add_widget(card_auto)
 
         card_detail = SettingsGroupCard(icon_name="file-text", title=_CARD_DETAIL_TITLE)
@@ -416,6 +431,7 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             self.spin_protect_delta.setValue(cfg.protect_cq_delta_max)
             self.spin_sample_discard.setValue(round(cfg.sample_saving_discard_factor * PERCENT_SCALE))
             self.spin_early_stop.setValue(round(cfg.early_stop_margin * PERCENT_SCALE))
+            _select_data(self.combo_precise_mode, encode.precise_quality_mode)
             self._tag_name = cfg.encode_tag_name
             self.edit_tag_name.setText(cfg.encode_tag_name)
             self.lbl_tag_error.setVisible(False)
@@ -452,10 +468,11 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
         )
 
     def encode_values(self) -> dict[str, object]:
-        """목표 인코딩 방식과 기준 배속을 EncodeConfig 필드 이름으로 돌려줌"""
+        """목표 인코딩 방식, 기준 배속, 품질값 정밀 결정 적용 범위를 EncodeConfig 필드 이름으로 돌려줌"""
         return {
             "encode_codec": str(self.combo_encode_codec.currentData()),
             "encode_speed_factor": round(self.spin_encode_speed.value(), FLOAT_SETTING_ROUND_DIGITS),
+            "precise_quality_mode": str(self.combo_precise_mode.currentData()),
         }
 
     def set_hints_visible(self, visible: bool) -> None:

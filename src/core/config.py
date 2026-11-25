@@ -54,6 +54,17 @@ FRAME_ANALYSIS_MODE_CHOICES: tuple[tuple[str, str], ...] = (
     ("정밀", FRAME_ANALYSIS_MODE_PRECISE),
 )
 
+# - 품질값 정밀 결정(결정 18) 적용 범위: 선택 적용(축소 후보와 판정 경계 영상), 모든 대상, 사용 안 함
+PRECISE_QUALITY_MODE_SELECTIVE: str = "selective"
+PRECISE_QUALITY_MODE_ALL: str = "all"
+PRECISE_QUALITY_MODE_OFF: str = "off"
+DEFAULT_PRECISE_QUALITY_MODE: str = PRECISE_QUALITY_MODE_SELECTIVE
+PRECISE_QUALITY_MODE_CHOICES: tuple[tuple[str, str], ...] = (
+    ("선택 적용 (기본)", PRECISE_QUALITY_MODE_SELECTIVE), ("모든 대상", PRECISE_QUALITY_MODE_ALL),
+    ("사용 안 함", PRECISE_QUALITY_MODE_OFF),
+)
+VALID_PRECISE_QUALITY_MODES: tuple[str, ...] = tuple(mode for _label, mode in PRECISE_QUALITY_MODE_CHOICES)
+
 # - 화질 분석 대상 해상도: 전체 또는 규격 이상. 규격 키는 저장 값과 같고 표시 문구는 GUI가 붙임
 FRAME_ANALYSIS_MIN_TIER_ALL: str = "all"
 VALID_FRAME_ANALYSIS_MIN_TIERS: tuple[str, ...] = (
@@ -215,6 +226,10 @@ class EncodeConfig:
     auto_apply_frame_target: bool = field(
         default=True,
         metadata=setting_meta("화질 분석 축소 후보 자동 적용 (사용/사용 안 함)"),
+    )
+    precise_quality_mode: str = field(
+        default=DEFAULT_PRECISE_QUALITY_MODE,
+        metadata=setting_meta("품질값 정밀 결정 (selective: 선택 적용, all: 모든 대상, off: 사용 안 함)"),
     )
     roundtrip_vmaf_threshold: float = field(
         default=98.0,
@@ -568,6 +583,8 @@ def _parse_encode_section(raw: Mapping[str, Any]) -> EncodeConfig:
         parsed.frame_analysis_mode = DEFAULT_FRAME_ANALYSIS_MODE
     if parsed.frame_analysis_min_tier not in VALID_FRAME_ANALYSIS_MIN_TIERS:
         parsed.frame_analysis_min_tier = DEFAULT_FRAME_ANALYSIS_MIN_TIER
+    if parsed.precise_quality_mode not in VALID_PRECISE_QUALITY_MODES:
+        parsed.precise_quality_mode = DEFAULT_PRECISE_QUALITY_MODE
     parsed.scale_algorithm = normalize_scale_algorithm(parsed.scale_algorithm)
     return parsed
 

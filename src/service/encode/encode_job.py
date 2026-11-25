@@ -15,6 +15,7 @@ from src.core.config import BitrateModelConfig, ClassifierConfig, ExecutionConfi
 from src.core.encode.encode_concurrency import resolve_concurrency
 from src.core.encode.encode_gate import GatePurpose, purpose_for_evaluation
 from src.core.encode.encode_progress import EARLY_STOP_MARGIN
+from src.core.encode.precise_tune_policy import should_precise_tune
 from src.core.encode.quality_tuning import SAMPLE_SAVING_DISCARD_FACTOR
 from src.core.encode_tag import DEFAULT_ENCODE_TAG_NAME, ENCODE_TAG_MODE_VISIBLE
 from src.core.encoder_specs import get_encoder_spec
@@ -142,6 +143,8 @@ class EncodeJob:
     # - 설정의 화질 기준값(실제 기준 CQ). 품질값은 저화질 보호 오프셋만큼 기준보다 높을 수 있어
     #   자동 조정 상한은 이 값 기준으로 계산. 이전 기록에는 없으므로 None이며 그때는 quality를 기준으로 씀
     baseline_quality: float | None = None
+    # - 품질값 정밀 결정(결정 18) 대상 여부. 배치를 만들 때 설정과 판정으로 정해 기록에 남김
+    precise_tune: bool = False
 
 
 def job_to_json(job: EncodeJob) -> str:
@@ -167,6 +170,7 @@ def job_to_json(job: EncodeJob) -> str:
         "corrected_target_kbps": job.corrected_target_kbps,
         "crop_filter": job.crop_filter,
         "baseline_quality": job.baseline_quality,
+        "precise_tune": job.precise_tune,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -196,6 +200,7 @@ def job_from_json(text: str) -> EncodeJob:
         corrected_target_kbps=_optional_float(raw.get("corrected_target_kbps")),
         crop_filter=None if raw.get("crop_filter") is None else str(raw["crop_filter"]),
         baseline_quality=_optional_float(raw.get("baseline_quality")),
+        precise_tune=bool(raw.get("precise_tune", False)),
     )
 
 
@@ -213,12 +218,14 @@ def jobs_from_evaluations(
     scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
     encoder: str = "",
     baseline_quality: float | None = None,
+    config: ClassifierConfig | None = None,
 ) -> list[EncodeJob]:
     """인코딩 대상 판정만 골라 계획 입력을 만듦. 파일을 읽지 못하면 경고 후 제외
 
     - scale_algorithm은 설정의 축소 보간 방식이며, 축소 대상의 scale 필터에 그대로 넣음
     - encoder는 배치 인코더이며, 보정 목표 비트레이트와 최대 비트레이트를 이 인코더 계수로 계산
     - baseline_quality는 설정의 화질 기준값이며, 품질값 자동 조정 상한의 기준. 모르면 None
+    - config를 주면 설정의 품질값 정밀 결정 적용 범위로 영상별 대상 여부를 정해 기록에 남김
     """
     jobs: list[EncodeJob] = []
     for ev in evaluations:
@@ -271,6 +278,10 @@ def jobs_from_evaluations(
                 fallback_video_mb=estimate_video_stream_mb(ev.video),
                 crop_filter=None if ev.active_frame is None else ev.active_frame.crop_filter_expr(),
                 baseline_quality=baseline_quality,
+                precise_tune=(
+                    config is not None
+                    and should_precise_tune(ev, config.encode.precise_quality_mode, config)
+                ),
             )
         )
     return jobs

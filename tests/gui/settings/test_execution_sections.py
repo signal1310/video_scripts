@@ -16,6 +16,7 @@ from src.core.analysis.system_probe import SystemSpeedRecommendation
 from src.core.config import (
     CONTAINER_POLICY_MP4,
     NAME_CONFLICT_SKIP,
+    PRECISE_QUALITY_MODE_CHOICES,
     RESULT_POLICY_ARCHIVE,
     RESULT_POLICY_REPLACE,
     RESULT_POLICY_SEPARATE,
@@ -44,6 +45,8 @@ _APP = QApplication.instance() or QApplication([])
 _TAB_TITLE: str = "인코딩"
 _CODEC_KEY: str = "analysis.encode.encode_codec"
 _SPEED_KEY: str = "analysis.encode.encode_speed_factor"
+_PRECISE_MODE_KEY: str = "analysis.encode.precise_quality_mode"
+_ENCODE_KEYS: frozenset[str] = frozenset({_CODEC_KEY, _SPEED_KEY, _PRECISE_MODE_KEY})
 _CONTAINER_KEY: str = "execution.container_policy"
 _EXECUTION_KEYS: frozenset[str] = frozenset(f"execution.{f.name}" for f in dataclasses.fields(ExecutionConfig))
 _RECOMMEND_TARGET: str = "src.gui.settings.execution_sections.detect_recommended_encode_speed"
@@ -140,7 +143,7 @@ def _non_default_config() -> ExecutionConfig:
 
 
 def _non_default_encode() -> EncodeConfig:
-    return EncodeConfig(encode_codec="libx264", encode_speed_factor=2.5)
+    return EncodeConfig(encode_codec="libx264", encode_speed_factor=2.5, precise_quality_mode="all")
 
 
 class ExecutionTabPanelTests(GuiTestCase):
@@ -158,9 +161,9 @@ class ExecutionTabPanelTests(GuiTestCase):
         )
 
     def test_rows_cover_every_execution_key_and_the_two_encode_keys(self) -> None:
-        """실행 설정 16개 필드마다 행이 있고, 목표 인코딩 방식과 기준 배속 행이 추가로 있는지 검증"""
+        """실행 설정 16개 필드마다 행이 있고, 목표 인코딩 방식, 기준 배속, 품질값 정밀 결정 행이 추가로 있는지 검증"""
         panel = self._panel()
-        self.assertEqual(panel.row_keys, _EXECUTION_KEYS | {_CODEC_KEY, _SPEED_KEY})
+        self.assertEqual(panel.row_keys, _EXECUTION_KEYS | _ENCODE_KEYS)
         self.assertEqual(len(_EXECUTION_KEYS), 16)
 
     def test_every_row_has_a_tooltip(self) -> None:
@@ -178,7 +181,10 @@ class ExecutionTabPanelTests(GuiTestCase):
         panel.load(cfg, _non_default_encode())
 
         self.assertEqual(panel.read(), cfg)
-        self.assertEqual(panel.encode_values(), {"encode_codec": "libx264", "encode_speed_factor": 2.5})
+        self.assertEqual(
+            panel.encode_values(),
+            {"encode_codec": "libx264", "encode_speed_factor": 2.5, "precise_quality_mode": "all"},
+        )
 
     def test_load_does_not_emit_changed_or_recommend_speed(self) -> None:
         """값을 불러오는 동안에는 변경 신호를 보내지 않고, 저장된 배속을 추천값으로 바꾸지 않는지 검증"""
@@ -316,6 +322,18 @@ class ExecutionTabPanelTests(GuiTestCase):
         assert card.btn_help is not None
         card.btn_help.click()
         self.assertEqual(anchors, ["internal-thresholds"])
+
+    def test_precise_quality_mode_row_is_in_the_auto_quality_card(self) -> None:
+        """품질값 정밀 결정 행이 자동 품질 조절 카드 안에 있고 선택지 세 개를 그대로 노출하는지 검증"""
+        panel = self._panel()
+        row = panel.rows[_PRECISE_MODE_KEY]
+        card = _ancestor_of_type(row, SettingsGroupCard)
+        self.assertIsInstance(card, SettingsGroupCard)
+        combo = panel.combo_precise_mode
+        self.assertEqual(
+            [(combo.itemText(index), combo.itemData(index)) for index in range(combo.count())],
+            list(PRECISE_QUALITY_MODE_CHOICES),
+        )
 
     def test_priority_and_name_conflict_are_in_the_advanced_section(self) -> None:
         """인코딩 우선순위, 같은 이름, 태그 이름, FFmpeg 경로가 고급 설정 접이식 영역 안에 있는지 검증"""

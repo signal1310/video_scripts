@@ -62,6 +62,7 @@ from src.service.encode.encode_path_claims import ResultPathClaims
 from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_placement import place_result
 from src.service.encode.encode_ports import ProbeFn, ProcessFactory, default_probe, default_process_factory
+from src.service.encode.encode_precise_tune import PreciseQualityTuner
 from src.service.encode.encode_quality_tuner import RetryWatch, tune_and_encode
 from src.service.encode.encode_sample_predict import predict_saving_size
 from src.service.encode.encode_tag_io import build_tagged_plan, merge_mp4_output_tags, write_result_tags
@@ -119,6 +120,27 @@ class EncodeRunner:
         self._control: PauseControl = PauseControl(abort=self._abort, clock=clock, notify=self._notify_long_pause)
         self._claims: ResultPathClaims = ResultPathClaims()
         self._early_stops: dict[str, EarlyStopHit] = {}
+        self._tuner_override: PreciseQualityTuner | None = None
+        self._tuner: PreciseQualityTuner | None = None
+
+    def set_precise_tuner(self, tuner: PreciseQualityTuner) -> None:
+        """품질값 정밀 결정 실행기를 바꿔 끼움(단위 테스트가 실제 샘플 인코딩 없이 검증)"""
+        self._tuner_override = tuner
+
+    def _precise_tuner(self) -> PreciseQualityTuner:
+        """정밀 결정 실행기를 처음 쓸 때 만들어 재사용. 캐시 연결은 이때 한 번만 엶"""
+        if self._tuner_override is not None:
+            return self._tuner_override
+        if self._tuner is None:
+            self._tuner = PreciseQualityTuner(
+                ffmpeg_exec=self._ffmpeg,
+                process_factory=self._factory,
+                abort=self._abort,
+                control=self._control,
+                emit=self._emit,
+                delta_max=self._settings.protect_cq_delta_max,
+            )
+        return self._tuner
 
     def run(self, batch_id: int) -> None:
         """배치의 대기 항목을 동시 실행하고, 중지하지 않았다면 교체 대기 항목을 다시 시도한 뒤 끝난 배치를 닫음"""
@@ -226,7 +248,21 @@ class EncodeRunner:
         plan, source_rating = planned
         sampled_bytes: int | None = None
         adjusted_quality: float | None = None
+        precise_quality: float | None = None
+        precise_reason = ""
+        precise_previous: float | None = None
         base_quality = job.quality
+        if job.purpose is GatePurpose.SAVING and job.precise_tune:
+            tuned = self._precise_tuner()(batch_id, job, plan)
+            if tuned is None:
+                return ItemOutcome(EncodeState.PENDING)
+            precise_previous = tuned.previous_quality
+            if tuned.adopted_quality != tuned.previous_quality:
+                # - 정밀 결정이 고른 값은 이어지는 사전 예측과 본 인코딩에 그대로 씀
+                precise_quality = tuned.adopted_quality
+                job = dataclasses.replace(job, quality=precise_quality)
+                plan = dataclasses.replace(plan, quality=precise_quality)
+            precise_reason = tuned.reason
         if job.purpose is GatePurpose.SAVING:
             prediction = predict_saving_size(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
@@ -244,7 +280,11 @@ class EncodeRunner:
                 adjusted_quality = prediction.adjusted_quality
                 job = dataclasses.replace(job, quality=adjusted_quality)
                 plan = dataclasses.replace(plan, quality=adjusted_quality)
-            self._emit(main_phase_event(batch_id, source, job.quality, adjusted_quality=adjusted_quality))
+            self._emit(main_phase_event(
+                batch_id, source, job.quality, adjusted_quality=adjusted_quality,
+                precise_quality=precise_quality, precise_reason=precise_reason,
+                previous_quality=precise_previous,
+            ))
         if job.purpose is GatePurpose.KEYFRAME_FIX:
             plan, attempt = tune_and_encode(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
@@ -260,10 +300,17 @@ class EncodeRunner:
             attempt = dataclasses.replace(attempt, sample_predicted_bytes=sampled_bytes)
         if adjusted_quality is not None:
             # - 결과 사유 줄과 기록에 사전 예측으로 품질값을 올린 사실을 남김
+            #   정밀 결정과 사전 예측 조정이 모두 있으면 두 문구를 함께 남겨 판단 근거를 잃지 않게 함
+            adjust_reason = format_saving_adjustment(base_quality, adjusted_quality)
             attempt = dataclasses.replace(
                 attempt,
                 tuned_quality=adjusted_quality,
-                tuning_reason=format_saving_adjustment(base_quality, adjusted_quality),
+                tuning_reason=f"{precise_reason} / {adjust_reason}" if precise_reason else adjust_reason,
+            )
+        elif precise_quality is not None:
+            # - 정밀 결정만 적용한 경우에도 결과 목록 사유 줄에 그 값을 남김
+            attempt = dataclasses.replace(
+                attempt, tuned_quality=precise_quality, tuning_reason=precise_reason,
             )
         if attempt.cancelled or self._abort.is_set():
             self._remove_part(plan.part_path)

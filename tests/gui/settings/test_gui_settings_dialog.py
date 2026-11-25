@@ -95,6 +95,7 @@ def _execution_keys() -> set[str]:
         *(f"execution.{f.name}" for f in fields(ExecutionConfig)),
         "analysis.encode.encode_codec",
         "analysis.encode.encode_speed_factor",
+        "analysis.encode.precise_quality_mode",
     }
 
 
@@ -153,7 +154,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
     """설정 대화상자의 배치, 바인딩, 검색, 저장과 초기화 검증"""
 
     def test_rows_cover_every_setting_by_category(self) -> None:
-        """범주별 행이 64개 설정(코어 62 + GUI 2)을 빠짐없이 덮는지 검증"""
+        """범주별 행이 65개 설정(코어 63 + GUI 2)을 빠짐없이 덮는지 검증"""
         dialog, _root, _path = self._isolated_dialog()
 
         expected = {
@@ -162,7 +163,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
             SettingsDialog.TAB_CRITERIA: _criteria_keys(),
             SettingsDialog.TAB_EXECUTION: _execution_keys(),
         }
-        self.assertEqual(len(dialog._rows), 64)
+        self.assertEqual(len(dialog._rows), 65)
         for page, keys in expected.items():
             with self.subTest(page=page):
                 actual = {key for key, row_page in dialog._row_pages.items() if row_page == page}
@@ -173,7 +174,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         )
 
     def test_every_setting_round_trips_to_the_config(self) -> None:
-        """설정 62개를 모두 바꾸면 설정 객체에 반영되고, 화면 값과 저장 값이 같은지 검증"""
+        """설정 63개를 모두 바꾸면 설정 객체에 반영되고, 화면 값과 저장 값이 같은지 검증"""
         dialog, _root, _state_path = self._isolated_dialog()
         for key in dialog._rows:
             if split_setting_key(key) is None:

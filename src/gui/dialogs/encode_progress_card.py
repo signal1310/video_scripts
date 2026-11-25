@@ -42,6 +42,7 @@ from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.widgets.bitrate_graph import BitrateGraph
 from src.service.encode.encode_events import (
+    PHASE_PRECISE_TUNE,
     PHASE_RETRY,
     PHASE_SAMPLE_PREDICT,
     PHASE_SAMPLING,
@@ -59,7 +60,12 @@ CARD_GRID_HSPACING_PX: int = 10
 # - 값 칸은 권장 폭을 무시하고 늘림 비율로 폭을 받되, 한 줄 값이 읽히는 최소 폭만 지킴
 VALUE_LABEL_MIN_WIDTH_PX: int = 60
 # - 본 인코딩 전 준비 단계. 이 단계의 진행 막대는 팔레트 강조 주황색으로 채워 본 인코딩과 구분
-PRE_ENCODE_STAGES: tuple[str, ...] = (PHASE_SAMPLE_PREDICT, PHASE_SAMPLING, PHASE_RETRY)
+PRE_ENCODE_STAGES: tuple[str, ...] = (
+    PHASE_PRECISE_TUNE,
+    PHASE_SAMPLE_PREDICT,
+    PHASE_SAMPLING,
+    PHASE_RETRY,
+)
 TAB_NAME_MAX_CHARS: int = 20
 CARD_TITLE_MAX_CHARS: int = 28
 CARD_CAPTIONS: tuple[str, ...] = (
@@ -103,6 +109,15 @@ SAVING_ADJUST_TIP: str = (
     "사전 예측에서 예상 크기가 보정 목표를 넘어 품질값을 {previous}에서 {current}로 올렸습니다. "
     "다시 샘플 인코딩하지 않고 계산만으로 정한 값입니다."
 )
+# - 품질값 정밀 결정(결정 18) 단계와 결과 안내
+PRECISE_TUNE_TIP: str = (
+    "본 인코딩 전에 대표 구간 몇 곳을 먼저 인코딩해 화질을 재고, 화질 기준을 지키는 가장 높은 품질값을 찾고 있습니다. "
+    "영상 하나에 1~3분쯤 걸리며, 같은 조건으로 다시 인코딩할 때는 결과를 저장해 두었다가 다시 씁니다."
+)
+PRECISE_TUNE_RESULT_TIP: str = (
+    "품질값 정밀 결정으로 정한 목표 품질값입니다. 대표 구간을 실제로 인코딩해 잰 화질 점수가 기준을 넘는 가장 높은 값입니다."
+)
+PRECISE_TUNE_NOTICE: str = "품질값 정밀 결정 CQ{previous} -> CQ{current}"
 GRAPH_TITLE_TIP: str = "시간에 따른 초당 데이터량(비트레이트) 변화를 보여 줍니다. 오른쪽 안내 아이콘에서 선 모양별 뜻을 확인할 수 있습니다."
 NO_VALUE_TIP: str = "인코딩을 시작한 지 얼마 안 되었거나 이 영상에서는 측정할 수 없습니다."
 NO_POSITION_TIP: str = (
@@ -179,6 +194,11 @@ def card_fields(
 def _position_field(
     sample: ProgressSample, job: EncodeJob, position_known: bool, phase: TuningPhase | None
 ) -> CardField:
+    if phase is not None and phase.stage == PHASE_PRECISE_TUNE:
+        return CardField(
+            f"품질값 정밀 결정 {phase.probe_index}/{phase.probe_total}",
+            f"{PRECISE_TUNE_TIP}\n정밀 시험 {phase.probe_index}/{phase.probe_total}회째입니다.",
+        )
     if phase is not None and phase.stage == PHASE_SAMPLE_PREDICT:
         return CardField(
             f"사전 예측 ({phase.segment_done}/{phase.segment_total})",
@@ -199,6 +219,14 @@ def _position_field(
 
 
 def _target_quality_field(job: EncodeJob, phase: TuningPhase | None) -> CardField:
+    if phase is not None and phase.stage == PHASE_PRECISE_TUNE:
+        if phase.precise_quality is None:
+            base_txt = quality_text(phase.baseline_quality)
+            return CardField(
+                f"정밀 결정 중 (계획 {base_txt})",
+                f"계획한 품질값 {base_txt}을 바탕으로 화질 기준을 지키는 가장 높은 값을 찾고 있습니다.\n{CAPTION_TIPS[9]}",
+            )
+        return CardField(f"{quality_text(phase.precise_quality)} (정밀 결정)", f"{PRECISE_TUNE_RESULT_TIP}\n{CAPTION_TIPS[9]}")
     if phase is not None and phase.stage == PHASE_SAMPLE_PREDICT:
         return CardField(quality_text(job.quality), CAPTION_TIPS[9])
     if phase is not None and phase.stage == PHASE_SAMPLING:
@@ -210,9 +238,21 @@ def _target_quality_field(job: EncodeJob, phase: TuningPhase | None) -> CardFiel
     if phase is not None and phase.adjusted_quality is not None:
         prev_txt = quality_text(phase.baseline_quality)
         cur_txt = quality_text(phase.adjusted_quality)
+        precise = (
+            f"\n품질값 정밀 결정으로 먼저 {quality_text(phase.previous_quality)}에서 {prev_txt}로 정했습니다."
+            if phase.precise_quality is not None and phase.previous_quality is not None
+            else ""
+        )
         return CardField(
             f"{cur_txt} (자동 조정)",
-            f"{SAVING_ADJUST_TIP.format(previous=prev_txt, current=cur_txt)}\n{CAPTION_TIPS[9]}",
+            f"{SAVING_ADJUST_TIP.format(previous=prev_txt, current=cur_txt)}{precise}\n{CAPTION_TIPS[9]}",
+        )
+    if phase is not None and phase.precise_quality is not None:
+        cur_txt = quality_text(phase.precise_quality)
+        prev_txt = quality_text(phase.previous_quality if phase.previous_quality is not None else job.quality)
+        return CardField(
+            f"{cur_txt} (정밀 결정)",
+            f"{PRECISE_TUNE_RESULT_TIP}\n계획한 {prev_txt}에서 정밀 결정으로 {cur_txt}를 골랐습니다.\n{CAPTION_TIPS[9]}",
         )
     if phase is not None and (phase.current_quality > phase.baseline_quality or phase.retry_count > 0):
         cur_txt = quality_text(phase.current_quality)
@@ -454,7 +494,13 @@ def apply_card_phase(
     set_chip_pre_encode: Callable[[bool], None],
 ) -> None:
     """품질 시험, 본 인코딩, 재시도 단계 이벤트를 카드와 진행 칩에 반영"""
-    if phase.stage == PHASE_SAMPLE_PREDICT:
+    if phase.stage == PHASE_PRECISE_TUNE:
+        frac = 0.0 if phase.probe_total <= 0 else phase.probe_index / phase.probe_total
+        card.set_progress(frac, "품질값 정밀 결정 진행률입니다.")
+        card.set_retry_notice("")
+        set_chip_phase(f"품질값 정밀 결정 {phase.probe_index}/{phase.probe_total}", PRECISE_TUNE_TIP)
+        set_chip_progress(frac)
+    elif phase.stage == PHASE_SAMPLE_PREDICT:
         frac = 0.0 if phase.segment_total <= 0 else phase.segment_done / phase.segment_total
         card.set_progress(frac, "사전 예측 진행률입니다.")
         card.set_retry_notice("")
@@ -476,14 +522,22 @@ def apply_card_phase(
         card.set_retry_notice(notice)
         set_chip_phase(f"재시도 {phase.retry_count}/1", notice)
     else:
-        if phase.adjusted_quality is not None:
-            notice = SAVING_ADJUST_NOTICE.format(
-                previous=format_cq_value(phase.baseline_quality),
-                current=format_cq_value(phase.adjusted_quality),
+        notices: list[str] = []
+        if phase.precise_quality is not None and phase.previous_quality is not None:
+            notices.append(
+                PRECISE_TUNE_NOTICE.format(
+                    previous=format_cq_value(phase.previous_quality),
+                    current=format_cq_value(phase.precise_quality),
+                )
             )
-            card.set_retry_notice(notice)
-        else:
-            card.set_retry_notice("")
+        if phase.adjusted_quality is not None:
+            notices.append(
+                SAVING_ADJUST_NOTICE.format(
+                    previous=format_cq_value(phase.baseline_quality),
+                    current=format_cq_value(phase.adjusted_quality),
+                )
+            )
+        card.set_retry_notice("\n".join(notices))
         set_chip_phase("", "")
     card.set_pre_encode(phase.stage in PRE_ENCODE_STAGES)
     set_chip_pre_encode(phase.stage in PRE_ENCODE_STAGES)

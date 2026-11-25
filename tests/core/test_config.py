@@ -10,8 +10,10 @@ from src.core.config import (
     CORE_SETTING_COUNT,
     DEFAULT_FRAME_ANALYSIS_MODE,
     DEFAULT_PATHS,
+    PRECISE_QUALITY_MODE_SELECTIVE,
     SAVINGS_BASIS_ENCODE,
     SAVINGS_BASIS_PLAYBACK,
+    VALID_PRECISE_QUALITY_MODES,
     BitrateModelConfig,
     ClassifierConfig,
     EncodeConfig,
@@ -208,7 +210,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 62)
+        self.assertEqual(CORE_SETTING_COUNT, 63)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertEqual(DEFAULT_PATHS.recent_dirs, [])
         self.assertIn("over_bitrate_ratio", bounds)
@@ -278,6 +280,24 @@ class TestConfigModule(unittest.TestCase):
             {"analysis": {"encode": {"frame_analysis_min_tier": "8k"}}}
         )
         self.assertEqual(invalid.encode.frame_analysis_min_tier, "1080p")
+
+    def test_precise_quality_mode_default_and_roundtrip(self) -> None:
+        """품질값 정밀 결정 적용 범위의 기본값, 왕복, 미지 값 기본 복귀를 검증"""
+        cfg = ClassifierConfig()
+        self.assertEqual(cfg.encode.precise_quality_mode, PRECISE_QUALITY_MODE_SELECTIVE)
+        for mode in VALID_PRECISE_QUALITY_MODES:
+            with self.subTest(mode=mode):
+                parsed = ClassifierConfig.from_dict(
+                    {"analysis": {"encode": {"precise_quality_mode": mode}}}
+                )
+                self.assertEqual(parsed.encode.precise_quality_mode, mode)
+                self.assertEqual(
+                    ClassifierConfig.from_dict(parsed.to_dict()).encode.precise_quality_mode, mode
+                )
+        unknown = ClassifierConfig.from_dict(
+            {"analysis": {"encode": {"precise_quality_mode": "sometimes"}}}
+        )
+        self.assertEqual(unknown.encode.precise_quality_mode, PRECISE_QUALITY_MODE_SELECTIVE)
 
     def test_to_dict_covers_all_section_fields_via_dataclasses(self) -> None:
         """ClassifierConfig.to_dict가 모든 하위 설정 데이터클래스 필드를 누락 없이 직렬화, 역직렬화함을 검증"""

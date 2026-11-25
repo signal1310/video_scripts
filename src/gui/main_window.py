@@ -196,6 +196,11 @@ class MainWindow(QMainWindow):
             self, self.table_view, self.filter_bar, self._app_state.ui, self._session.persist
         )
         self.frame_analysis = attach_frame_analysis(self, self._re_evaluate_async, self._tasks.is_running)
+        # - 여백 미리 보기의 직접 지정 저장과 잘라내기 제외 전환은 화질 분석 컨트롤러가 소유
+        self._preview.attach_crop_edit(
+            self.frame_analysis.set_manual_active_frame,
+            self.frame_analysis.toggle_crop_exclusion,
+        )
         self._session.restore_pending_selection(self._current_root_dir(), self.table_view)
         self._sync_widgets_from_session()
         self._app_filter_installed: bool = False

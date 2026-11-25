@@ -8,7 +8,7 @@ from PyQt6.QtCore import QEvent, QObject, QPoint, Qt
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
-from src.core.models import SummaryReport, VideoEvaluation
+from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.settings.ui_state import UiState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_worker import FrameExtractor
@@ -101,6 +101,11 @@ class PreviewController(QObject):
         self._apply_compare_manual_target: (
             Callable[[VideoEvaluation, str | None], bool] | None
         ) = None
+        # - 여백 미리 보기에서 직접 지정한 활성 화면 저장과 잘라내기 제외 전환은 화질 분석 컨트롤러가 맡음
+        self._apply_manual_active_frame: (
+            Callable[[VideoEvaluation, ActiveFrame | None], None] | None
+        ) = None
+        self._apply_crop_exclusion: Callable[[VideoEvaluation, bool], None] | None = None
         # - 핀을 끈 미리 보기 창을 메인 창과 함께 최소화했는지. 복원할 때 이 창만 되살림
         self._minimized_with_parent: bool = False
         parent.installEventFilter(self)
@@ -140,6 +145,24 @@ class PreviewController(QObject):
         if self._apply_compare_manual_target is None:
             return False
         return self._apply_compare_manual_target(ev, value)
+
+    def attach_crop_edit(
+        self,
+        set_manual_active_frame: Callable[[list[VideoEvaluation], ActiveFrame | None], None],
+        toggle_crop_exclusion: Callable[[list[VideoEvaluation], bool], None],
+    ) -> None:
+        """여백 미리 보기의 직접 지정 저장과 잘라내기 제외 전환을 화질 분석 컨트롤러에 연결
+
+        - 창을 만들기 전에도 호출할 수 있어, 처음 여는 창부터 같은 경로를 씀
+        """
+        self._apply_manual_active_frame = (
+            lambda ev, frame: set_manual_active_frame([ev], frame)
+        )
+        self._apply_crop_exclusion = lambda ev, excluded: toggle_crop_exclusion([ev], excluded)
+        if self._window is not None:
+            self._window.set_crop_edit_targets(
+                self._apply_manual_active_frame, self._apply_crop_exclusion
+            )
 
     def sync_compare_report(self, report: SummaryReport) -> None:
         """표 판정 결과가 바뀌면 열린 비교 뷰의 현재 영상 판정을 다시 찾아 넘김"""
@@ -374,6 +397,7 @@ class PreviewController(QObject):
                 config=model.config,
                 pending_tiers=model.pending_output_tiers,
                 selected_count=len(selection.selectedRows()) if selection is not None else 0,
+                has_frame_analysis=model.has_frame_analysis(ev.video.filename),
             )
         )
 
@@ -442,6 +466,8 @@ class PreviewController(QObject):
             get_compare_top_bar_collapsed=lambda: self._get_ui().compare_top_bar_collapsed,
             on_compare_top_bar_collapsed_changed=self._on_compare_top_bar_collapsed_changed,
             apply_compare_manual_target=self._compare_manual_target,
+            apply_manual_active_frame=self._apply_manual_active_frame,
+            apply_crop_exclusion=self._apply_crop_exclusion,
         )
         window.step_requested.connect(self.on_step_requested)
         window.settings_requested.connect(self.show_settings)

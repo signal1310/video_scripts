@@ -86,6 +86,33 @@ class PreviewControllerTests(unittest.TestCase):
         self.controller.attach_compare(builder, extractor)
         window.set_compare_extractor.assert_called_once_with(extractor)
 
+    def test_attach_crop_edit_wraps_the_callbacks_for_the_open_window(self) -> None:
+        """활성 화면 직접 편집 연결이 지금 창에 단일 영상 콜백으로 넘기는지 검증"""
+        window = mock.Mock()
+        self.controller._window = window
+        manual: list[tuple[list[Any], Any]] = []
+        excluded: list[tuple[list[Any], bool]] = []
+        self.controller.attach_crop_edit(
+            lambda evals, frame: manual.append((evals, frame)),
+            lambda evals, flag: excluded.append((evals, flag)),
+        )
+        on_manual, on_exclusion = window.set_crop_edit_targets.call_args.args
+        ev = make_eval()
+        on_manual(ev, None)
+        on_exclusion(ev, True)
+        self.assertEqual(manual, [([ev], None)])
+        self.assertEqual(excluded, [([ev], True)])
+
+    def test_attach_crop_edit_before_the_window_opens_keeps_the_callbacks(self) -> None:
+        """창을 만들기 전에 연결해도 콜백이 남아 있는지 검증"""
+        manual: list[tuple[list[Any], Any]] = []
+        self.controller.attach_crop_edit(
+            lambda evals, frame: manual.append((evals, frame)),
+            lambda _evals, _flag: None,
+        )
+        self.assertIsNotNone(self.controller._apply_manual_active_frame)
+        self.assertIsNotNone(self.controller._apply_crop_exclusion)
+
     def test_compare_manual_target_returns_false_without_a_callback(self) -> None:
         self.assertFalse(self.controller._compare_manual_target(make_eval(), "1080p"))
 

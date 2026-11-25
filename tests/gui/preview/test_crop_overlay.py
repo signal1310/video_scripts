@@ -342,7 +342,7 @@ def _window() -> VideoPreviewWindow:
 
 def _crop_info() -> PreviewVideoInfo:
     ev = make_eval(make_video(), active_frame=ActiveFrame(1920, 800, 0, 140))
-    return PreviewVideoInfo(ev, ClassifierConfig(), {}, 1)
+    return PreviewVideoInfo(ev, ClassifierConfig(), {}, 1, has_frame_analysis=True)
 
 
 def _plain_info() -> PreviewVideoInfo:

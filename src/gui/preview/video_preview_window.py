@@ -33,7 +33,14 @@ from src.gui.dialogs.frame_compare_styles import build_compare_qss
 from src.gui.dialogs.frame_compare_worker import FrameExtractor
 from src.gui.preview import preview_keys as preview
 from src.gui.preview import preview_modes
-from src.gui.preview.crop_overlay import CropOverlay, crop_overlay_rects
+from src.gui.preview.crop_edit import full_active_frame, kept_label
+from src.gui.preview.crop_edit_session import (
+    CROP_FULL_TIP,
+    CROP_RESET_TIP,
+    UNDO_DONE_NOTICE,
+    CropEditSession,
+)
+from src.gui.preview.crop_overlay import CropOverlay
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
 from src.gui.preview.preview_playback import PreviewPlayback
@@ -51,6 +58,7 @@ _MS_PER_SECOND: int = 1000
 _POSITION_MIN_SEC: float = 0.5
 _POSITION_END_GAP_SEC: float = 1.0
 _PLAYBACK_ERROR_TEXT: str = "이 영상은 재생할 수 없습니다. 영상 코덱이 설치되어 있는지 확인해 주세요."
+SAVED_MANUAL_FRAME_TEXT: str = "직접 지정한 활성 화면을 저장했습니다. 인코딩할 때 지정한 영역을 잘라냅니다."
 
 
 class PositionMemory(Protocol):
@@ -102,6 +110,10 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         apply_compare_manual_target: (
             Callable[[VideoEvaluation, str | None], bool] | None
         ) = None,
+        apply_manual_active_frame: (
+            Callable[[VideoEvaluation, ActiveFrame | None], None] | None
+        ) = None,
+        apply_crop_exclusion: Callable[[VideoEvaluation, bool], None] | None = None,
     ) -> None:
         # - 소유자 창은 컨트롤러가 정하므로 창 자체는 독립 최상위 창으로 만듦
         super().__init__(None, Qt.WindowType.Window)
@@ -151,6 +163,14 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._controls.set_shortcut_tooltips(self._get_shortcuts())
         self._controls.set_always_on_top(self._always_on_top)
         self._crop_overlay = CropOverlay(self, self._video_view_rect)
+        self._apply_manual_active_frame = apply_manual_active_frame
+        self._apply_crop_exclusion = apply_crop_exclusion
+        self._crop_edit = CropEditSession(self._video, self)
+        self._crop_edit.preview_changed.connect(self._update_crop_overlay)
+        self._crop_edit.commit_requested.connect(self._on_crop_commit)
+        self._crop_edit.undo_requested.connect(self._on_crop_undo)
+        self._crop_edit.reset_auto_requested.connect(self._on_crop_reset_auto)
+        self._crop_edit.keep_full_requested.connect(self._on_crop_keep_full)
 
         self._playback = PreviewPlayback(self._video, self)
         self._playback.position_changed.connect(self._controls.set_position)
@@ -230,6 +250,10 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._controls.fullscreen_requested.connect(self._toggle_fullscreen)
         self._controls.always_on_top_toggled.connect(self._apply_always_on_top)
         self._controls.crop_preview_toggled.connect(self._on_crop_toggled)
+        self._controls.crop_actions.reset_requested.connect(self._crop_edit.request_reset_auto)
+        self._controls.crop_actions.keep_full_requested.connect(
+            self._crop_edit.request_keep_full
+        )
 
     @property
     def _player(self) -> QMediaPlayer:
@@ -383,6 +407,17 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self.raise_()
         self.activateWindow()
 
+    def set_crop_edit_targets(
+        self,
+        apply_manual_active_frame: (
+            Callable[[VideoEvaluation, ActiveFrame | None], None] | None
+        ),
+        apply_crop_exclusion: Callable[[VideoEvaluation, bool], None] | None,
+    ) -> None:
+        """직접 지정 활성 화면 저장과 잘라내기 제외 전환 대상만 바꿈(창을 만들기 전에는 호출하지 않음)"""
+        self._apply_manual_active_frame = apply_manual_active_frame
+        self._apply_crop_exclusion = apply_crop_exclusion
+
     def set_video_info(self, info: PreviewVideoInfo | None) -> None:
         """정보 표시에 쓸 지금 영상의 표 값을 전달하고, 프레임 이동에 쓸 FPS를 기억"""
         self._video_info = info
@@ -394,11 +429,15 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         return QRect(self._video.mapToGlobal(QPoint(0, 0)), self._video.size())
 
     def _crop_active_frame(self) -> ActiveFrame | None:
-        """지금 영상의 확정된 잘라내기 영역, 대상이 아니거나 비교 모드면 None"""
+        """지금 영상의 잘라내기 기준 영역, 편집 대상이 아니거나 비교 모드면 None
+
+        - 화면 분석 결과가 있으면 검은 띠가 없어 활성 화면이 비어 있어도 전체 프레임으로 편집함
+        """
         info = self._video_info
-        if info is None or self.compare_mode:
+        if info is None or self.compare_mode or not info.has_frame_analysis:
             return None
-        return info.ev.active_frame
+        video = info.ev.video
+        return info.ev.active_frame or full_active_frame((video.width, video.height))
 
     def _sync_crop_controls(self) -> None:
         """여백 미리 보기 버튼 표시와 겹침 상태를 지금 영상과 모드에 맞춤"""
@@ -415,16 +454,54 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """겹침에 그릴 배치를 지금 영상과 창 크기로 계산해 넘기고, 그릴 것이 없으면 숨김"""
         active = self._crop_active_frame()
         if not self._crop_enabled or active is None or not self.isVisible():
+            self._crop_edit.set_enabled(False)
             self._crop_overlay.set_crop(None)
             return
         video = self._video_info.ev.video if self._video_info is not None else None
         if video is None:
+            self._crop_edit.set_enabled(False)
             self._crop_overlay.set_crop(None)
             return
-        size = self._video.size()
-        self._crop_overlay.set_crop(
-            crop_overlay_rects((size.width(), size.height()), (video.width, video.height), active)
-        )
+        self._crop_edit.set_video(self._path, (video.width, video.height), active)
+        self._crop_edit.set_enabled(True)
+        self._crop_overlay.set_size_label(kept_label(self._crop_edit.frame))
+        self._crop_overlay.set_crop(self._crop_edit.rects())
+
+    def _on_crop_commit(self, frame: ActiveFrame) -> None:
+        """끌기를 마친 유지 영역을 영상별 직접 지정으로 저장하고 알림"""
+        ev = self._video_info.ev if self._video_info is not None else None
+        if ev is None or self._apply_manual_active_frame is None:
+            return
+        self._apply_manual_active_frame(ev, frame)
+        self.show_notice(SAVED_MANUAL_FRAME_TEXT, duration_ms=preview.FEEDBACK_MS)
+
+    def _on_crop_undo(self, frame: ActiveFrame | None) -> None:
+        """창 세션에서 마지막으로 바꾼 값을 다시 저장 요청"""
+        ev = self._video_info.ev if self._video_info is not None else None
+        if ev is None or self._apply_manual_active_frame is None:
+            return
+        self._apply_manual_active_frame(ev, frame)
+        self.show_notice(UNDO_DONE_NOTICE, duration_ms=preview.FEEDBACK_MS)
+
+    def _on_crop_reset_auto(self) -> None:
+        """자동 감지 결과로 되돌리고 잘라내기 제외도 함께 해제"""
+        ev = self._video_info.ev if self._video_info is not None else None
+        if ev is None or self._apply_manual_active_frame is None:
+            return
+        if self._apply_crop_exclusion is not None:
+            self._apply_crop_exclusion(ev, False)
+        self._apply_manual_active_frame(ev, None)
+        self.show_notice(CROP_RESET_TIP, duration_ms=preview.FEEDBACK_MS)
+
+    def _on_crop_keep_full(self) -> None:
+        """이 영상을 자르지 않도록 지정을 지우고 잘라내기 제외를 켬"""
+        ev = self._video_info.ev if self._video_info is not None else None
+        if ev is None or self._apply_crop_exclusion is None:
+            return
+        if self._apply_manual_active_frame is not None:
+            self._apply_manual_active_frame(ev, None)
+        self._apply_crop_exclusion(ev, True)
+        self.show_notice(CROP_FULL_TIP, duration_ms=preview.FEEDBACK_MS)
 
     def _on_crop_toggled(self, enabled: bool) -> None:
         """여백 미리 보기 버튼 상태를 따라 겹침을 켜고 끔"""
@@ -649,6 +726,13 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             and self.isActiveWindow()
             and not preview.blocks_preview_keys()
         )
+        if (
+            key_event
+            and isinstance(a1, QKeyEvent)
+            # - 여백 편집 중 Esc, Ctrl+Z는 창 닫기나 앱 되돌리기보다 먼저 이 창에서 처리
+            and self._crop_key(a1)
+        ):
+            return True
         if key_event and isinstance(a1, QKeyEvent) and self._modes.compare_mode:
             if self._modes.handle_key_event(a1):
                 return True
@@ -667,6 +751,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """Space, Esc는 고정으로 닫고, 나머지 키는 지금 모드의 단축키 명령으로 처리"""
         if event is None:
             return
+        if self._crop_key(event):
+            event.accept()
+            return
         if self._modes.compare_mode:
             if self._modes.handle_key_event(event) or self._forward_key(
                 QKeySequence(event.keyCombination()).toString()
@@ -677,6 +764,23 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def _crop_key(self, event: QKeyEvent) -> bool:
+        """여백 편집 중 Esc는 끌기 취소, Ctrl+Z는 이 창의 마지막 변경 되돌리기로 처리
+
+        - 끌기 중이 아닌 Esc와 다른 키는 기존 닫기/단축키 동작으로 넘김
+        - Esc는 앱 이벤트 필터에서도 먼저 받아 창 닫기로 새지 않게 함
+        """
+        if not self._crop_enabled:
+            return False
+        if event.key() == Qt.Key.Key_Escape and event.modifiers() == Qt.KeyboardModifier.NoModifier:
+            return self._crop_edit.cancel_drag()
+        if (
+            event.key() == Qt.Key.Key_Z
+            and event.modifiers() == Qt.KeyboardModifier.ControlModifier
+        ):
+            return self._crop_edit.undo()
+        return False
 
     def _key_actions(self) -> preview.PreviewActionHandlers:
         """미리 보기 명령이 부를 재생기와 창 동작 묶음"""

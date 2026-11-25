@@ -10,10 +10,20 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 from PyQt6.QtCore import QPoint, QRect, QRectF, Qt
-from PyQt6.QtGui import QColor, QFontMetrics, QPainter, QPaintEvent, QPen, QRegion
+from PyQt6.QtGui import (
+    QColor,
+    QFontMetrics,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QRegion,
+)
 from PyQt6.QtWidgets import QWidget
 
 from src.core.models import ActiveFrame
+from src.gui.preview.crop_edit import (
+    content_rect,
+)
 from src.gui.styles.palettes import DARK_PALETTE, ThemePalette
 
 CROP_LABEL_TEXT: str = "잘림"
@@ -23,6 +33,7 @@ _HATCH_ALPHA: int = 190
 _HATCH_SPACING_PX: int = 8
 _LABEL_MARGIN_PX: int = 4
 _LABEL_FONT_PT: float = 8.5
+_HANDLE_SIZE_PX: int = 7
 _MIN_CONTENT_PX: int = 1
 # - 영상 표면은 두 테마 모두에서 어두운 고정 배경이므로 검정 위 대비가 높은 다크 팔레트 경고색을 씀
 _OVERLAY_PALETTE: ThemePalette = DARK_PALETTE
@@ -49,13 +60,13 @@ def crop_overlay_rects(
     """
     view_w, view_h = (max(int(value), _MIN_CONTENT_PX) for value in view_size)
     video_w, video_h = (max(int(value), _MIN_CONTENT_PX) for value in video_size)
-    scale = min(view_w / video_w, view_h / video_h)
-    content_w = max(round(video_w * scale), _MIN_CONTENT_PX)
-    content_h = max(round(video_h * scale), _MIN_CONTENT_PX)
-    content_x0 = (view_w - content_w) // 2
-    content_y0 = (view_h - content_h) // 2
-    content_x1 = content_x0 + content_w
-    content_y1 = content_y0 + content_h
+    content = content_rect((view_w, view_h), (video_w, video_h))
+    content_w = content.width()
+    content_h = content.height()
+    content_x0 = content.left()
+    content_y0 = content.top()
+    content_x1 = content.left() + content_w
+    content_y1 = content.top() + content_h
     scale_x = content_w / video_w
     scale_y = content_h / video_h
     # - 반올림한 변을 내용 영역 안으로 가둬 활성 화면이 영상 밖을 가리켜도 넘치지 않게 함
@@ -103,10 +114,19 @@ class CropOverlay(QWidget):
         )
         self._get_view_rect = get_view_rect
         self._rects: CropOverlayRects | None = None
+        self._size_label: str = ""
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.hide()
+
+    def set_size_label(self, text: str) -> None:
+        """유지 영역 크기 표기를 바꾸고 다시 그림(빈 문자열이면 표기 생략)"""
+        if self._size_label == text:
+            return
+        self._size_label = text
+        if self.isVisible():
+            self.update()
 
     def set_crop(self, rects: CropOverlayRects | None) -> None:
         """표시할 배치를 바꾸고, 없으면 바로 숨김"""
@@ -145,6 +165,8 @@ class CropOverlay(QWidget):
             # - 테두리 굵기의 절반이 영역 밖으로 나가 잘리지 않게 안쪽으로 반만큼 들임
             half = _BORDER_WIDTH_PX / 2
             painter.drawRect(QRectF(rects.kept).adjusted(half, half, -half, -half))
+            _draw_handles(painter, rects.kept, QColor(palette.media_fg))
+            _draw_size_label(painter, rects.kept, self._size_label, QColor(palette.media_fg))
             _draw_label(painter, rects, QColor(palette.media_fg))
         finally:
             painter.end()
@@ -166,6 +188,54 @@ def _draw_hatch(painter: QPainter, cuts: tuple[QRect, ...], color: QColor) -> No
         painter.drawLine(QPoint(x, area.bottom()), QPoint(x + area.height(), area.top()))
         x += _HATCH_SPACING_PX
     painter.restore()
+
+
+def _draw_handles(painter: QPainter, kept: QRect, color: QColor) -> None:
+    """유지 영역의 네 변과 네 모서리에 끌기 손잡이를 그림"""
+    if kept.width() <= 0 or kept.height() <= 0:
+        return
+    left = kept.left()
+    right = kept.left() + kept.width()
+    top = kept.top()
+    bottom = kept.top() + kept.height()
+    mid_x = (left + right) // 2
+    mid_y = (top + bottom) // 2
+    half = _HANDLE_SIZE_PX // 2
+    anchors = (
+        (left, top),
+        (mid_x, top),
+        (right, top),
+        (left, mid_y),
+        (right, mid_y),
+        (left, bottom),
+        (mid_x, bottom),
+        (right, bottom),
+    )
+    painter.save()
+    painter.setPen(QPen(color, 1))
+    for x, y in anchors:
+        painter.drawRect(QRect(x - half, y - half, _HANDLE_SIZE_PX, _HANDLE_SIZE_PX))
+    painter.restore()
+
+
+def _draw_size_label(painter: QPainter, kept: QRect, text: str, color: QColor) -> None:
+    """유지 영역 왼쪽 위 안쪽에 크기와 좌표를 씀, 자리가 좁으면 생략"""
+    if not text:
+        return
+    font = painter.font()
+    font.setPointSizeF(_LABEL_FONT_PT)
+    painter.setFont(font)
+    metrics = QFontMetrics(font)
+    width = metrics.horizontalAdvance(text) + 2 * _LABEL_MARGIN_PX
+    height = metrics.height() + 2 * _LABEL_MARGIN_PX
+    if kept.width() < width or kept.height() < height:
+        return
+    painter.setPen(color)
+    painter.drawText(
+        QRect(kept.left(), kept.top(), width, height),
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        f" {text}",
+    )
 
 
 def _draw_label(painter: QPainter, rects: CropOverlayRects, color: QColor) -> None:

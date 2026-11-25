@@ -1,5 +1,6 @@
 """GUI 테스트 공용 격리, 창 검증 헬퍼"""
 
+import functools
 import os
 import sys
 import unittest
@@ -11,12 +12,16 @@ from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMainWindow, QMenuBar, QWidget
 
+from src.core.encode.ffmpeg_capability import probe_ffmpeg_capability
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 
 # - 합성 누름 이벤트로 올라간 수식키 상태를 되돌리려고 떼기 이벤트를 보내는 키 목록
 MODIFIER_KEYS: tuple[Qt.Key, ...] = (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt, Qt.Key.Key_Meta)
 # - PyQt6 스텁이 QTest.keyRelease를 인스턴스 메서드로 선언해 정적 호출의 형식 검사가 실패하므로 호출 가능한 형태로 받음
 _send_key_release: Callable[..., None] = QTest.keyRelease
+# - 창을 만들 때마다 FFmpeg를 하위 프로세스로 세 번 실행하는 비용을 프로세스 안에서 경로별 한 번으로 줄임
+_PROBE_TARGET: str = "src.gui.controllers.encode_coordinator.probe_ffmpeg_capability"
+_cached_probe = functools.lru_cache(maxsize=None)(probe_ffmpeg_capability)
 
 
 def release_key(
@@ -88,6 +93,7 @@ class GuiTestCase(unittest.TestCase):
 
     - setUpClass 이전 위젯은 run() 기록에 포함되어 보존됨
     - 수식키가 남으면 테스트를 실패로 기록하고 상태를 비움
+    - 재인코딩 조정기의 FFmpeg 능력 확인은 같은 경로면 프로세스 안에서 한 번만 실행
     """
 
     def run(self, result: unittest.TestResult | None = None) -> unittest.TestResult:
@@ -95,7 +101,8 @@ class GuiTestCase(unittest.TestCase):
             result = self.defaultTestResult()
         before = snapshot_top_level_widgets()
         try:
-            super().run(result)
+            with patch(_PROBE_TARGET, _cached_probe):
+                super().run(result)
         finally:
             dispose_new_top_level_widgets(before)
         fail_on_leftover_modifiers(self, result)

@@ -422,13 +422,18 @@ class VideoTableModel(QAbstractTableModel):
             self.set_sort_stack(self._sort_stack)
 
     def update_frame_analysis_results(self, partial: Mapping[str, FrameAnalysisResult]) -> None:
-        """도착한 화질 분석 결과만 병합하고 영향받은 행만 다시 그림. 정렬은 완료 경로에서 한 번만 다시 함"""
+        """도착한 화질 분석 결과만 병합하고 영향받은 행만 다시 그림
+
+        - 화질 분석 열로 정렬 중이면 도착분마다 다시 정렬해 표시 순서와 값이 어긋나지 않게 함
+        """
         if not partial:
             return
         self._frame_view.update_results(partial)
         for cache in (self._sort_keys_by_col, self._rank_by_col):
             for col in FRAME_ANALYSIS_COLUMNS:
                 cache.pop(col, None)
+        if any(col in FRAME_ANALYSIS_COLUMNS for col, _order in self._sort_stack):
+            self.set_sort_stack(self._sort_stack)
         rows = {self._row_of_filename[name] for name in partial if name in self._row_of_filename}
         for first, last in contiguous_row_ranges(rows):
             self.dataChanged.emit(
@@ -661,9 +666,14 @@ class VideoTableModel(QAbstractTableModel):
                 return self._frame_view.tooltip(ev.video.filename, col)
             if col == self.COL_ENCODE_STATE and (state_tip := self._encode_tooltip(ev)) is not None:
                 return state_tip
-            return format_row_tooltip(
-                ev, self._root_dir, get_encode_codec_label(self._config.encode.encode_codec)
-            )
+            if col == self.COL_NAME:
+                return format_row_tooltip(
+                    ev, self._root_dir, get_encode_codec_label(self._config.encode.encode_codec)
+                )
+            cell_tooltip = COL_DEF_MAP[col].cell_tooltip
+            if cell_tooltip is None:
+                return COL_DEF_MAP[col].tooltip_factory(self._config)
+            return cell_tooltip(ev)
         return None
 
 

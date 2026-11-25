@@ -45,6 +45,29 @@ from src.gui.table.column_filters import (
     ColumnSpec,
 )
 from src.gui.table.numeric_buckets import NumericBucketKind
+from src.gui.table.table_cell_tooltips import (
+    action_cell_tip,
+    after_size_cell_tip,
+    bitrate_cell_tip,
+    codec_cell_tip,
+    duration_cell_tip,
+    encode_state_cell_tip,
+    est_encode_time_cell_tip,
+    fps_cell_tip,
+    height_cell_tip,
+    keyframe_cell_tip,
+    optimal_bitrate_cell_tip,
+    out_bitrate_cell_tip,
+    ratio_cell_tip,
+    reason_cell_tip,
+    rotate_cell_tip,
+    saved_per_min_cell_tip,
+    saved_size_cell_tip,
+    size_cell_tip,
+    target_ratio_cell_tip,
+    width_cell_tip,
+    zone_cell_tip,
+)
 from src.gui.table.table_column_formats import (
     BADGE_BY_ZONE,
     OUTPUT_RES_FILTER_LABELS,
@@ -140,6 +163,7 @@ class TableColumnDef:
     numeric_format: str | None = None
     value_sort_key: Callable[[str], Any] = natural_sort_key
     full_header: str | None = None
+    cell_tooltip: Callable[[VideoEvaluation], str] | None = None
 
     @property
     def menu_title(self) -> str:
@@ -155,6 +179,7 @@ def _make_size_column(
     value_getter: Callable[[VideoEvaluation], float],
     decimals_getter: Callable[[DisplayConfig], int],
     *,
+    cell_tooltip: Callable[[VideoEvaluation], str],
     signed: bool = False,
     foreground_getter: Callable[[VideoEvaluation, ThemePalette], str | None]
     | None = None,
@@ -169,6 +194,7 @@ def _make_size_column(
         tooltip_factory=lambda cfg: (
             f"{tooltip_prefix}단위: {size_unit_desc(cfg.display.size_unit)})"
         ),
+        cell_tooltip=cell_tooltip,
         filter_value=lambda ev: float(value_getter(ev)),
         header_factory=lambda cfg: format_size_header(
             base_header, cfg.display.size_unit
@@ -205,6 +231,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.WIDTH].full,
         spec=_num_spec(1, "px", 0, 10.0, NumericBucketKind.WIDTH),
         tooltip_factory=_static_tip("회전 보정이 반영된 너비입니다. (px)"),
+        cell_tooltip=width_cell_tip,
         filter_value=lambda ev: float(ev.video.width),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -214,6 +241,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.HEIGHT].full,
         spec=_num_spec(2, "px", 0, 10.0, NumericBucketKind.HEIGHT),
         tooltip_factory=_static_tip("회전 보정이 반영된 높이입니다. (px)"),
+        cell_tooltip=height_cell_tip,
         filter_value=lambda ev: float(ev.video.height),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -225,6 +253,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         tooltip_factory=_static_tip(
             "컨테이너 무관 시계 방향 기준으로 정규화된 회전 각도입니다. (°)"
         ),
+        cell_tooltip=rotate_cell_tip,
         filter_value=format_rotate_text,
         sort_value=lambda ev: ev.video.rotate_type,
         icon_getter=rotate_icon_name,
@@ -236,6 +265,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.CODEC].full,
         spec=ColumnSpec(4, ColumnDataType.CATEGORY),
         tooltip_factory=_static_tip("영상의 인코딩 코덱입니다."),
+        cell_tooltip=codec_cell_tip,
         filter_value=lambda ev: ev.video.codec,
         sort_value=lambda ev: ev.video.codec.lower(),
         align=ALIGN_CENTER,
@@ -245,6 +275,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.FPS].full,
         spec=_num_spec(5, "fps", 2, 1.0, NumericBucketKind.FPS),
         tooltip_factory=_static_tip("영상의 초당 프레임 수입니다."),
+        cell_tooltip=fps_cell_tip,
         filter_value=lambda ev: float(ev.video.fps),
         display_value=lambda ev, cfg: format_fps(ev.video.fps, cfg.display),
         font_kind=FONT_MONO,
@@ -254,6 +285,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.DURATION].full,
         spec=_num_spec(6, "초", 1, 10.0, NumericBucketKind.DURATION),
         tooltip_factory=_static_tip("영상의 재생 시간입니다. (HH:MM:SS)"),
+        cell_tooltip=duration_cell_tip,
         filter_value=lambda ev: float(ev.video.duration),
         display_value=lambda ev, _cfg: format_duration(ev.video.duration),
     ),
@@ -263,6 +295,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         full_header=COLUMN_LABELS[ColumnId.BITRATE].full,
         spec=_num_spec(7, "kbps", 0, 100.0, NumericBucketKind.BITRATE),
         tooltip_factory=_static_tip("BR(비트레이트)는 현재 영상 비트레이트입니다. (kbps)"),
+        cell_tooltip=bitrate_cell_tip,
         filter_value=lambda ev: float(ev.video.vid_kbps),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -275,6 +308,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         tooltip_factory=_static_tip(
             "최적 BR(최적 비트레이트)은 해상도, FPS, 코덱을 반영한 화질 기준값 수준의 기준 비트레이트입니다. (kbps)"
         ),
+        cell_tooltip=optimal_bitrate_cell_tip,
         filter_value=lambda ev: float(ev.optimal_kbps),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -285,6 +319,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         full_header=COLUMN_LABELS[ColumnId.RATIO].full,
         spec=_num_spec(9, "배", 2, 0.1, NumericBucketKind.RATIO),
         tooltip_factory=_static_tip("BR 비율(비트레이트 비율)은 최적 비트레이트 대비 현재 비트레이트 비율입니다. (배)"),
+        cell_tooltip=ratio_cell_tip,
         filter_value=lambda ev: float(ev.bitrate_ratio),
         display_value=lambda ev, cfg: format_ratio(ev.bitrate_ratio, cfg.display),
         font_kind=FONT_MONO,
@@ -297,6 +332,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         tooltip_factory=_static_tip(
             "출력 BR 비율은 목표 인코딩 코덱 기준 최적 비트레이트 대비 현재 비트레이트 비율입니다. 과화질 판정과 예상 용량에 쓰입니다. (배)"
         ),
+        cell_tooltip=target_ratio_cell_tip,
         filter_value=lambda ev: float(ev.target_bitrate_ratio),
         display_value=lambda ev, cfg: format_ratio(ev.target_bitrate_ratio, cfg.display),
         font_kind=FONT_MONO,
@@ -308,6 +344,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
             11, ColumnDataType.ENUM, preset_values=tuple(z.value for z in reversed(QualityZone))
         ),
         tooltip_factory=lambda cfg: format_quality_zone_tooltip(cfg.thresholds),
+        cell_tooltip=zone_cell_tip,
         filter_value=lambda ev: ev.quality_zone.value,
         sort_value=lambda ev: _ZONE_SORT_RANK.get(ev.quality_zone, 0),
         badge_getter=lambda ev, p: BADGE_BY_ZONE[ev.quality_zone](p),
@@ -321,6 +358,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
             12, "초", 2, 0.5, NumericBucketKind.KEYFRAME, nullable_label=LABEL_UNMEASURED
         ),
         tooltip_factory=lambda cfg: format_keyframe_tooltip(cfg.thresholds),
+        cell_tooltip=keyframe_cell_tip,
         filter_value=keyframe_filter_value,
         display_value=format_keyframe_display,
         sort_value=lambda ev: (
@@ -337,6 +375,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         "현재 용량 (",
         lambda ev: ev.video.vid_size_MB,
         lambda d: d.size_decimals,
+        cell_tooltip=size_cell_tip,
     ),
     _make_size_column(
         14,
@@ -345,6 +384,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         "인코딩 후 예상 용량 (원본 보존 행은 인코딩을 가정한 참고값, ",
         lambda ev: ev.preview_after_mb,
         lambda d: d.after_size_decimals,
+        cell_tooltip=after_size_cell_tip,
         foreground_getter=fg_after_size,
     ),
     _make_size_column(
@@ -354,6 +394,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         "인코딩 후 예상 절약 (+: 절약, -: 키프레임 인코딩에 따른 용량 증가, 원본 보존 행 회색 일반체는 인코딩을 가정한 참고값, ",
         lambda ev: ev.preview_delta_mb,
         lambda d: d.saved_size_decimals,
+        cell_tooltip=saved_size_cell_tip,
         signed=True,
         foreground_getter=fg_saved_size,
         font_kind_getter=font_saved_size,
@@ -363,6 +404,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.SAVED_PER_MIN].full,
         spec=_num_spec(16, "MB/분", 2, 1.0, NumericBucketKind.SAVED_PER_MIN),
         tooltip_factory=format_saved_per_min_tooltip,
+        cell_tooltip=saved_per_min_cell_tip,
         filter_value=lambda ev: float(ev.preview_mb_per_min),
         display_value=format_saved_per_min_display,
         foreground_getter=fg_saved_per_min,
@@ -374,6 +416,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.EST_ENCODE_TIME].full,
         spec=_num_spec(17, "초", 1, 10.0, NumericBucketKind.DURATION),
         tooltip_factory=format_est_encode_time_tooltip,
+        cell_tooltip=est_encode_time_cell_tip,
         filter_value=lambda ev: float(ev.estimated_encode_sec),
         display_value=lambda ev, _cfg: format_duration(ev.estimated_encode_sec),
         foreground_getter=fg_est_encode_time,
@@ -399,7 +442,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.ACTIVE_FRAME].full,
         spec=ColumnSpec(19, ColumnDataType.CATEGORY),
         tooltip_factory=_static_tip(
-            "화질 분석으로 찾은 검은 띠를 뺀 활성 화면입니다. 검은 띠가 없으면 전체로 표시합니다."
+            "화질 분석으로 찾은 검은 띠를 뺀 활성 화면입니다. 검은 띠가 없으면 -로 표시합니다."
         ),
         filter_value=lambda ev: None,
         align=ALIGN_CENTER,
@@ -431,6 +474,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.ACTION].full,
         spec=ColumnSpec(22, ColumnDataType.ENUM, preset_values=SMART_ACTION_LABELS),
         tooltip_factory=format_action_tooltip,
+        cell_tooltip=action_cell_tip,
         filter_value=lambda ev: ev.action_label,
         badge_getter=action_badge,
         foreground_getter=action_foreground,
@@ -441,6 +485,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.REASON].full,
         spec=ColumnSpec(23, ColumnDataType.ENUM, preset_values=SMART_ACTION_REASONS),
         tooltip_factory=format_reason_tooltip,
+        cell_tooltip=reason_cell_tip,
         filter_value=lambda ev: ev.reason_label,
         foreground_getter=reason_foreground,
         align=ALIGN_CENTER,
@@ -453,6 +498,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         tooltip_factory=_static_tip(
             "출력 BR(출력 비트레이트)은 인코딩 후 출력 해상도와 목표 코덱 기준 예상 평균 비트레이트입니다. (kbps)"
         ),
+        cell_tooltip=out_bitrate_cell_tip,
         filter_value=lambda ev: float(ev.target_optimal_kbps),
         font_kind=FONT_MONO,
         numeric_format=".0f",
@@ -466,6 +512,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
             "인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다."
         ),
         # - 상태는 배치 진행에 따라 바뀌므로 정렬과 필터 값은 표 모델이 따로 계산하지 않음
+        cell_tooltip=encode_state_cell_tip,
         filter_value=lambda ev: None,
         align=ALIGN_CENTER,
     ),

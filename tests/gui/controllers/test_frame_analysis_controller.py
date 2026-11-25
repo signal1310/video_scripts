@@ -798,7 +798,7 @@ class LiveRefreshTests(_ControllerCase):
         with self.assertLogs("src.gui.controllers.frame_analysis_controller", level="INFO") as logs:
             worker.progress.emit(1, 1, "a.mp4", _result())
             controller._flush_timer.timeout.emit()
-        self.assertEqual(logs.output, ["INFO:src.gui.controllers.frame_analysis_controller:화질 분석 결과: a.mp4, 전체, 720p, VMAF"])
+        self.assertEqual(logs.output, ["INFO:src.gui.controllers.frame_analysis_controller:화질 분석 결과: a.mp4, -, 720p, VMAF"])
 
     def test_error_completion_keeps_rows_but_logs_no_result_lines(self) -> None:
         """오류로 끝난 실행은 도착분을 표에만 남기고 영상별 결과 줄은 기록하지 않는지 검증"""

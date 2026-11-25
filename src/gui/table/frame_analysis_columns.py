@@ -23,7 +23,7 @@ FRAME_ANALYSIS_COLUMNS: frozenset[int] = frozenset(
     {ACTIVE_FRAME_COLUMN, DOWNSCALE_CANDIDATE_COLUMN, QUALITY_METRIC_COLUMN}
 )
 
-ACTIVE_FRAME_TOTAL_TEXT: str = "전체"
+ACTIVE_FRAME_FULL_TEXT: str = "-"
 ACTIVE_FRAME_VR_TEXT: str = "VR 보호"
 DOWNSCALE_KEEP_TEXT: str = "유지"
 DOWNSCALE_UNMEASURABLE_TEXT: str = "측정 불가"
@@ -105,7 +105,7 @@ def active_frame_text(result: FrameAnalysisResult | None) -> str:
         return ACTIVE_FRAME_VR_TEXT
     if result.active_region.has_black_bars:
         return f"{result.active_region.width}x{result.active_region.height}"
-    return ACTIVE_FRAME_TOTAL_TEXT
+    return ACTIVE_FRAME_FULL_TEXT
 
 
 def active_frame_tooltip(result: FrameAnalysisResult | None, *, excluded: bool = False) -> str:

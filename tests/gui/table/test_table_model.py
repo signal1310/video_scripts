@@ -16,6 +16,7 @@ from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encode.encode_state import EncodeState
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.table.table_cell_tooltips import ratio_cell_tip
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from tests._factories import make_eval, make_video
@@ -232,10 +233,18 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.assertEqual(self.model.data(index, _DISPLAY), "720p")
         self.assertIn("SSIM으로 대신", self.model.data(index, _TOOLTIP))
         self.assertEqual(self.model.data(self.model.index(0, VideoTableModel.COL_QUALITY_METRIC), _DISPLAY), "SSIM (대체)")
-        self.assertEqual(self.model.get_filter_value_for(self.evals[0], VideoTableModel.COL_ACTIVE_FRAME), "전체")
+        self.assertEqual(self.model.get_filter_value_for(self.evals[0], VideoTableModel.COL_ACTIVE_FRAME), "-")
         self.assertEqual(self.model.collect_column_value_counts(VideoTableModel.COL_DOWNSCALE_CANDIDATE), [("", 1), ("720p", 1)])
         self.model.set_sort_stack([(VideoTableModel.COL_DOWNSCALE_CANDIDATE, Qt.SortOrder.AscendingOrder)])
         self.assertEqual(self.model.get_sort_value(1, VideoTableModel.COL_DOWNSCALE_CANDIDATE), (3, 720))
+
+    def test_cells_show_their_column_tooltip_and_name_cell_keeps_row_details(self) -> None:
+        """이름 셀은 종합 상세 툴팁, 그 밖의 셀은 이 영상의 값 툴팁을 보여 주는지 검증"""
+        ratio_index = self.model.index(0, VideoTableModel.COL_RATIO)
+        self.assertEqual(self.model.data(ratio_index, _TOOLTIP), ratio_cell_tip(self.evals[0]))
+        name_tip = self.model.data(self.model.index(0, VideoTableModel.COL_NAME), _TOOLTIP)
+        self.assertIn("파일명:", name_tip)
+        self.assertNotIn("파일명:", self.model.data(ratio_index, _TOOLTIP))
 
     def test_manual_vr_and_context_actions_delegate(self) -> None:
         self.assertTrue(self.model.is_manual_vr("a.mp4"))
@@ -391,8 +400,8 @@ class FrameAnalysisPartialUpdateTests(unittest.TestCase):
             "480p",
         )
 
-    def test_frame_columns_are_resorted_only_at_completion(self) -> None:
-        """화질 분석 열 정렬은 부분 갱신 동안 미루고 완료 적용에서 한 번만 다시 하는지 검증"""
+    def test_frame_sort_is_reapplied_on_each_partial_update_and_at_completion(self) -> None:
+        """화질 분석 열로 정렬 중이면 부분 갱신마다, 완료 때 다시 정렬하고 다른 열 정렬 키는 보존하는지 검증"""
         frame_col = VideoTableModel.COL_DOWNSCALE_CANDIDATE
         self.model.set_sort_stack([(frame_col, Qt.SortOrder.AscendingOrder)])
         name_col = VideoTableModel.COL_NAME
@@ -403,13 +412,21 @@ class FrameAnalysisPartialUpdateTests(unittest.TestCase):
                 self.model.update_frame_analysis_results(
                     {f"v{row}.mp4": self._result("720p")}
                 )
-            re_sort.assert_not_called()
+            self.assertEqual(re_sort.call_count, 5)
             self.assertIs(self.model._rank_by_col[name_col], name_rank)
             self.model.set_frame_analysis_results(
                 {f"v{row}.mp4": self._result("720p") for row in range(5)}
             )
-            self.assertEqual(re_sort.call_count, 1)
+            self.assertEqual(re_sort.call_count, 6)
 
+    def test_partial_updates_keep_the_sorted_order_true(self) -> None:
+        """정렬 중 도착한 결과가 있어도 표시 순서가 값 기준 정렬과 일치하는지 검증"""
+        self.model.set_sort_stack([(VideoTableModel.COL_DOWNSCALE_CANDIDATE, Qt.SortOrder.AscendingOrder)])
+        self.model.update_frame_analysis_results({"v3.mp4": self._result("1080p"), "v1.mp4": self._result("480p")})
+        keys = [self.model.get_sort_value(row, VideoTableModel.COL_DOWNSCALE_CANDIDATE) for row in range(self.model.rowCount())]
+        resolved = [key for key in keys if key[0] == 3]
+        self.assertEqual(resolved, sorted(resolved))
+        self.assertEqual(keys, sorted(keys))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

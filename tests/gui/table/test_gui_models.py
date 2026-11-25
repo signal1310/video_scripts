@@ -156,7 +156,7 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertFalse(icon.isNull())
 
     def test_rotated_pass_row_cells_and_reason_tooltip(self) -> None:
-        """90도 회전 적정 행의 가로, 세로, 조치 알약과 판정 사유 글자색, 사유 툴팁(회전 출처 포함)을 검증"""
+        """90도 회전 적정 행의 가로, 세로, 조치 알약과 판정 사유 글자색, 사유 열은 이 영상의 사유만, 파일 이름 셀은 회전 출처를 포함한 종합 툴팁을 검증"""
         model = self._report_model()
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_WIDTH)), "1280")
         self.assertEqual(model.data(model.index(1, VideoTableModel.COL_HEIGHT)), "720")
@@ -173,7 +173,13 @@ class TestGUIModelsModule(unittest.TestCase):
         )
         self.assertIsNone(model.data(reason, VideoTableModel.BADGE_ROLE))
 
-        tip = str(model.data(reason, int(Qt.ItemDataRole.ToolTipRole)))
+        tip_role = int(Qt.ItemDataRole.ToolTipRole)
+        self.assertEqual(
+            model.data(reason, tip_role),
+            f"{SmartAction.PASS_OPTIMAL.reason_label}: {SmartAction.PASS_OPTIMAL.reason_description}",
+        )
+        # - 종합 상세(회전 출처 등)는 파일 이름 셀 툴팁에 있음
+        tip = str(model.data(model.index(1, VideoTableModel.COL_NAME), tip_role))
         for expected in ("판정 사유:", "회전 90° (원본: Display Matrix -90°)", SmartAction.PASS_OPTIMAL.reason_description):
             self.assertIn(expected, tip)
         self.assertNotIn("세부 옵션", tip)

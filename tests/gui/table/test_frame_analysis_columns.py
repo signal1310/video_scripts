@@ -9,7 +9,7 @@ from src.core.models import ActiveFrame, VideoEvaluation
 from src.gui.styles.palettes import DARK_PALETTE as _PALETTE
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
-    ACTIVE_FRAME_TOTAL_TEXT,
+    ACTIVE_FRAME_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
     DOWNSCALE_KEEP_TEXT,
@@ -70,7 +70,7 @@ class FrameAnalysisTextTests(unittest.TestCase):
 
     def test_active_frame_values(self) -> None:
         self.assertEqual(active_frame_text(None), "")
-        self.assertEqual(active_frame_text(_result()), ACTIVE_FRAME_TOTAL_TEXT)
+        self.assertEqual(active_frame_text(_result()), ACTIVE_FRAME_FULL_TEXT)
         self.assertEqual(
             active_frame_text(_result(active=ActiveRegion(1920, 800, 0, 140, True))), "1920x800"
         )
@@ -102,7 +102,7 @@ class FrameAnalysisTextTests(unittest.TestCase):
             f"{active_frame_text(result)}, {downscale_candidate_text(result)}, "
             f"{quality_metric_text(result)}",
         )
-        self.assertEqual(result_summary_text(result), "전체, 720p, VMAF")
+        self.assertEqual(result_summary_text(result), "-, 720p, VMAF")
 
     def test_contiguous_rows_are_grouped_into_ranges(self) -> None:
         """행 번호가 연속 구간으로 묶이고 빈 목록은 빈 결과인지 검증"""
@@ -192,7 +192,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertTrue(view.is_manual_vr("a.mp4"))
         self.assertIsNotNone(view.result("a.mp4"))
         self.assertEqual(view.candidate_tier("a.mp4"), "720p")
-        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_TOTAL_TEXT)
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_FULL_TEXT)
         self.assertEqual(view.filter_value("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), "720p")
         self.assertEqual(view.sort_value("a.mp4", QUALITY_METRIC_COLUMN), (2, "vmaf"))
         self.assertIn("유효 구간", view.tooltip("a.mp4", DOWNSCALE_CANDIDATE_COLUMN))

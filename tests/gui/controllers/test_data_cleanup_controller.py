@@ -27,6 +27,7 @@ from src.gui.controllers.data_cleanup_controller import (
     NOTHING_DONE_TEXT,
     CleanupWindowPort,
     DataCleanupController,
+    DataCleanupDeps,
     result_text,
 )
 from src.service.data_cleanup_service import (
@@ -450,6 +451,13 @@ class _Service:
         return CleanupPlanResult({key: 1 for key in keys}, {})
 
 
+class _NoWidgetAccess:
+    """속성을 읽으면 실패하는 대역. 미리보기 함수가 위젯을 읽는지 확인할 때 씀"""
+
+    def __getattr__(self, name: str) -> object:
+        raise AssertionError(f"미리보기 중 위젯 속성 접근: {name}")
+
+
 class _FakeDialog:
     """데이터 정리 대화상자 대역"""
 
@@ -654,6 +662,21 @@ class PreviewTest(unittest.TestCase):
         self.window._session.state.ui.shortcuts = {"file.open_dir": "Ctrl+Q"}
         previews = self.controller.build_preview("current")
         self.assertEqual(previews["shortcuts_settings"].count, 1)
+
+    def test_storage_preview_fn_uses_captured_root_without_reading_widgets(self) -> None:
+        """미리보기 함수가 만들 때 받은 작업 폴더를 쓰고 메인 창 위젯을 읽지 않는지 검증"""
+        service = _Service()
+        self.controller._service_cache = cast("DataCleanupService", service)
+        self.controller._deps_cache = cast("DataCleanupDeps", _NoWidgetAccess())
+        preview = self.controller.storage_preview_fn(ROOT)
+        expected = {
+            key: CleanupItemPreview(key, 1, SIZE_BYTES if key == "part_files" else 0, True)
+            for key in STORAGE_CLEANUP_ITEM_KEYS
+        }
+        for scope in ("current", "all"):
+            with self.subTest(scope=scope):
+                self.assertEqual(preview(scope), expected)
+        self.assertEqual(service.preview_scopes, [("current", ROOT), ("all", ROOT)])
 
     def test_missing_root_gives_empty_storage_previews(self) -> None:
         """작업 폴더가 없으면 현재 범위 저장 데이터를 빈 미리보기로 두는지 검증"""

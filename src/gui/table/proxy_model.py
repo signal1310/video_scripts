@@ -14,6 +14,7 @@ from PyQt6.QtCore import (
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import DEFAULT_FILTER_SEARCH
+from src.gui.table.column_filter_values import prune_stale_filter_rules
 from src.gui.table.column_filters import ColumnFilterRule
 from src.gui.table.table_model import VideoTableModel
 
@@ -90,8 +91,15 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
             sourceModel.config_changed.connect(self._on_source_config_changed)
 
     def _on_source_config_changed(self) -> None:
+        # - 설정이 바뀌면 수치 구간 키가 새로 만들어지므로, 사라진 키를 먼저 버려야 필터가 표를 비우지 않음
+        pruned = prune_stale_filter_rules(
+            self.get_active_column_filters(), self._source_config()
+        )
+        filters_pruned = pruned != self._column_filters
+        if filters_pruned:
+            self._column_filters = pruned
         self._refilter()
-        if self._column_filters:
+        if self._column_filters or filters_pruned:
             self.column_filters_changed.emit()
 
     def _refilter(self) -> None:

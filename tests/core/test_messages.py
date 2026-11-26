@@ -4,11 +4,17 @@ import unittest
 
 from src.core.config import ClassifierConfig
 from src.core.messages import (
+    format_action_tooltip,
     format_keyframe_tooltip,
     format_reason_tooltip,
     format_restore_finished,
 )
-from src.core.smart_action import SmartAction
+from src.core.smart_action import (
+    SMART_ACTION_LABELS,
+    SMART_ACTION_REASONS,
+    DownscaleReason,
+    SmartAction,
+)
 
 
 class RestoreFinishedTextTests(unittest.TestCase):
@@ -44,6 +50,38 @@ class ReasonTooltipTests(unittest.TestCase):
             "분석 형식이 바뀌어 다시 분석하기 전까지 인코딩 대상에서 제외합니다.",
             lines,
         )
+
+    def test_every_reason_filter_choice_has_a_bullet(self) -> None:
+        """사유 열 필터 선택지마다 툴팁에 대응하는 설명 줄이 있는지 검증
+
+        - 툴팁은 넉넉한 곳이므로 약어 KF를 풀네임으로 씀(TERMINOLOGY 3절)
+        """
+        lines = format_reason_tooltip(ClassifierConfig()).split("\n")
+        listed = {line.removeprefix("• ").split(": ", 1)[0] for line in lines[1:]}
+        expected = {reason.replace("KF 초과", "키프레임 간격 초과") for reason in SMART_ACTION_REASONS}
+        self.assertEqual(listed, expected)
+
+
+class ActionTooltipTests(unittest.TestCase):
+    """권장 처리 머리글 툴팁이 처리 방식 닫힌 집합을 빠짐없이 나열하는지 검증"""
+
+    def test_every_action_label_the_formatter_can_produce_is_listed(self) -> None:
+        """모든 판정의 권장 처리 명칭이 툴팁 줄로 나오고 조건 이름이 값처럼 섞이지 않는지 검증"""
+        lines = format_action_tooltip(ClassifierConfig()).split("\n")
+        bullets = [line.removeprefix("• ") for line in lines[1:]]
+        listed = [bullet.split(": ", 1)[0] for bullet in bullets]
+        self.assertEqual(set(listed), set(SMART_ACTION_LABELS))
+        for action in SmartAction:
+            with self.subTest(action=action):
+                self.assertIn(action.action_label, listed)
+        self.assertNotIn("저화질 프리셋 영상", listed)
+
+    def test_downscale_description_names_every_downscale_reason(self) -> None:
+        """축소 재인코딩 설명이 축소 사유 닫힌 집합의 표기를 모두 담는지 검증"""
+        tip = format_action_tooltip(ClassifierConfig())
+        for reason in DownscaleReason:
+            with self.subTest(reason=reason):
+                self.assertIn(reason.value, tip)
 
 
 class KeyframeTooltipTests(unittest.TestCase):

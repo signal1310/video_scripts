@@ -22,6 +22,7 @@ from src.core.formatting import (
     format_float_precision,
     format_keyframe_interval,
 )
+from src.core.messages import LABEL_EMPTY_CELL
 from src.core.models import QualityZone, VideoEvaluation
 from src.core.quality_target import format_cq_value
 from src.core.resolution_tiers import RESOLUTION_TIERS
@@ -36,7 +37,6 @@ HALF_TURN_DEG: int = 180
 SAVED_PER_MIN_DECIMALS: int = 1
 OUTPUT_RES_NOT_DOWNSCALED_LABEL: str = "축소 안 함"
 OUTPUT_RES_NOT_DOWNSCALED_CELL: str = "-"
-QUALITY_VALUE_EMPTY_CELL: str = "-"
 OUTPUT_RES_FILTER_LABELS: tuple[str, ...] = (
     OUTPUT_RES_NOT_DOWNSCALED_LABEL,
     *(tier.display for tier in RESOLUTION_TIERS),
@@ -175,7 +175,7 @@ def format_output_res_display(ev: VideoEvaluation, _cfg: ClassifierConfig) -> st
 def format_quality_value_display(ev: VideoEvaluation, _cfg: ClassifierConfig) -> str:
     """품질값 표시 문자열. 계획 값이 없으면 `-`"""
     cq = ev.planned_cq
-    return QUALITY_VALUE_EMPTY_CELL if cq is None else format_cq_value(cq)
+    return LABEL_EMPTY_CELL if cq is None else format_cq_value(cq)
 
 
 def fg_output_res(ev: VideoEvaluation, p: ThemePalette) -> str | None:

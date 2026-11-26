@@ -631,11 +631,23 @@ class SessionCoordinator:
         proxy_model: "VideoSortFilterProxyModel",
         table_view: "VideoTableView",
     ) -> None:
-        """저장된 열 필터와 정렬 우선순위를 프록시에 다시 적용, 복원 중 바뀌는 상태를 피하려고 저장값을 먼저 복사"""
+        """저장된 열 필터와 정렬 우선순위를 프록시에 다시 적용, 복원 중 바뀌는 상태를 피하려고 저장값을 먼저 복사
+
+        - 사라진 선택 값을 버린 열은 저장 상태도 같은 내용으로 고쳐 다음 실행에서 같은 안내가 반복되지 않게 함
+        """
         filters_state = self.state.ui.filters
         columns = dict(filters_state.columns)
         sort_keys = list(filters_state.sort_keys)
-        apply_saved_filters(proxy_model, columns)
+        changes = apply_saved_filters(proxy_model, columns)
+        if changes:
+            remaining = dict(columns)
+            for key, snapshot in changes.items():
+                if snapshot is None:
+                    remaining.pop(key, None)
+                else:
+                    remaining[key] = snapshot
+            filters_state.columns = remaining
+            self._schedule_persist()
         apply_saved_sort(proxy_model, table_view.filter_header, sort_keys)
 
     def submit_cached_reevaluation(

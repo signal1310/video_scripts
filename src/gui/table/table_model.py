@@ -119,6 +119,12 @@ class VideoTableModel(QAbstractTableModel):
     COL_OUT_BITRATE = 24
     COL_ENCODE_STATE = 25
     COL_FFMPEG_ARGS = 26
+    # - 표시 값이 모델 상태(화질 분석 결과, 인코딩 배치, 예정 명령)에서 오는 열
+    MODEL_STATE_COLUMNS: ClassVar[tuple[int, ...]] = (
+        *FRAME_ANALYSIS_COLUMNS,
+        COL_ENCODE_STATE,
+        COL_FFMPEG_ARGS,
+    )
 
     HEADERS: ClassVar[list[str]] = [d.header for d in COL_DEFS]
     MENU_HEADERS: ClassVar[list[str]] = [d.menu_title for d in COL_DEFS]
@@ -530,9 +536,12 @@ class VideoTableModel(QAbstractTableModel):
             self._frame_manual_handler(evals, frame)
 
     def get_filter_value_for(self, ev: VideoEvaluation, col: int) -> str | float | None:
-        """행과 열의 필터 값. 화질 분석 열은 파일명별 결과에서 읽음"""
+        """행과 열의 필터 값. 화질 분석 열은 파일명별 결과에서, 인코딩 상태 열은 셀 표기에서 읽음"""
         if is_frame_analysis_column(col):
             return self._frame_view.filter_value(ev.video.filename, col)
+        if col == self.COL_ENCODE_STATE:
+            # - 셀 표기와 같은 값을 넘겨 필터 결과와 값별 행 수가 화면과 어긋나지 않게 함
+            return self._encode_label(ev) or ""
         return self.get_filter_value(ev, col)
 
     def set_previous_discard_provider(self, provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]]) -> None:
@@ -586,10 +595,13 @@ class VideoTableModel(QAbstractTableModel):
         extra = ffmpeg_args_line(self._planned_for(ev))
         return f"{tip}\n{extra}" if extra else tip
 
-    def ffmpeg_args_summary(self, ev: VideoEvaluation) -> str:
-        """영상의 예정 FFmpeg 영상 인자 한 줄 요약, 명령을 만들 수 없으면 빈 문자열. CSV 내보내기가 같은 값을 씀"""
-        planned = self._planned_for(ev)
-        return "" if planned is None else planned.summary
+    def model_state_cell_values(self, ev: VideoEvaluation) -> dict[int, Any]:
+        """표시 값이 모델 상태에서 오는 열의 셀 값
+
+        - 화질 분석 결과, 인코딩 배치, 예정 명령은 워커 스레드에서 읽을 수 없으므로 GUI 스레드에서 복사
+        - CSV 내보내기가 표 셀과 같은 값을 쓰도록 표시 값 계산을 그대로 넘김
+        """
+        return {col: self._display_data(ev, col) for col in self.MODEL_STATE_COLUMNS}
 
     def planned_command_line(self, ev: VideoEvaluation) -> str | None:
         """영상의 예정 FFmpeg 명령줄, 만들 수 없으면 None. 우클릭 복사가 그대로 넘김"""

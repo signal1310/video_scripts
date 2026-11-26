@@ -11,7 +11,7 @@ from src.core.analysis.frame_analysis import is_crop_only_result
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.quality_probe import METRIC_SSIM, METRIC_VMAF
-from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, RESOLUTION_TIERS
 
 if TYPE_CHECKING:
     from src.gui.styles.palettes import ThemePalette
@@ -29,6 +29,19 @@ DOWNSCALE_KEEP_TEXT: str = "유지"
 DOWNSCALE_UNMEASURABLE_TEXT: str = "측정 불가"
 METRIC_VMAF_TEXT: str = "VMAF"
 METRIC_SSIM_FALLBACK_TEXT: str = "SSIM (대체)"
+# - 축소 후보 열의 표시 값: 미측정 빈칸, 감지 전용 빈칸, 측정 불가, 유지, 규격 표시 이름
+DOWNSCALE_CANDIDATE_VALUE_SET: frozenset[str] = frozenset(
+    {
+        "",
+        DOWNSCALE_KEEP_TEXT,
+        DOWNSCALE_UNMEASURABLE_TEXT,
+        *(tier.display for tier in RESOLUTION_TIERS),
+    }
+)
+# - 측정 지표 열의 표시 값: 미측정 빈칸, VMAF, SSIM 대체
+QUALITY_METRIC_VALUE_SET: frozenset[str] = frozenset(
+    {"", METRIC_VMAF_TEXT, METRIC_SSIM_FALLBACK_TEXT}
+)
 
 _NO_RESULT_TIP: str = (
     "화질 분석 전이라 아직 측정하지 않았습니다. "

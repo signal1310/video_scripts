@@ -33,6 +33,15 @@ from tests._gui_window_base import ASYNC_WAIT_SECONDS, GuiWindowTestCase, settle
 _APP = QApplication.instance() or QApplication([])
 
 
+def _ratio_value(mw: MainWindow) -> float:
+    """창의 첫 행이 가진 비트레이트 비율 필터 값"""
+    ev = mw.table_model.get_evaluation_row(0)
+    assert ev is not None
+    value = mw.table_model.get_filter_value_for(ev, VideoTableModel.COL_RATIO)
+    assert isinstance(value, float)
+    return value
+
+
 class TestGUIWindowWorkflow(GuiWindowTestCase):
     """MainWindow 분석 흐름, 기준 변경 재평가, 예외와 수동 대상, 폴더 선택과 상태 복원 검증"""
 
@@ -550,6 +559,48 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
             [(VideoTableModel.COL_NAME, Qt.SortOrder.AscendingOrder),
              (VideoTableModel.COL_BITRATE, Qt.SortOrder.DescendingOrder)],
         )
+
+    def test_config_change_prunes_stale_bucket_filter_and_updates_state(self) -> None:
+        """작업 중 과화질 배수를 바꿔 구간 키가 사라지면 표가 비지 않고 저장 상태도 정리됨을 검증"""
+        from dataclasses import replace
+
+        from src.gui.table.numeric_buckets import (
+            NumericBucketKind,
+            build_numeric_buckets,
+            resolve_numeric_bucket,
+        )
+
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        videos = [make_video(filename="alpha.mp4", vid_kbps=3000, vid_size_MB=20.0)]
+        DEFAULT_CACHE_REGISTRY.put(work.name, TableCache(work.name, videos, include_keyframe=True))
+        clf = VideoClassifier(root_dir=work.name)
+        mw = MainWindow(classifier=clf)
+        self.addCleanup(mw.close)
+        mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
+
+        bucket = resolve_numeric_bucket(
+            _ratio_value(mw),
+            build_numeric_buckets(NumericBucketKind.RATIO, mw.table_model.config),
+        )
+        assert bucket is not None
+        mw.proxy_model.set_column_filter(
+            VideoTableModel.COL_RATIO,
+            ColumnFilterRule(selected_values=frozenset({bucket.key})),
+        )
+        self.assertEqual(mw.proxy_model.rowCount(), 1)
+        self.assertIsNotNone(mw._session.state.ui.filters.columns.get("ratio"))
+
+        base = mw.table_model.config
+        mw.table_model.set_config(
+            replace(base, thresholds=replace(base.thresholds, over_bitrate_ratio=3.0))
+        )
+
+        # - 사라진 구간 키만 있던 필터는 꺼지고, 그 사실이 저장 상태에도 반영됨
+        self.assertIsNone(mw.proxy_model.get_column_filter(VideoTableModel.COL_RATIO))
+        self.assertNotIn("ratio", mw._session.state.ui.filters.columns)
+        self.assertEqual(mw.proxy_model.rowCount(), 1)
 
     def test_manual_target_menu_reevaluates_from_cache_and_persists(self) -> None:
         """출력 해상도 지정 선택이 재분석 없이 행과 분석 요약을 갱신하고 상태 파일에 저장함을 검증"""

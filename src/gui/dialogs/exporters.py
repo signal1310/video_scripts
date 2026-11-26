@@ -12,7 +12,6 @@ from typing import Any
 
 from PyQt6.QtCore import QAbstractItemModel, Qt
 
-from src.gui.table.frame_analysis_columns import FRAME_ANALYSIS_COLUMNS
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.table_model import VideoTableModel, display_text_for
 
@@ -70,14 +69,10 @@ def _snapshot_video_rows(
     config = source.config
     pending = source.pending_output_tiers
     column_count = len(headers)
-    # - 화질 분석 세 열은 모델의 결과 캐시에서 GUI 스레드에 문구로 복사해, 워커 스레드가 Qt 모델을 읽지 않게 함
-    # - 예정 FFmpeg 인자 열도 모델의 행별 계산 결과를 같은 방식으로 복사
-    frame_cells: list[dict[int, str | float | None]] = [
-        {
-            **{col: source.get_filter_value_for(ev, col) for col in FRAME_ANALYSIS_COLUMNS},
-            VideoTableModel.COL_FFMPEG_ARGS: source.ffmpeg_args_summary(ev),
-        }
-        for ev in evaluations
+    # - 화질 분석 세 열, 인코딩 상태, 예정 FFmpeg 인자 열은 모델 상태에서 오므로 GUI 스레드에서 값으로 복사해,
+    #   워커 스레드가 Qt 모델과 배치 상태를 읽지 않으면서 표 셀과 같은 값을 저장하게 함
+    model_cells: list[dict[int, Any]] = [
+        source.model_state_cell_values(ev) for ev in evaluations
     ]
 
     def render_rows() -> list[list[str]]:
@@ -86,7 +81,7 @@ def _snapshot_video_rows(
                 _cell_text(cells[col]) if col in cells else _cell_text(display_text_for(ev, col, config, pending))
                 for col in range(column_count)
             ]
-            for ev, cells in zip(evaluations, frame_cells, strict=True)
+            for ev, cells in zip(evaluations, model_cells, strict=True)
         ]
 
     return CsvSnapshot(tuple(headers), render_rows)

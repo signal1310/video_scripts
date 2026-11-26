@@ -31,6 +31,7 @@ from src.core.formatting import (
 )
 from src.core.messages import (
     COLUMN_LABELS,
+    LABEL_EMPTY_CELL,
     LABEL_ORIGINAL_PRESERVED,
     MAXRATE_NEAR_NOTICE,
     ColumnId,
@@ -65,7 +66,6 @@ _CUI_HDR_QUALITY_VALUE: str = COLUMN_LABELS[ColumnId.QUALITY_VALUE].compact_head
 _CUI_HDR_REASON: str = COLUMN_LABELS[ColumnId.REASON].compact_header
 _CUI_HDR_OUTPUT_RES: str = COLUMN_LABELS[ColumnId.OUTPUT_RES].compact_header
 _CUI_OUTPUT_RES_NOT_DOWNSCALED: str = "-"
-_CUI_QUALITY_VALUE_EMPTY: str = "-"
 
 _CUI_SEP_LEFT_KEY: str = "_sep_1"
 _CUI_SEP_RIGHT_KEY: str = "_sep_2"
@@ -121,7 +121,7 @@ def _format_output_res_cell(ev: VideoEvaluation) -> str:
 def _format_quality_value_cell(ev: VideoEvaluation) -> str:
     """품질값 셀 값, 계획 값이 없으면 표시하지 않음 기호 반환"""
     cq = ev.planned_cq
-    return _CUI_QUALITY_VALUE_EMPTY if cq is None else format_cq_value(cq)
+    return LABEL_EMPTY_CELL if cq is None else format_cq_value(cq)
 
 
 def _print_maxrate_notice(report: SummaryReport) -> None:

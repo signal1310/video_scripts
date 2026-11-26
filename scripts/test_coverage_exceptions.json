@@ -51,7 +51,6 @@
     "src/gui/table/table_drag.py",
     "src/gui/table/table_empty_overlay.py",
     "src/gui/table/table_overlay_layout.py",
-    "src/gui/table/table_state_sync.py",
     "src/gui/table/table_tooltips.py",
     "src/gui/table/video_table_view.py",
     "src/gui/theme.py",

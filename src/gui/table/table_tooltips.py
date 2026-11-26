@@ -8,6 +8,7 @@ from src.core.encoder_specs import get_encode_codec_label
 from src.core.evaluation.downscale_resolver import select_output_candidate
 from src.core.formatting import format_duration_hms
 from src.core.messages import (
+    LABEL_EMPTY_CELL,
     LABEL_UNMEASURED_DETAIL,
     MAXRATE_NEAR_NOTICE,
     format_maxrate_detail,
@@ -20,7 +21,6 @@ from src.gui.constants import SAVED_COLOR_THRESHOLD_MB
 _SAVED_PER_MIN_EXAMPLE_MINUTES: int = 10
 _NOT_DOWNSCALED_TEXT: str = "축소 대상이 아니어서 원본 해상도를 유지합니다."
 _MANUAL_KEEP_TEXT: str = "직접 지정으로 축소하지 않습니다."
-_NO_QUALITY_VALUE_TEXT: str = "-"
 
 
 def format_saved_per_min_tooltip(cfg: ClassifierConfig) -> str:
@@ -127,7 +127,7 @@ def format_row_tooltip(ev: VideoEvaluation, root_dir: str, target_codec_label: s
     )
     est_time_str = format_duration_hms(ev.estimated_encode_sec)
     quality_detail = (
-        _NO_QUALITY_VALUE_TEXT if ev.planned_cq is None else format_cq_value(ev.planned_cq)
+        LABEL_EMPTY_CELL if ev.planned_cq is None else format_cq_value(ev.planned_cq)
     )
     if ev.is_encode_target:
         size_line = (

@@ -13,7 +13,9 @@ from PyQt6.QtWidgets import QApplication
 from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
+from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.smart_action import SmartAction
+from src.core.workspace_paths import resolve_source_filepath
 from src.gui.dialogs.exporters import (
     export_table_to_csv,
     render_csv_text,
@@ -143,6 +145,31 @@ class CsvExporterTests(unittest.TestCase):
         self.assertEqual(saved[0][quality_col], "품질값")
         self.assertEqual(saved[1][quality_col], "24.4")
         self.assertEqual(saved[2][quality_col], "-")
+
+    def test_proxy_snapshot_writes_encode_state_cell_text(self) -> None:
+        """CSV가 인코딩 상태 열을 표 셀과 같은 표기로 저장하는지 검증"""
+        model = VideoTableModel(config=ClassifierConfig())
+        model.set_data_source(
+            [make_eval(video=make_video(filename="a.mp4")), make_eval(video=make_video(filename="b.mp4"))],
+            root_dir="C:/work",
+        )
+        book = EncodeBatchBook()
+        book.start([resolve_source_filepath("C:/work", "a.mp4")])
+        model.set_encode_book(book)
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        headers = resolve_csv_headers(proxy)
+        col = VideoTableModel.COL_ENCODE_STATE
+        shown = model.data(model.index(0, col), int(Qt.ItemDataRole.DisplayRole))
+        self.assertEqual(shown, "대기")
+        rows = snapshot_table_rows(proxy, headers).render_rows()
+        self.assertEqual(rows[0][col], "대기")
+        self.assertEqual(rows[1][col], "")
+        self.assertEqual(export_table_to_csv(self.path, proxy), 2)
+        with open(self.path, encoding="utf-8-sig", newline="") as handle:
+            saved = list(csv.reader(handle))
+        self.assertEqual(saved[1][col], "대기")
+        self.assertEqual(saved[2][col], "")
 
     def test_proxy_with_another_source_is_empty_and_csv_text_quotes_values(self) -> None:
         """영상 프록시가 아닌 원본 모델이면 행이 없고, CSV 문자열이 쉼표를 인용하는지 검증"""

@@ -17,7 +17,7 @@ from src.core.quality_target import (
     format_cq_value,
     protect_cq_value,
 )
-from src.core.smart_action import DownscaleReason, SmartAction
+from src.core.smart_action import SMART_ACTION_LABELS, DownscaleReason, SmartAction
 
 
 class ColumnId(Enum):
@@ -111,6 +111,8 @@ LABEL_ORIGINAL_PRESERVED: str = "원본 보존"
 LABEL_UNMEASURED: str = "미측정"
 LABEL_UNMEASURED_DETAIL: str = "미측정 (정밀 분석 시 측정됨)"
 LABEL_NO_QUALITY_VALUE: str = "품질값 없음"
+# - 값이 없는 셀 공통 표기, GUI 표와 CUI 표가 같은 글자를 씀
+LABEL_EMPTY_CELL: str = "-"
 
 # 공용 중단, 오류 메시지
 MSG_ANALYSIS_CANCELLED: str = "사용자에 의해 분석 작업이 중단되었습니다."
@@ -285,19 +287,42 @@ def format_keyframe_tooltip(thresholds: ThresholdsConfig) -> str:
     )
 
 
+_DOWNSCALE_REASON_TEXT: str = ", ".join(reason.value for reason in DownscaleReason)
+
+
 def format_action_tooltip(config: ClassifierConfig) -> str:
-    """권장 처리 열 상세 툴팁 문자열 생성, 처리 종류와 함께 품질값 열을 안내"""
+    """권장 처리 열 상세 툴팁 문자열 생성, 처리 종류와 함께 품질값 열을 안내
+
+    - 처리 종류 문구는 열 필터 선택지와 같은 닫힌 집합(SMART_ACTION_LABELS)을 순회해 만들어 값이 늘면 함께 늘어남
+    - 라벨마다 설명을 한 줄씩 두어 선택지와 설명이 어긋나지 않게 함
+    - 축소 인코딩 사유도 닫힌 집합(DownscaleReason)에서 만들어 새 사유가 빠지지 않게 함
+    """
     std_cq = config.encode.baseline_cq
     protect_cq = protect_cq_value(std_cq)
-    return (
-        "화질 등급과 키프레임 간격을 종합해 권장하는 처리 종류입니다. 적용 품질값은 품질값 열에 따로 표시합니다.\n"
-        f"• {SmartAction.ENCODE_OVER.action_label}: 화질 기준값으로 인코딩하고 1초 키프레임을 적용합니다.\n"
-        f"• 저화질 프리셋 영상: 비트레이트가 목표에 가까울수록 보호 폭이 작아지는 연속 규칙으로 "
-        f"화질 기준값에서 최대 {format_cq_value(protect_cq)}까지 올려 인코딩합니다. "
-        "압축 노이즈 재현에 비트를 덜 쓰기 위해서입니다.\n"
-        f"• {SmartAction.ENCODE_DOWNSCALE.action_label}: 출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 인코딩합니다. 사유는 최대 해상도 초과, 비트레이트 맞춤, 직접 지정입니다.\n"
-        f"• {SmartAction.PASS_OPTIMAL.action_label}: 인코딩 없이 원본 파일을 그대로 보존합니다."
-    )
+    descriptions: dict[str, str] = {
+        SmartAction.ENCODE_OVER.action_label: (
+            "화질 기준값으로 인코딩하고 1초 키프레임을 적용합니다. 저화질 프리셋 영상은 "
+            "비트레이트가 목표에 가까울수록 보호 폭이 작아지는 연속 규칙으로 "
+            f"화질 기준값에서 최대 {format_cq_value(protect_cq)}까지 올려 인코딩합니다. "
+            "압축 노이즈 재현에 비트를 덜 쓰기 위해서입니다."
+        ),
+        SmartAction.ENCODE_COMPAT.action_label: (
+            "하드웨어 디코딩 호환성이 낮은 구형 코덱을 표준 코덱과 1초 키프레임으로 인코딩합니다."
+        ),
+        SmartAction.ENCODE_DOWNSCALE.action_label: (
+            "출력 해상도를 규격에 맞춰 줄이고 최대 비트레이트를 적용해 인코딩합니다. "
+            f"사유는 {_DOWNSCALE_REASON_TEXT}입니다."
+        ),
+        SmartAction.PASS_OPTIMAL.action_label: "인코딩 없이 원본 파일을 그대로 보존합니다.",
+        SmartAction.LEGACY_FORMAT.action_label: (
+            "분석 형식이 바뀐 영상으로, 다시 분석하기 전까지 인코딩 대상에서 제외합니다."
+        ),
+    }
+    lines: list[str] = [
+        "화질 등급과 키프레임 간격을 종합해 권장하는 처리 종류입니다. 적용 품질값은 품질값 열에 따로 표시합니다."
+    ]
+    lines.extend(f"• {label}: {descriptions[label]}" for label in SMART_ACTION_LABELS)
+    return "\n".join(lines)
 
 
 def format_quality_value_tooltip() -> str:
@@ -329,7 +354,11 @@ MAXRATE_NEAR_NOTICE: str = "최대 BR 근접: 복잡한 장면에서 화질 저�
 
 
 def format_reason_tooltip(config: ClassifierConfig) -> str:
-    """임계값, 절약 설정을 반영한 판정 사유 열 상세 툴팁 문자열 생성"""
+    """임계값, 절약 설정을 반영한 판정 사유 열 상세 툴팁 문자열 생성
+
+    - 사유 이름은 열 필터 선택지 표기를 쓰되, 넉넉한 곳이므로 KF는 키프레임으로 풀어 씀(TERMINOLOGY 3절)
+    - 축소 사유는 닫힌 집합(DownscaleReason)에서 만들어 새 사유가 빠지지 않게 함
+    """
     t = config.thresholds
     savings = config.savings
     exempt_note = (
@@ -351,6 +380,7 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
         f"• {SmartAction.ENCODE_CODEC_UPGRADE.reason_label}: 압축 성능이 낮은 구형 또는 인트라 전용 코덱을 목표 코덱으로 전환해 용량을 줄입니다.\n"
         f"• {SmartAction.ENCODE_COMPAT.reason_label}: 구형 코덱 호환 인코딩 설정에 따라 미지원 코덱을 표준 코덱과 1초 키프레임으로 인코딩합니다.\n"
         f"• {SmartAction.ENCODE_DOWNSCALE.reason_label}: 원본 규격이 최대 해상도 설정을 넘어 출력 해상도로 줄이고 최대 비트레이트를 적용해 인코딩합니다.\n"
+        f"• {DownscaleReason.FRAME_ANALYSIS.value}: 화질 분석에서 찾은 축소 후보 규격으로 줄입니다. 설정에서 켠 경우에만 적용됩니다.\n"
         f"• {DownscaleReason.BITRATE_FIT.value}: 저화질 영상이 더 낮은 규격에서도 화질 기준을 유지할 수 있어 그 규격으로 줄입니다. 설정에서 켠 경우에만 적용됩니다.\n"
         f"• {DownscaleReason.MANUAL.value}: 영상별로 지정한 출력 해상도로 줄입니다. 최대 해상도 설정보다 우선합니다.\n"
         f"• {SmartAction.PASS_HDR.reason_label}: HDR 영상은 색 정보 보호를 위해 원본을 보존합니다.\n"

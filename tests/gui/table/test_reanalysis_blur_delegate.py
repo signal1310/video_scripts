@@ -97,6 +97,7 @@ class ReanalysisBlurDelegateTests(unittest.TestCase):
         self.assertEqual(self._paint_row(0), [])
         self.assertEqual(set(self._paint_row(1)), set(BLURRED_DERIVED_COLS))
         self.assertEqual(set(self._paint_row(2)), set(BLURRED_DERIVED_COLS))
+        self.assertIn(VideoTableModel.COL_QUALITY_VALUE, BLURRED_DERIVED_COLS)
 
         self.view._hover_tracker.set_hovered_row(1)
         self.assertEqual(self._paint_row(1), [])
@@ -202,6 +203,29 @@ class InstalledDelegateTests(unittest.TestCase):
         for col, delegate_type in expected.items():
             with self.subTest(col=col):
                 self.assertIsInstance(self.view.itemDelegateForColumn(col), delegate_type)
+
+    def test_quality_value_column_uses_the_blurred_value_delegate(self) -> None:
+        """품질값 열이 재분석 블러 값 델리게이트를 쓰는지 검증"""
+        self.assertIsInstance(
+            self.view.itemDelegateForColumn(VideoTableModel.COL_QUALITY_VALUE),
+            blur_mod.BlurredValueDelegate,
+        )
+
+    def test_value_delegate_covers_every_blurred_column_except_the_zone(self) -> None:
+        """값 델리게이트가 블러 대상 열에서 화질 등급만 뺀 모든 열에 연결되는지 검증"""
+        self.assertEqual(
+            blur_mod.BLURRED_VALUE_COLS,
+            tuple(
+                col for col in BLURRED_DERIVED_COLS if col != VideoTableModel.COL_ZONE
+            ),
+        )
+        for col in BLURRED_DERIVED_COLS:
+            with self.subTest(col=col):
+                delegate = self.view.itemDelegateForColumn(col)
+                if col == VideoTableModel.COL_ZONE:
+                    self.assertNotIsInstance(delegate, blur_mod.BlurredValueDelegate)
+                else:
+                    self.assertIsInstance(delegate, blur_mod.BlurredValueDelegate)
 
     def test_install_keeps_the_existing_name_delegate(self) -> None:
         """설치 함수가 뷰가 이미 둔 파일명 델리게이트를 교체하지 않는지 검증"""

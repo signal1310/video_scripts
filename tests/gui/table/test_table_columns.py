@@ -30,7 +30,7 @@ from src.gui.table.table_column_formats import (
     keyframe_icon_name,
 )
 from src.gui.table.table_column_styles import FONT_MONO_BOLD
-from src.gui.table.table_columns import COL_DEF_MAP, ENCODE_STATE_LABELS
+from src.gui.table.table_columns import COL_DEF_MAP, ENCODE_STATE_LABELS, no_filter_value
 from src.gui.table.table_model import VideoTableModel
 from tests._factories import make_eval
 
@@ -65,6 +65,20 @@ class EncodeStateColumnTests(unittest.TestCase):
         """상태 값이 배치 진행에 따라 달라서 행 값만으로 필터 값을 만들지 않는지 검증"""
         col_def = COL_DEF_MAP[VideoTableModel.COL_ENCODE_STATE]
         self.assertIsNone(col_def.filter_value(make_eval()))
+
+    def test_columns_without_a_filter_value_share_the_sentinel(self) -> None:
+        """필터 값을 계산하지 않는 열이 모두 같은 자리 표시를 쓰는지 검증"""
+        for col in (
+            VideoTableModel.COL_ACTIVE_FRAME,
+            VideoTableModel.COL_DOWNSCALE_CANDIDATE,
+            VideoTableModel.COL_QUALITY_METRIC,
+            VideoTableModel.COL_ENCODE_STATE,
+            VideoTableModel.COL_FFMPEG_ARGS,
+        ):
+            with self.subTest(col=col):
+                col_def = COL_DEF_MAP[col]
+                self.assertIs(col_def.filter_value, no_filter_value)
+                self.assertIsNone(col_def.filter_value(make_eval()))
 
     def test_tooltip_describes_the_column_in_polite_korean(self) -> None:
         """머리글 툴팁이 승인된 문장이고 존댓말로 끝나는지 검증"""

@@ -18,6 +18,7 @@ from src.gui.table.table_cell_tooltips import (
     keyframe_cell_tip,
     optimal_bitrate_cell_tip,
     out_bitrate_cell_tip,
+    quality_value_cell_tip,
     ratio_cell_tip,
     reason_cell_tip,
     rotate_cell_tip,
@@ -92,6 +93,25 @@ class CellTooltipTests(unittest.TestCase):
             reason_cell_tip(ev),
             f"{SmartAction.PASS_OPTIMAL.reason_label}: {SmartAction.PASS_OPTIMAL.reason_description}",
         )
+
+    def test_quality_value_cell_tip_separates_preserved_and_reanalysis_rows(self) -> None:
+        """품질값 셀 툴팁이 원본 보존 행과 재분석 필요 행에 서로 다른 사유를 알리는지 검증"""
+        preserved = make_eval(
+            make_video(keyframe_interval=1.0), smart_action=SmartAction.PASS_OPTIMAL
+        )
+        self.assertEqual(
+            quality_value_cell_tip(preserved),
+            "원본을 보존하는 영상이라 계획한 품질값이 없습니다.",
+        )
+        legacy = make_eval(
+            make_video(keyframe_interval=1.0), smart_action=SmartAction.LEGACY_FORMAT
+        )
+        legacy_tip = quality_value_cell_tip(legacy)
+        self.assertNotEqual(legacy_tip, quality_value_cell_tip(preserved))
+        self.assertIn("재분석 필요", legacy_tip)
+        self.assertIn("품질값이 없습니다", legacy_tip)
+        self.assertNotIn("원본을 보존", legacy_tip)
+        self.assertTrue(legacy_tip.endswith("정해집니다."))
 
     def test_encode_state_default_tip_names_non_target_rows(self) -> None:
         """배치 밖 행의 기본 상태 툴팁이 대상 아님을 알리는지 검증"""

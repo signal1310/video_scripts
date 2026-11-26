@@ -17,6 +17,7 @@ from src.core.encode.encode_batch_book import (
     STATUS_RUNNING_PAUSED,
     STATUS_SKIPPED,
 )
+from src.core.messages import LABEL_EMPTY_CELL
 from src.core.smart_action import ActionBadgeTone, SmartAction
 from src.gui.styles.palettes import DARK_PALETTE
 from src.gui.table.table_column_formats import (
@@ -29,9 +30,12 @@ from src.gui.table.table_column_formats import (
     encode_state_foreground,
     encode_state_icon_name,
     format_duration,
+    format_quality_value_display,
     keyframe_icon_name,
     reason_foreground,
 )
+from src.gui.table.table_model import VideoTableModel
+from src.gui.table.table_tooltips import format_row_tooltip
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
@@ -133,6 +137,19 @@ class DurationFormatTests(unittest.TestCase):
     def test_not_downscaled_cell_is_the_dash(self) -> None:
         """축소하지 않은 출력 해상도 칸은 대시 한 글자인지 검증"""
         self.assertEqual(OUTPUT_RES_NOT_DOWNSCALED_CELL, "-")
+
+
+class EmptyQualityValueCellTests(unittest.TestCase):
+    """품질값이 없는 칸 표기가 공용 상수 하나에서 오는지 검증"""
+
+    def test_gui_quality_cell_and_tooltip_use_the_shared_empty_label(self) -> None:
+        """표 셀과 행 툴팁의 빈 품질값 표기가 공용 상수를 그대로 쓰는지 검증"""
+        kept = make_eval(
+            video=make_video(filename="kept.mp4"), smart_action=SmartAction.PASS_OPTIMAL
+        )
+        display = format_quality_value_display(kept, VideoTableModel().config)
+        self.assertEqual(display, LABEL_EMPTY_CELL)
+        self.assertIn(f"품질값: {LABEL_EMPTY_CELL}", format_row_tooltip(kept, "C:/work", "HEVC"))
 
 
 if __name__ == "__main__":

@@ -30,6 +30,12 @@ BLURRED_DERIVED_COLS: tuple[int, ...] = (
     VideoTableModel.COL_SAVED_SIZE,
     VideoTableModel.COL_SAVED_PER_MIN,
     VideoTableModel.COL_EST_ENCODE_TIME,
+    VideoTableModel.COL_QUALITY_VALUE,
+)
+
+# - 화질 등급 열은 점 전용 델리게이트를 쓰므로 값 열 델리게이트 연결 대상에서 뺌
+BLURRED_VALUE_COLS: tuple[int, ...] = tuple(
+    col for col in BLURRED_DERIVED_COLS if col != VideoTableModel.COL_ZONE
 )
 
 
@@ -195,7 +201,10 @@ class BlurredZoneDelegate(QuietDotDelegate):
 
 
 class BlurredValueDelegate(QStyledItemDelegate):
-    """예상 절약, 분당 절약, 예상 시간 열에서 재분석 필요 행이고 비호버일 때 블러 처리"""
+    """예상 절약, 분당 절약, 예상 시간, 품질값 열에서 재분석 필요 행이고 비호버일 때 블러 처리
+
+    - 네 값 모두 키프레임 간격을 재기 전 판정에서 나온 파생 값이라 정밀 분석 전에는 흐리게 보여 줌
+    """
 
     def __init__(self, hover_tracker: RowHoverTracker, parent: QTableView) -> None:
         super().__init__(parent)
@@ -298,11 +307,7 @@ def install_table_delegates(
     table_view.setItemDelegateForColumn(VideoTableModel.COL_ACTIVE_FRAME, frame_delegate)
 
     value_delegate = BlurredValueDelegate(hover_tracker, table_view)
-    for col in (
-        VideoTableModel.COL_SAVED_SIZE,
-        VideoTableModel.COL_SAVED_PER_MIN,
-        VideoTableModel.COL_EST_ENCODE_TIME,
-    ):
+    for col in BLURRED_VALUE_COLS:
         table_view.setItemDelegateForColumn(col, value_delegate)
 
     icon_text_delegate = IconTextDelegate(table_view)

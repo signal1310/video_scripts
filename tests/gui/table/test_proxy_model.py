@@ -8,6 +8,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig
+from src.core.encode.encode_batch_book import STATUS_DONE, STATUS_PENDING, EncodeBatchBook
+from src.core.encode.encode_state import EncodeState
+from src.core.workspace_paths import resolve_source_filepath
 from src.gui.table.column_filters import ColumnFilterRule
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.table_model import VideoTableModel
@@ -64,6 +67,49 @@ class ProxyModelTests(unittest.TestCase):
         self.assertEqual(self.proxy.get_active_column_filters(), {VideoTableModel.COL_CODEC: ColumnFilterRule(selected_values=frozenset({"h264"}))})
         self.proxy.setSourceModel(None)
         self.assertEqual(self.proxy.iter_visible_evaluations(), [])
+
+
+    def test_encode_state_filter_matches_the_cell_label(self) -> None:
+        """인코딩 상태 열 필터가 셀 표기와 같은 값을 비교해 선택한 상태의 행만 남기는지 검증"""
+        model = VideoTableModel(config=ClassifierConfig())
+        model.set_data_source(
+            [
+                make_eval(video=make_video(filename="a.mp4")),
+                make_eval(video=make_video(filename="b.mp4")),
+                make_eval(video=make_video(filename="c.mp4")),
+            ],
+            root_dir="C:/work",
+        )
+        book = EncodeBatchBook()
+        book.start(
+            [
+                resolve_source_filepath("C:/work", "a.mp4"),
+                resolve_source_filepath("C:/work", "b.mp4"),
+            ]
+        )
+        book.apply(resolve_source_filepath("C:/work", "a.mp4"), EncodeState.PENDING)
+        book.apply(resolve_source_filepath("C:/work", "b.mp4"), EncodeState.DONE)
+        model.set_encode_book(book)
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        proxy.set_column_filter(
+            VideoTableModel.COL_ENCODE_STATE,
+            ColumnFilterRule(selected_values=frozenset({STATUS_DONE})),
+        )
+        self.assertEqual(
+            [ev.video.filename for ev in proxy.iter_visible_evaluations()], ["b.mp4"]
+        )
+        proxy.set_column_filter(
+            VideoTableModel.COL_ENCODE_STATE,
+            ColumnFilterRule(selected_values=frozenset({"", STATUS_PENDING})),
+        )
+        self.assertEqual(
+            [ev.video.filename for ev in proxy.iter_visible_evaluations()],
+            ["a.mp4", "c.mp4"],
+        )
+        counts = dict(model.collect_column_value_counts(VideoTableModel.COL_ENCODE_STATE))
+        self.assertEqual(counts[STATUS_DONE], 1)
+        self.assertEqual(counts[""], 1)
 
 
 if __name__ == "__main__":

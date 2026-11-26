@@ -150,6 +150,11 @@ def _static_tip(text: str) -> Callable[[ClassifierConfig], str]:
     return lambda _cfg: text
 
 
+def no_filter_value(_ev: VideoEvaluation) -> None:
+    """표 모델이 필터 값을 계산하지 않는 열의 자리 표시"""
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class TableColumnDef:
     """단일 테이블 열의 헤더, 스펙, 렌더링, 정렬, 필터, 배지 동작 단일 명세"""
@@ -453,7 +458,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         tooltip_factory=_static_tip(
             "화질 분석으로 찾은 검은 띠를 뺀 활성 화면입니다. 검은 띠가 없으면 -로 표시합니다."
         ),
-        filter_value=lambda ev: None,
+        filter_value=no_filter_value,
         align=ALIGN_CENTER,
         font_kind=FONT_MONO_BOLD,
     ),
@@ -465,7 +470,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         tooltip_factory=_static_tip(
             "화질 분석에서 화질 차이 기준을 넘는 가장 낮은 해상도 규격입니다. 후보가 없으면 유지, 유효 구간이 없으면 측정 불가입니다."
         ),
-        filter_value=lambda ev: None,
+        filter_value=no_filter_value,
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
@@ -475,7 +480,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         tooltip_factory=_static_tip(
             "축소 후보 판정에 쓴 측정 지표입니다. VMAF를 쓸 수 없으면 SSIM (대체)로 표시합니다."
         ),
-        filter_value=lambda ev: None,
+        filter_value=no_filter_value,
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
@@ -520,9 +525,9 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         tooltip_factory=_static_tip(
             "인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다."
         ),
-        # - 상태는 배치 진행에 따라 바뀌므로 정렬과 필터 값은 표 모델이 따로 계산하지 않음
+        # - 상태는 배치 진행에 따라 바뀌므로 정렬 값은 두지 않고, 필터 값은 표 모델이 셀 표기로 계산
         cell_tooltip=encode_state_cell_tip,
-        filter_value=lambda ev: None,
+        filter_value=no_filter_value,
         align=ALIGN_CENTER,
     ),
     TableColumnDef(
@@ -534,7 +539,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
             "이 영상의 예정 영상 인자입니다. 셀 툴팁에 실행할 전체 명령줄이 나옵니다."
         ),
         # - 예정 명령은 행마다 계산 비용이 있어 정렬과 필터 값은 두지 않음
-        filter_value=lambda ev: None,
+        filter_value=no_filter_value,
         align=ALIGN_LEFT,
         font_kind=FONT_MONO,
     ),

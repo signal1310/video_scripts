@@ -4,10 +4,15 @@ from src.core.formatting import format_duration_hms
 from src.core.messages import LABEL_UNMEASURED_DETAIL
 from src.core.models import VideoEvaluation
 from src.core.quality_target import format_cq_value
+from src.core.smart_action import SmartAction
 from src.service.encode.encode_preview import PlannedCommand, plan_approximation_note
 
 _REFERENCE_NOTE: str = " (원본 보존 행, 인코딩 가정 참고값)"
 _NOT_TARGET_TIP: str = "인코딩 배치 대상이 아닙니다."
+_KEPT_NO_QUALITY_TIP: str = "원본을 보존하는 영상이라 계획한 품질값이 없습니다."
+_REANALYSIS_NO_QUALITY_TIP: str = (
+    "재분석 필요 상태라 계획한 품질값이 없습니다. 다시 분석하면 품질값이 정해집니다."
+)
 
 
 def _reference_note(ev: VideoEvaluation) -> str:
@@ -111,10 +116,15 @@ def action_cell_tip(ev: VideoEvaluation) -> str:
 
 
 def quality_value_cell_tip(ev: VideoEvaluation) -> str:
-    """품질값 셀 툴팁, 계획한 품질값과 실제 인코딩 값이 달라질 수 있음을 안내"""
+    """품질값 셀 툴팁, 계획한 품질값과 실제 인코딩 값이 달라질 수 있음을 안내
+
+    - 계획 값이 없는 사유는 원본 보존과 재분석 필요로 갈리므로 판정을 보고 문구를 고름
+    """
     cq = ev.planned_cq
     if cq is None:
-        return "원본을 보존하는 영상이라 계획한 품질값이 없습니다."
+        if ev.smart_action is SmartAction.LEGACY_FORMAT:
+            return _REANALYSIS_NO_QUALITY_TIP
+        return _KEPT_NO_QUALITY_TIP
     return (
         f"평가가 계획한 품질값 {format_cq_value(cq)}입니다. 낮을수록 고화질입니다. "
         "품질값 정밀 결정이나 자동 조정을 켜면 실제 인코딩 값은 이 값에서 달라질 수 있습니다."

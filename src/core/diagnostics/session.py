@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import platform
 import sys
+from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from src.core.app_version import APP_VERSION
 from src.core.diagnostics.paths import SESSION_FILENAME, diagnostics_file
@@ -26,6 +29,11 @@ GIT_REF_PREFIX: str = "ref:"
 GIT_SHORT_HASH_LENGTH: int = 7
 STATE_RUNNING: str = "running"
 STATE_CLEAN: str = "clean"
+# - OpenProcess 권한: 상태 조회에 필요한 최소 권한만 요청
+PROCESS_QUERY_LIMITED_INFORMATION: int = 0x1000
+STILL_ACTIVE_EXIT_CODE: int = 259
+ERROR_ACCESS_DENIED: int = 5
+IS_WINDOWS: bool = sys.platform == "win32"
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,8 +67,60 @@ class SessionInfo:
 
 
 def session_path(directory: str | None = None) -> str:
-    """실행 표식 파일 경로 반환"""
+    """실행 표식 파일 경로 반환. 실행 중인 인스턴스가 여럿이어도 표식은 하나만 둠"""
     return diagnostics_file(SESSION_FILENAME, directory)
+
+
+def is_pid_alive(pid: int) -> bool:
+    """프로세스가 살아 있는지 확인
+
+    - Windows는 OpenProcess와 종료 코드로, 그 밖의 플랫폼은 신호 0번 전송으로 확인
+    - 접근 권한이 없어 열지 못한 프로세스는 살아 있는 것으로 봄
+    """
+    if pid <= 0:
+        return False
+    if IS_WINDOWS:
+        return _is_pid_alive_windows(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _declare_win32_signatures(kernel32: Any) -> None:
+    """핸들이 64비트 값이어도 잘리지 않도록 호출할 Win32 함수의 인자와 반환 형식을 선언
+
+    - 선언할 수 없는 대역 객체에서는 건너뜀
+    """
+    try:
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    except (AttributeError, TypeError):
+        return
+
+
+def _is_pid_alive_windows(pid: int) -> bool:
+    """Win32 API로 핸들을 열어 종료 코드가 STILL_ACTIVE인지 확인"""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _declare_win32_signatures(kernel32)
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        # - 접근 거부는 존재하지만 열 수 없는 프로세스이므로 살아 있는 것으로 봄
+        return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return bool(code.value == STILL_ACTIVE_EXIT_CODE)
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def read_session(path: str) -> SessionInfo | None:

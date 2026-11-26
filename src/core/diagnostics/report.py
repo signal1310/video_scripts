@@ -23,7 +23,7 @@ from src.core.diagnostics.paths import (
     read_span,
     read_tail_lines,
 )
-from src.core.diagnostics.session import SessionInfo, read_session
+from src.core.diagnostics.session import SessionInfo, is_pid_alive, read_session
 from src.core.paths import write_utf8_file
 
 PREVIOUS_SESSION_COPY_NAME: str = "previous_session.json"
@@ -48,12 +48,30 @@ class CrashReport:
     report_path: str
 
 
-def detect_unclean_session(directory: str) -> SessionInfo | None:
-    """이전 실행 표식이 정상 종료로 닫히지 않았으면 그 표식 반환"""
+def detect_unclean_session(directory: str, *, own_pid: int | None = None) -> SessionInfo | None:
+    """이전 실행 표식이 정상 종료로 닫히지 않았으면 그 표식 반환
+
+    - 표식의 pid가 살아 있는 다른 프로세스면 그 인스턴스가 실행 중이므로 비정상 종료가 아님
+    """
     previous = read_session(diagnostics_file(SESSION_FILENAME, directory))
     if previous is None or previous.is_clean:
         return None
+    if other_instance_running(directory, own_pid=own_pid):
+        return None
     return previous
+
+
+def other_instance_running(directory: str, *, own_pid: int | None = None) -> bool:
+    """표식의 주인이 살아 있는 다른 프로세스인지 여부
+
+    - pid는 재사용될 수 있어 아주 드물게 잘못 판단할 수 있으나, 그 경우에도 사고 보고서를
+      한 번 놓칠 뿐 원인 조사 자료를 지우지는 않음
+    """
+    previous = read_session(diagnostics_file(SESSION_FILENAME, directory))
+    if previous is None or previous.pid <= 0:
+        return False
+    owner = os.getpid() if own_pid is None else own_pid
+    return previous.pid != owner and is_pid_alive(previous.pid)
 
 
 def build_report_text(

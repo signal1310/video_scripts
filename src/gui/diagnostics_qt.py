@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import subprocess
 from collections.abc import Callable
 from typing import Any
 
-from PyQt6.QtCore import QCoreApplication, QtMsgType, qInstallMessageHandler
+from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
 
 from src.core.diagnostics.breadcrumbs import BreadcrumbTrail
 from src.core.diagnostics.hooks import build_qt_message_context, log_qt_message
@@ -33,21 +34,25 @@ QT_MSG_LEVELS: dict[QtMsgType, int] = {
 _runtime: DiagnosticsRuntime | None = None
 _previous_handler: Callable[..., Any] | None = None
 _handler_installed: bool = False
+# - atexit 등록 상태: 중복 등록을 막고 stop이 스스로 해제할 수 있게 함
+_atexit_registered: bool = False
 
 
 def start_gui_diagnostics(*, developer_mode: bool = False) -> DiagnosticsRuntime:
     """진단 런타임을 시작하고 Qt 메시지 핸들러와 종료 훅을 설치
 
     - 이미 시작한 경우 같은 런타임을 돌려줘 재진입해도 표식을 덮어쓰지 않음
+    - 정상 종료 처리는 atexit에 맡겨, Qt 창 정리 중 발생하는 네이티브 크래시도
+      faulthandler가 여전히 켜진 상태로 잡히게 함
     """
-    global _runtime
+    global _runtime, _atexit_registered
     if _runtime is not None:
         return _runtime
     _runtime = start_diagnostics(developer_mode=developer_mode)
     install_qt_message_handler()
-    app = QCoreApplication.instance()
-    if app is not None:
-        app.aboutToQuit.connect(stop_gui_diagnostics)
+    if not _atexit_registered:
+        atexit.register(stop_gui_diagnostics)
+        _atexit_registered = True
     return _runtime
 
 
@@ -92,8 +97,14 @@ def handle_qt_message(mode: QtMsgType, context: Any, message: str | None) -> Non
 
 
 def stop_gui_diagnostics() -> None:
-    """정상 종료 표식을 남기고 진단 자원을 닫음. 두 번 호출해도 안전"""
-    global _runtime
+    """정상 종료 표식을 남기고 진단 자원을 닫음. 두 번 호출해도 안전
+
+    - atexit 등록도 함께 해제해, 테스트나 재시작 뒤 남은 훅이 다시 실행되지 않게 함
+    """
+    global _runtime, _atexit_registered
+    if _atexit_registered:
+        atexit.unregister(stop_gui_diagnostics)
+        _atexit_registered = False
     runtime, _runtime = _runtime, None
     shutdown_diagnostics(runtime)
 

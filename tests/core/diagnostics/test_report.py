@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from src.core.diagnostics.paths import (
     APP_LOG_NAME,
@@ -21,6 +22,7 @@ from src.core.diagnostics.report import (
     assemble_crash_report,
     build_report_text,
     detect_unclean_session,
+    other_instance_running,
 )
 from src.core.diagnostics.session import SessionInfo, close_session, write_session
 
@@ -47,13 +49,46 @@ class TestUncleanDetection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(detect_unclean_session(tmp))
             write_session(diagnostics_file(SESSION_FILENAME, tmp), _running_session())
-            detected = detect_unclean_session(tmp)
+            with patch("src.core.diagnostics.report.is_pid_alive", return_value=False):
+                detected = detect_unclean_session(tmp)
             self.assertIsNotNone(detected)
             assert detected is not None
             self.assertEqual(detected.pid, 1234)
             clean = close_session(_running_session(), now=_WHEN)
             write_session(diagnostics_file(SESSION_FILENAME, tmp), clean)
             self.assertIsNone(detect_unclean_session(tmp))
+
+    def test_live_foreign_pid_is_another_instance(self) -> None:
+        """표식 주인이 살아 있는 다른 프로세스면 다른 인스턴스로 보고 보고서를 만들지 않는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            write_session(diagnostics_file(SESSION_FILENAME, tmp), _running_session())
+            with patch("src.core.diagnostics.report.is_pid_alive", return_value=True) as alive:
+                self.assertTrue(other_instance_running(tmp, own_pid=9999))
+                self.assertIsNone(detect_unclean_session(tmp, own_pid=9999))
+            alive.assert_called_with(1234)
+            with patch("src.core.diagnostics.report.is_pid_alive", return_value=True):
+                self.assertFalse(other_instance_running(tmp, own_pid=1234))
+                self.assertIsNotNone(detect_unclean_session(tmp, own_pid=1234))
+
+    def test_other_instance_ignores_dead_or_missing_marker(self) -> None:
+        """주인이 죽었거나 pid가 없는 표식은 다른 인스턴스로 보지 않는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(other_instance_running(tmp))
+            write_session(
+                diagnostics_file(SESSION_FILENAME, tmp),
+                SessionInfo(
+                    pid=0,
+                    started_at="2026-04-05 05:00:00",
+                    version="0.1.0",
+                    developer_mode=False,
+                    state="running",
+                ),
+            )
+            with patch("src.core.diagnostics.report.is_pid_alive", return_value=True):
+                self.assertFalse(other_instance_running(tmp))
+            write_session(diagnostics_file(SESSION_FILENAME, tmp), _running_session())
+            with patch("src.core.diagnostics.report.is_pid_alive", return_value=False):
+                self.assertFalse(other_instance_running(tmp))
 
 
 class TestCrashReportAssembly(unittest.TestCase):

@@ -1,18 +1,26 @@
-"""실행 표식 기록, 관대한 해석, git 짧은 해시 직접 읽기 검증"""
+"""실행 표식 기록, 관대한 해석, 프로세스 생존 확인, git 짧은 해시 직접 읽기 검증"""
 
+import ctypes
 import json
 import os
 import tempfile
 import unittest
 from datetime import datetime
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import patch
 
+from src.core.diagnostics import session as session_module
 from src.core.diagnostics.session import (
+    ERROR_ACCESS_DENIED,
     STATE_CLEAN,
     STATE_RUNNING,
+    STILL_ACTIVE_EXIT_CODE,
     SessionInfo,
     close_session,
     environment_lines,
     git_short_hash,
+    is_pid_alive,
     read_session,
     session_path,
     start_session,
@@ -84,6 +92,108 @@ class TestSessionMarker(unittest.TestCase):
         self.assertTrue(updated.developer_mode)
         self.assertEqual(updated.state, STATE_RUNNING)
         self.assertEqual(updated.to_dict()["version"], "1.2.3")
+
+
+class TestPidLiveness(unittest.TestCase):
+    """프로세스 생존 확인이 플랫폼별 실패를 구분하는지 검증"""
+
+    def test_current_process_is_alive(self) -> None:
+        """이 프로세스의 pid는 살아 있는 것으로 판단하는지 검증"""
+        self.assertTrue(is_pid_alive(os.getpid()))
+        self.assertFalse(is_pid_alive(0))
+        self.assertFalse(is_pid_alive(-1))
+
+    def test_windows_branch_uses_win32_lookup(self) -> None:
+        """Windows에서는 Win32 조회 함수로 판단하는지 검증"""
+        with (
+            patch.object(session_module, "IS_WINDOWS", True),
+            patch.object(session_module, "_is_pid_alive_windows", return_value=True) as lookup,
+        ):
+            self.assertTrue(is_pid_alive(4321))
+        lookup.assert_called_once_with(4321)
+
+    def test_posix_branch_maps_signals(self) -> None:
+        """신호 0번 결과를 생존 여부로 매핑하는지 검증"""
+        with patch.object(session_module, "IS_WINDOWS", False):
+            with patch.object(session_module.os, "kill", side_effect=ProcessLookupError):
+                self.assertFalse(is_pid_alive(99))
+            with patch.object(session_module.os, "kill", side_effect=PermissionError):
+                self.assertTrue(is_pid_alive(99))
+            with patch.object(session_module.os, "kill", side_effect=OSError("실패")):
+                self.assertFalse(is_pid_alive(99))
+            with patch.object(session_module.os, "kill") as kill:
+                self.assertTrue(is_pid_alive(99))
+        kill.assert_called_once_with(99, 0)
+
+    def test_own_process_is_alive_and_an_impossible_pid_is_not(self) -> None:
+        """실제 OS 조회로 자기 자신은 살아 있고 존재할 수 없는 pid는 죽은 것으로 판단하는지 검증"""
+        self.assertTrue(session_module.is_pid_alive(os.getpid()))
+        self.assertFalse(session_module.is_pid_alive(4_000_000))
+
+    def test_win32_signatures_are_declared_with_handle_sized_types(self) -> None:
+        """핸들 반환 형식과 인자 형식을 선언하고, 선언할 수 없는 대역에서는 조용히 건너뛰는지 검증"""
+        fake = SimpleNamespace(
+            OpenProcess=SimpleNamespace(),
+            GetExitCodeProcess=SimpleNamespace(),
+            CloseHandle=SimpleNamespace(),
+        )
+        session_module._declare_win32_signatures(fake)
+        self.assertIs(fake.OpenProcess.restype, session_module.wintypes.HANDLE)
+        self.assertEqual(len(fake.OpenProcess.argtypes), 3)
+        self.assertEqual(len(fake.CloseHandle.argtypes), 1)
+        session_module._declare_win32_signatures(SimpleNamespace())
+
+    def test_windows_lookup_reads_exit_code(self) -> None:
+        """Win32 조회가 종료 코드와 열기 실패 사유를 구분하는지 검증"""
+        active = _FakeKernel32(STILL_ACTIVE_EXIT_CODE)
+        with patch.object(session_module.ctypes, "WinDLL", return_value=active):
+            self.assertTrue(session_module._is_pid_alive_windows(10))
+        self.assertTrue(active.closed)
+
+        exited = _FakeKernel32(1)
+        with patch.object(session_module.ctypes, "WinDLL", return_value=exited):
+            self.assertFalse(session_module._is_pid_alive_windows(10))
+
+        denied = _FakeKernel32(0, open_error=ERROR_ACCESS_DENIED)
+        with patch.object(session_module.ctypes, "WinDLL", return_value=denied):
+            self.assertTrue(session_module._is_pid_alive_windows(10))
+
+        missing = _FakeKernel32(0, open_error=2)
+        with patch.object(session_module.ctypes, "WinDLL", return_value=missing):
+            self.assertFalse(session_module._is_pid_alive_windows(10))
+
+        broken = _FakeKernel32(STILL_ACTIVE_EXIT_CODE, exit_code_ok=False)
+        with patch.object(session_module.ctypes, "WinDLL", return_value=broken):
+            self.assertFalse(session_module._is_pid_alive_windows(10))
+
+
+class _FakeKernel32:
+    """kernel32 API 대역. OpenProcess와 GetExitCodeProcess 결과를 지정"""
+
+    def __init__(self, exit_code: int, *, open_error: int = 0, exit_code_ok: bool = True) -> None:
+        self._exit_code = exit_code
+        self._open_error = open_error
+        self._exit_code_ok = exit_code_ok
+        self.closed = False
+
+    def OpenProcess(self, access: int, inherit: bool, pid: int) -> int:
+        """열기 성공(가짜 핸들) 또는 실패(0)를 돌려주고 마지막 오류를 설정"""
+        if self._open_error:
+            ctypes.set_last_error(self._open_error)
+            return 0
+        return 1
+
+    def GetExitCodeProcess(self, handle: int, code: Any) -> int:
+        """종료 코드 기록 여부를 돌려줌"""
+        if not self._exit_code_ok:
+            return 0
+        code._obj.value = self._exit_code
+        return 1
+
+    def CloseHandle(self, handle: int) -> int:
+        """핸들 닫힘 표시"""
+        self.closed = True
+        return 1
 
 
 class TestGitShortHash(unittest.TestCase):

@@ -20,6 +20,33 @@ class TestGuiDiagnosticsAdapter(unittest.TestCase):
     def tearDown(self) -> None:
         diagnostics_qt.stop_gui_diagnostics()
 
+    def test_start_registers_atexit_instead_of_about_to_quit(self) -> None:
+        """시작이 atexit에 종료 처리를 걸고 aboutToQuit는 쓰지 않는지 검증"""
+        with patch.object(diagnostics_qt.atexit, "register") as register:
+            diagnostics_qt.start_gui_diagnostics()
+        register.assert_called_once_with(diagnostics_qt.stop_gui_diagnostics)
+        self.assertTrue(diagnostics_qt._atexit_registered)
+        with patch.object(diagnostics_qt.atexit, "register") as register:
+            diagnostics_qt.start_gui_diagnostics()
+        register.assert_not_called()
+
+    def test_start_keeps_native_log_enabled_until_atexit(self) -> None:
+        """시작 직후에는 faulthandler가 켜진 채로 남아 있는지 검증"""
+        runtime = diagnostics_qt.start_gui_diagnostics()
+        assert runtime.native_session is not None
+        self.assertTrue(runtime.native_session.is_open)
+        diagnostics_qt.stop_gui_diagnostics()
+        self.assertFalse(runtime.native_session.is_open)
+
+    def test_stop_unregisters_atexit_hook(self) -> None:
+        """종료가 atexit 등록을 해제하고 두 번째 호출에서 다시 해제하지 않는지 검증"""
+        diagnostics_qt.start_gui_diagnostics()
+        with patch.object(diagnostics_qt.atexit, "unregister") as unregister:
+            diagnostics_qt.stop_gui_diagnostics()
+            diagnostics_qt.stop_gui_diagnostics()
+        unregister.assert_called_once_with(diagnostics_qt.stop_gui_diagnostics)
+        self.assertFalse(diagnostics_qt._atexit_registered)
+
     def test_start_returns_same_runtime_and_notes_events(self) -> None:
         """두 번 시작해도 같은 런타임을 쓰고, 이벤트가 브레드크럼에 남는지 검증"""
         first = diagnostics_qt.start_gui_diagnostics()

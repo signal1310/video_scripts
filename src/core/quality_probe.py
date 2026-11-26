@@ -28,9 +28,14 @@ from src.core.command_history import (
 )
 from src.core.encode.encode_plan import EncodePlan
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT, build_sample_ffmpeg_args
+from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, scale_filter
 
 METRIC_VMAF: str = "vmaf"
 METRIC_SSIM: str = "ssim"
+# - 지표 필터 그래프의 기본 입력 레이블(왜곡, 기준). 구간 측정은 crop/scale 뒤 레이블로 갈아 씀
+METRIC_INPUT_LABELS: str = "[0:v][1:v]"
+_METRIC_DISTORTED_LABEL: str = "[dist]"
+_METRIC_REFERENCE_LABEL: str = "[ref]"
 VMAF_MODEL_DEFAULT: str = "vmaf_v0.6.1"
 VMAF_MODEL_4K: str = "vmaf_4k_v0.6.1"
 # - 4K급 판정은 긴 변 기준(3840x2160, 3840x1920 VR180, 3840x1600 21:9 포함)
@@ -132,10 +137,42 @@ def build_metric_filter(
             options += f":n_subsample={n_subsample}"
         if log_name:
             options += f":log_path={log_name}:log_fmt=json"
-        return f"[0:v][1:v]libvmaf={options}"
+        return f"{METRIC_INPUT_LABELS}libvmaf={options}"
     if metric == METRIC_SSIM:
-        return f"[0:v][1:v]ssim=stats_file={log_name}" if log_name else "[0:v][1:v]ssim"
+        return f"{METRIC_INPUT_LABELS}ssim=stats_file={log_name}" if log_name else f"{METRIC_INPUT_LABELS}ssim"
     raise ValueError(f"지원하지 않는 지표입니다: {metric}")
+
+
+def build_segment_metric_filter(
+    metric: str,
+    *,
+    model: str = VMAF_MODEL_DEFAULT,
+    log_name: str = "",
+    crop_filter: str | None = None,
+    upscale_size: tuple[int, int] | None = None,
+    algorithm: str = DEFAULT_SCALE_ALGORITHM,
+) -> str:
+    """샘플 구간 결과와 원본 같은 구간을 같은 화소 크기로 맞춘 지표 필터 그래프 생성
+
+    - 기준 입력에 인코딩 계획의 crop을 그대로 적용해 잘라내기 영상의 구도와 크기를 맞춤
+    - 축소 결과는 기준의 화소 크기로 되돌린 뒤 비교함(libvmaf, ssim은 같은 화소 크기를 요구)
+    - 자를 것도 되돌릴 것도 없으면 `build_metric_filter`와 같은 문자열
+    """
+    base = build_metric_filter(metric, model=model, log_name=log_name)
+    if not crop_filter and upscale_size is None:
+        return base
+    chains: list[str] = []
+    if crop_filter:
+        chains.append(f"[1:v]{crop_filter}{_METRIC_REFERENCE_LABEL}")
+    if upscale_size is not None:
+        chains.append(
+            f"[0:v]{scale_filter(str(upscale_size[0]), str(upscale_size[1]), algorithm)}"
+            f"{_METRIC_DISTORTED_LABEL}"
+        )
+    distorted = _METRIC_DISTORTED_LABEL if upscale_size is not None else "[0:v]"
+    reference = _METRIC_REFERENCE_LABEL if crop_filter else "[1:v]"
+    chains.append(base.replace(METRIC_INPUT_LABELS, f"{distorted}{reference}", 1))
+    return ";".join(chains)
 
 
 def build_metric_command(

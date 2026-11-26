@@ -11,6 +11,7 @@ from src.core.evaluation.sample_tuner import (
     REASON_FALLBACK_BASELINE,
     REASON_UNMEASURABLE,
     TUNE_MAX_PROBES,
+    DownscaleComparison,
     QualityProbe,
     TuneTarget,
     compare_downscale,
@@ -209,6 +210,18 @@ class TestFormatComparisonReason(unittest.TestCase):
         self.assertEqual(
             format_comparison_reason(only_pass),
             "품질값 정밀 결정: 축소 유지 (원본 해상도는 화질 기준 미달)",
+        )
+
+    def test_missing_reference_size_reason(self) -> None:
+        unmeasurable = DownscaleComparison(
+            False,
+            QualityProbe(quality=22.0),
+            QualityProbe(quality=26.0),
+            REASON_UNMEASURABLE,
+        )
+        self.assertEqual(
+            format_comparison_reason(unmeasurable),
+            "품질값 정밀 결정: 원본 해상도 유지 (화질 측정 불가)",
         )
 
     def test_zero_original_bitrate_reports_zero_percent(self) -> None:

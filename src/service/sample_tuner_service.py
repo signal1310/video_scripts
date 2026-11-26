@@ -35,6 +35,7 @@ from src.core.evaluation.sample_tuner import (
     search_quality,
     tune_bounds,
 )
+from src.core.models import ActiveFrame
 from src.core.paths import get_data_dir
 from src.core.quality_probe import (
     LOG_NAME_SSIM,
@@ -42,7 +43,7 @@ from src.core.quality_probe import (
     METRIC_SSIM,
     METRIC_VMAF,
     VMAF_MODEL_DEFAULT,
-    build_metric_filter,
+    build_segment_metric_filter,
     parse_ssim_stats,
     parse_vmaf_log,
     vmaf_model_for,
@@ -51,7 +52,7 @@ from src.core.sample_points import SegmentQuality, is_invalid_segment
 from src.service.analysis_store import ANALYSIS_DB_FILENAME
 from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_ports import ProcessFactory, default_process_factory
-from src.service.encode.encode_sample_engine import run_sample_pass
+from src.service.encode.encode_sample_engine import run_sample_pass, sample_segment_path
 
 SAMPLE_TUNER_TABLE_NAME: str = "sample_tuner_cache"
 SAMPLE_TUNER_TEMP_PREFIX: str = "d18_tuner_"
@@ -105,7 +106,7 @@ def _utc_now_iso() -> str:
 
 @dataclass(frozen=True, slots=True)
 class TuneJob:
-    """정밀 결정 한 영상의 입력: 원본 식별 값, 인코더, 기준 품질값, 측정 기준 크기"""
+    """정밀 결정 한 영상의 입력: 원본 식별 값, 인코더, 기준 품질값, 지표 기준 화소 크기"""
 
     source_path: str
     source_size: int
@@ -267,11 +268,14 @@ def build_segment_metric_command(
     metric: str,
     model: str,
     log_name: str,
+    crop_filter: str | None = None,
+    upscale_size: tuple[int, int] | None = None,
 ) -> list[str]:
     """샘플 구간 결과와 원본 같은 구간의 지표를 재는 FFmpeg 인자 목록
 
     - 기준 입력에만 시크와 길이를 붙여 원본 전체를 읽지 않음
-    - 필터 문자열은 `quality_probe.build_metric_filter`를 그대로 씀
+    - 샘플은 계획의 크롭과 축소를 거쳤으므로 기준에 같은 크롭을 적용하고, 축소 샘플은 기준 크기로 되돌려 비교
+    - 필터 문자열은 `quality_probe.build_segment_metric_filter`를 그대로 씀
     """
     return [
         ffmpeg_executable,
@@ -287,11 +291,25 @@ def build_segment_metric_command(
         "-i",
         reference_path,
         "-lavfi",
-        build_metric_filter(metric, model=model, log_name=log_name),
+        build_segment_metric_filter(
+            metric,
+            model=model,
+            log_name=log_name,
+            crop_filter=crop_filter,
+            upscale_size=upscale_size,
+        ),
         "-f",
         "null",
         "-",
     ]
+
+
+def _crop_size(crop_filter: str | None) -> tuple[int, int] | None:
+    """crop 필터 문자열의 결과 화소 크기. 필터가 없거나 형식이 다르면 None"""
+    if not crop_filter:
+        return None
+    frame = ActiveFrame.from_crop_filter(crop_filter)
+    return None if frame is None else (frame.width, frame.height)
 
 
 def _median(values: Sequence[float]) -> float | None:
@@ -342,6 +360,7 @@ def _measure_probe(
     cancel_event: threading.Event | None,
     control: PauseControl | None = None,
     batch_id: int = 0,
+    reference_size: tuple[int, int] | None = None,
 ) -> QualityProbe:
     """품질값 하나의 표본을 만듭니다: 구간별 샘플 인코딩 뒤 VMAF(없으면 SSIM) 중앙값
 
@@ -349,10 +368,19 @@ def _measure_probe(
     - 취소되면 점수 없는 프로브를 돌려주고 다음 탐색이 멈추게 함
     - VMAF 측정이 모두 실패하면 같은 산출물로 SSIM을 재서 대체(결정 18의 지표 우선순위)
     - control을 주면 샘플 프로세스 묶음을 실행 항목으로 등록해 일시중지와 중지가 전파됨
+    - `reference_size`는 크롭을 적용한 원본 화소 크기. 지표 모델 선택과 축소 샘플 되돌리기에 씀
     """
     if not segments or quality <= 0:
         return QualityProbe(quality=quality)
-    model = vmaf_model_for(plan.output_size[0], plan.output_size[1]) if plan.output_size else VMAF_MODEL_DEFAULT
+    # - 샘플은 계획의 크롭/축소를 거치므로 crop 뒤 기준 크기에서 모델을 고르고, 축소 샘플만 그 크기로 되돌림
+    resolved_reference = _crop_size(plan.crop_filter) or reference_size
+    model = (
+        vmaf_model_for(resolved_reference[0], resolved_reference[1])
+        if resolved_reference is not None
+        else VMAF_MODEL_DEFAULT
+    )
+    upscale_size = resolved_reference if plan.scale_filter is not None else None
+    crop_filter = plan.crop_filter
     with tempfile.TemporaryDirectory(prefix=SAMPLE_TUNER_TEMP_PREFIX) as tmp_dir:
         outcome = run_sample_pass(
             batch_id=batch_id,
@@ -381,6 +409,8 @@ def _measure_probe(
                 metric=METRIC_VMAF,
                 model=model,
                 cancel_event=cancel_event,
+                crop_filter=crop_filter,
+                upscale_size=upscale_size,
             )
             if has_vmaf
             else []
@@ -399,6 +429,8 @@ def _measure_probe(
                 metric=METRIC_SSIM,
                 model=model,
                 cancel_event=cancel_event,
+                crop_filter=crop_filter,
+                upscale_size=upscale_size,
             )
         )
         return QualityProbe(
@@ -419,8 +451,13 @@ def _metric_scores(
     metric: str,
     model: str,
     cancel_event: threading.Event | None,
+    crop_filter: str | None = None,
+    upscale_size: tuple[int, int] | None = None,
 ) -> list[float]:
-    """구간별 지표 점수 목록. 취소되면 그때까지의 점수만 돌려줌"""
+    """구간별 지표 점수 목록. 취소되면 그때까지의 점수만 돌려줌
+
+    - 왜곡 입력은 샘플 엔진이 남긴 구간 산출물 경로를 같은 함수로 만들어 읽음
+    """
     log_name = LOG_NAME_VMAF if metric == METRIC_VMAF else LOG_NAME_SSIM
     scores: list[float] = []
     for index, (start_sec, duration_sec) in enumerate(segments):
@@ -430,13 +467,15 @@ def _metric_scores(
             runner=metric_runner,
             command=build_segment_metric_command(
                 ffmpeg_executable=ffmpeg_exec,
-                distorted_path=os.path.join(tmp_dir, f"tune_{index}.mp4"),
+                distorted_path=sample_segment_path(tmp_dir, index),
                 reference_path=source_path,
                 start_sec=start_sec,
                 duration_sec=duration_sec,
                 metric=metric,
                 model=model,
                 log_name=log_name,
+                crop_filter=crop_filter,
+                upscale_size=upscale_size,
             ),
             work_dir=tmp_dir,
             metric=metric,
@@ -472,6 +511,7 @@ def tune_quality_for_video(
     - `metric_runner`를 주면 지표 실행기를 바꿔 끼움(단위 테스트가 FFmpeg 없이 검증)
     - `on_probe`는 프로브를 재기 직전에 (차례, 전체 상한, 품질값)으로 불려 진행 표시에 씀
     - `control`을 주면 정밀 결정 샘플도 일시중지와 중지 대상이 됨
+    - 기준 화소 크기를 모르는 축소 계획은 지표를 잴 수 없으므로 샘플 인코딩 전에 측정 불가로 되돌림
     """
     resolved_target = target if target is not None else TuneTarget()
     spec = get_encoder_spec(job.encoder)
@@ -479,6 +519,12 @@ def tune_quality_for_video(
     baseline = job.baseline_quality
     low, high = tune_bounds(baseline, **({} if delta_max is None else {"delta_max": delta_max}))
     segments = tuning_segments(job.source_duration_sec, black_ratios)
+    # - 기준 크기는 크롭을 적용한 원본 화소 크기. 축소 계획이면 이 크기로 샘플을 되돌려 지표를 잼
+    reference_size = (job.width, job.height) if job.width > 0 and job.height > 0 else _crop_size(plan.crop_filter)
+    # - 옛 작업 JSON을 이어서 인코딩하면 원본 화소 크기가 0으로 복원됨. 축소 샘플을 되돌릴 기준이 없으면
+    #   모든 지표가 크기 불일치로 실패하므로 샘플 인코딩을 쓰지 않고 기준 품질값을 유지
+    if reference_size is None and plan.scale_filter is not None:
+        return TuneResult(best_quality=baseline, probes=(), converged=False, reason=REASON_UNMEASURABLE)
     factory = process_factory if process_factory is not None else default_process_factory
     runner = metric_runner if metric_runner is not None else _metric_runner(cancel_event)
     probe_count = 0
@@ -502,6 +548,7 @@ def tune_quality_for_video(
             cancel_event=cancel_event,
             control=control,
             batch_id=batch_id,
+            reference_size=reference_size,
         )
 
     return search_quality(
@@ -569,10 +616,26 @@ def compare_downscale_samples(
     - 두 계획은 원본 경로가 같아야 하고, 비트레이트는 각 계획의 샘플 산출물 실측값으로 비교
     - `candidate_probe`를 주면 이미 잰 축소 계획 프로브를 다시 인코딩하지 않음(정밀 탐색 결과 재사용)
     - 판정은 순수 함수 `compare_downscale`이 맡음
+    - 기준 화소 크기는 작업 원본 크기, 없으면 크롭 뒤 크기. 그것도 없으면 축소 샘플을 되돌릴 수 없으므로
+      샘플 인코딩 없이 원본 해상도 유지로 판정
     """
     factory = process_factory if process_factory is not None else default_process_factory
     runner = metric_runner if metric_runner is not None else _metric_runner(cancel_event)
     segments = tuning_segments(job.source_duration_sec, black_ratios)
+    # - 옛 작업 JSON은 원본 화소 크기가 0이라, 크롭이 있으면 탐색과 같은 크롭 크기를 기준으로 씀
+    reference_size = (
+        (job.width, job.height)
+        if job.width > 0 and job.height > 0
+        else _crop_size(candidate_plan.crop_filter)
+    )
+    if reference_size is None and candidate_plan.scale_filter is not None:
+        # - 기준 화소 크기가 없으면 두 계획 모두 지표를 잴 수 없음. 측정 없이 원본 해상도를 유지
+        return DownscaleComparison(
+            False,
+            QualityProbe(quality=baseline_quality),
+            QualityProbe(quality=protect_quality),
+            REASON_UNMEASURABLE,
+        )
     original_probe = _measure_probe(
         plan=original_plan,
         segments=segments,
@@ -582,6 +645,7 @@ def compare_downscale_samples(
         metric_runner=runner,
         has_vmaf=has_vmaf,
         cancel_event=cancel_event,
+        reference_size=reference_size,
     )
     measured_candidate = (
         _measure_probe(
@@ -593,6 +657,7 @@ def compare_downscale_samples(
             metric_runner=runner,
             has_vmaf=has_vmaf,
             cancel_event=cancel_event,
+            reference_size=reference_size,
         )
         if candidate_probe is None
         else candidate_probe

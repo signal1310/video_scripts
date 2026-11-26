@@ -20,6 +20,16 @@ from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_ports import EncodeProcessLike, ProcessFactory
 
 SampleArgsBuilder = Callable[..., list[str]]
+# - 샘플 산출물 파일 이름: 인코더가 쓰는 경로와 지표 측정이 읽는 경로가 어긋나지 않도록 한 곳에서 생성
+SAMPLE_SEGMENT_NAME_TEMPLATE: str = "seg_{index}.mp4"
+
+
+def sample_segment_path(directory: str, index: int) -> str:
+    """샘플 구간 산출물 경로 생성
+
+    - 샘플 엔진이 쓰는 파일과 지표 측정이 읽는 파일이 같은 이름이 되게 호출자가 함께 씀
+    """
+    return os.path.join(directory, SAMPLE_SEGMENT_NAME_TEMPLATE.format(index=index))
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +211,7 @@ def _run_segments(
         idx, (start_sec, seg_sec) = index_seg
         if abort.is_set() or group.is_cancelled:
             return True, False, 0
-        out_path = os.path.join(tmp_dir, f"seg_{idx}.mp4")
+        out_path = sample_segment_path(tmp_dir, idx)
         args = build_args(
             plan,
             start_sec=start_sec,

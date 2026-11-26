@@ -15,6 +15,7 @@ from src.core.encode.stream_layout import parse_stream_layout
 from src.service.encode.encode_sample_engine import (
     SampleGroupProcess,
     run_sample_pass,
+    sample_segment_path,
 )
 
 
@@ -70,6 +71,37 @@ def _plan(tmp: str):
 
 class TestSampleEngine(unittest.TestCase):
     """샘플 구간 병렬 실행의 합계, 실패 구간, 취소, 일시중지 전파를 검증"""
+
+    def test_sample_segment_path_matches_engine_output(self) -> None:
+        """엔진이 산출물을 남기는 경로와 공용 경로 함수가 같은지 검증
+
+        - 지표 측정이 이 함수로 읽으므로 두 이름이 어긋나면 모든 측정이 입력 부재로 실패
+        """
+        with TemporaryDirectory() as tmp:
+            produced: list[str] = []
+
+            def _factory(args: Sequence[str], _on_line: object) -> _FakeProcess:
+                produced.append(args[-1])
+                return _FakeProcess(args, 1, 0)
+
+            outcome = run_sample_pass(
+                batch_id=1,
+                source_path=os.path.join(tmp, "in.mp4"),
+                plan=_plan(tmp),
+                ffmpeg_exec="ffmpeg",
+                process_factory=_factory,
+                abort=threading.Event(),
+                segments=((0.0, 2.0), (4.0, 2.0)),
+                quality=22.0,
+                build_args=build_sample_ffmpeg_args,
+                output_dir=tmp,
+            )
+            self.assertEqual(outcome.succeeded_segments, 2)
+            expected = [sample_segment_path(tmp, index) for index in range(2)]
+            self.assertEqual(sorted(produced), sorted(expected))
+            self.assertEqual(os.path.basename(expected[0]), "seg_0.mp4")
+            for path in expected:
+                self.assertTrue(os.path.exists(path))
 
     def test_successful_segments_sum_bytes_and_report_progress(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -17,7 +17,8 @@ from src.core.quality_target import (
 )
 
 # - 결과 캐시 무효화 판. 판정 규칙이나 탐색 방식이 바뀌면 올림
-SAMPLE_TUNER_VERSION: int = 2
+# - 판 3: 지표 모델을 계획 출력 크기가 아니라 크롭 뒤 기준 크기에서 고르고 축소 샘플을 기준 크기로 되돌림
+SAMPLE_TUNER_VERSION: int = 3
 # - 결정 18: 영상당 3~4회 샘플 인코딩을 넘기지 않음
 TUNE_MAX_PROBES: int = 4
 # - 인코더 품질 눈금. 정수 척도 인코더는 1.0, 소수 첫째 자리 인코더는 0.1(`snap_quality`와 같은 규칙)
@@ -224,6 +225,8 @@ def format_comparison_reason(comparison: DownscaleComparison) -> str:
 
     - 축소를 유지하면 원본 규격 대비 비트레이트 차이를 함께 적어 판단 근거를 남김
     """
+    if comparison.reason == REASON_UNMEASURABLE:
+        return "품질값 정밀 결정: 원본 해상도 유지 (화질 측정 불가)"
     if not comparison.use_downscale:
         return (
             "품질값 정밀 결정: 원본 해상도 유지 (축소 시 화질 기준 미달)"

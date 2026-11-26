@@ -19,12 +19,21 @@ from src.core.encode.stream_layout import parse_stream_layout
 from src.core.evaluation.sample_tuner import (
     REASON_CONVERGED,
     REASON_FALLBACK_BASELINE,
+    REASON_UNMEASURABLE,
+    SAMPLE_TUNER_VERSION,
     DownscaleComparison,
     QualityProbe,
     TuneResult,
     TuneTarget,
+    format_comparison_reason,
 )
-from src.core.quality_probe import LOG_NAME_SSIM, LOG_NAME_VMAF
+from src.core.quality_probe import (
+    LOG_NAME_SSIM,
+    LOG_NAME_VMAF,
+    VMAF_MODEL_4K,
+    VMAF_MODEL_DEFAULT,
+    VMAF_THREADS,
+)
 from src.service import sample_tuner_service as service
 from src.service.sample_tuner_service import (
     CACHE_COLUMNS,
@@ -80,7 +89,13 @@ class _FakeProcess:
         """가짜 우선순위"""
 
 
-def _plan(tmp: str, *, quality: float = 22.0, scale_filter: str | None = None) -> EncodePlan:
+def _plan(
+    tmp: str,
+    *,
+    quality: float = 22.0,
+    scale_filter: str | None = None,
+    crop_filter: str | None = None,
+) -> EncodePlan:
     layout = parse_stream_layout({"streams": [{"index": 0, "codec_type": "video", "codec_name": "hevc"}]})
     return build_encode_plan(
         source_path=os.path.join(tmp, "in.mp4"),
@@ -94,6 +109,7 @@ def _plan(tmp: str, *, quality: float = 22.0, scale_filter: str | None = None) -
         container_policy=CONTAINER_POLICY_MP4,
         tag_value="v=1",
         scale_filter=scale_filter,
+        crop_filter=crop_filter,
         output_size=(1920, 1080) if scale_filter is not None else None,
     )
 
@@ -205,6 +221,65 @@ class TestProbeMeasurement(unittest.TestCase):
             self.assertAlmostEqual(probe.ssim or 0.0, 0.998)
             self.assertIn(LOG_NAME_SSIM, calls)
 
+    def test_probe_upscales_for_downscale_plan_and_uses_reference_model(self) -> None:
+        """축소 계획 프로브가 샘플을 원본 크기로 되돌리고 모델을 원본 높이에서 고르는지 확인"""
+        with TemporaryDirectory() as tmp:
+            graphs: list[str] = []
+
+            def _runner(args: list[str], work_dir: str) -> tuple[int, str]:
+                graphs.append(args[args.index("-lavfi") + 1])
+                Path(work_dir, LOG_NAME_VMAF).write_text(
+                    '{"pooled_metrics": {"vmaf": {"mean": 96.5}}}', encoding="utf-8"
+                )
+                return 0, ""
+
+            probe = service._measure_probe(
+                plan=_plan(
+                    tmp,
+                    scale_filter="scale=1920:1080",
+                    crop_filter="crop=3840:1600:0:280",
+                ),
+                segments=((10.0, 2.0),),
+                quality=22.0,
+                ffmpeg_exec="ffmpeg",
+                process_factory=_factory(),
+                metric_runner=_runner,
+                has_vmaf=True,
+                cancel_event=None,
+            )
+            self.assertEqual(probe.vmaf, 96.5)
+            self.assertTrue(graphs)
+            self.assertIn("crop=3840:1600:0:280[ref]", graphs[0])
+            self.assertIn("scale=3840:1600:flags=bicubic[dist]", graphs[0])
+            self.assertIn(f"model=version={VMAF_MODEL_4K}", graphs[0])
+
+    def test_probe_keeps_default_model_for_small_reference(self) -> None:
+        """4K 미만 기준은 기본 모델을 쓰고 축소가 없으면 샘플을 되돌리지 않음"""
+        with TemporaryDirectory() as tmp:
+            graphs: list[str] = []
+
+            def _runner(args: list[str], work_dir: str) -> tuple[int, str]:
+                graphs.append(args[args.index("-lavfi") + 1])
+                Path(work_dir, LOG_NAME_VMAF).write_text(
+                    '{"pooled_metrics": {"vmaf": {"mean": 95.0}}}', encoding="utf-8"
+                )
+                return 0, ""
+
+            probe = service._measure_probe(
+                plan=_plan(tmp),
+                segments=((10.0, 2.0),),
+                quality=22.0,
+                ffmpeg_exec="ffmpeg",
+                process_factory=_factory(),
+                metric_runner=_runner,
+                has_vmaf=True,
+                cancel_event=None,
+                reference_size=(1920, 1080),
+            )
+            self.assertEqual(probe.vmaf, 95.0)
+            self.assertIn(f"model=version={VMAF_MODEL_DEFAULT}", graphs[0])
+            self.assertNotIn("scale=", graphs[0])
+
     def test_failed_segment_returns_empty_probe(self) -> None:
         with TemporaryDirectory() as tmp:
             probe = service._measure_probe(
@@ -236,6 +311,39 @@ class TestProbeMeasurement(unittest.TestCase):
             )
             self.assertFalse(probe.measurable)
 
+    def test_metric_reads_sample_written_by_engine(self) -> None:
+        """지표 명령의 왜곡 입력이 샘플 엔진이 실제로 쓴 구간 파일인지 확인
+
+        - 경로 이름이 어긋나면 FFmpeg가 입력 부재로 실패해 모든 프로브가 측정 불가가 됨
+        """
+        with TemporaryDirectory() as tmp:
+            seen_inputs: list[str] = []
+
+            def _runner(args: list[str], work_dir: str) -> tuple[int, str]:
+                distorted = args[args.index("-i") + 1]
+                seen_inputs.append(distorted)
+                if not os.path.exists(distorted):
+                    return 1, ""
+                Path(work_dir, LOG_NAME_VMAF).write_text(
+                    '{"pooled_metrics": {"vmaf": {"mean": 97.0}}}', encoding="utf-8"
+                )
+                return 0, ""
+
+            probe = service._measure_probe(
+                plan=_plan(tmp),
+                segments=((10.0, 2.0), (20.0, 2.0)),
+                quality=22.0,
+                ffmpeg_exec="ffmpeg",
+                process_factory=_factory(),
+                metric_runner=_runner,
+                has_vmaf=True,
+                cancel_event=None,
+            )
+            self.assertEqual(probe.vmaf, 97.0)
+            self.assertEqual(
+                [os.path.basename(path) for path in seen_inputs], ["seg_0.mp4", "seg_1.mp4"]
+            )
+
     def test_metric_command_seeks_reference_only(self) -> None:
         args = build_segment_metric_command(
             ffmpeg_executable="ffmpeg",
@@ -251,6 +359,81 @@ class TestProbeMeasurement(unittest.TestCase):
         self.assertEqual(args[4], "-i")
         self.assertEqual(args[5], "a.mp4")
         self.assertIn("libvmaf=model=version=vmaf_v0.6.1", " ".join(args))
+
+    def test_metric_command_without_crop_keeps_plain_inputs(self) -> None:
+        """크롭도 축소도 없으면 기존 지표 필터 문자열을 그대로 씀"""
+        args = build_segment_metric_command(
+            ffmpeg_executable="ffmpeg",
+            distorted_path="a.mp4",
+            reference_path="b.mp4",
+            start_sec=0.0,
+            duration_sec=2.0,
+            metric="ssim",
+            model="vmaf_v0.6.1",
+            log_name=LOG_NAME_SSIM,
+        )
+        self.assertEqual(args[args.index("-lavfi") + 1], f"[0:v][1:v]ssim=stats_file={LOG_NAME_SSIM}")
+
+    def test_metric_command_crops_reference_for_cropped_plan(self) -> None:
+        """크롭 계획이면 기준에 같은 crop을 적용하고 샘플 크기는 그대로 둠"""
+        args = build_segment_metric_command(
+            ffmpeg_executable="ffmpeg",
+            distorted_path="a.mp4",
+            reference_path="b.mp4",
+            start_sec=0.0,
+            duration_sec=2.0,
+            metric="ssim",
+            model="vmaf_v0.6.1",
+            log_name=LOG_NAME_SSIM,
+            crop_filter="crop=1600:900:160:0",
+        )
+        graph = args[args.index("-lavfi") + 1]
+        self.assertEqual(
+            graph, f"[1:v]crop=1600:900:160:0[ref];[0:v][ref]ssim=stats_file={LOG_NAME_SSIM}"
+        )
+        self.assertNotIn("scale=", graph)
+
+    def test_metric_command_upscales_distorted_to_reference_size(self) -> None:
+        """축소 계획이면 기준은 전체 프레임 그대로 두고 샘플을 기준 크기로 되돌림"""
+        args = build_segment_metric_command(
+            ffmpeg_executable="ffmpeg",
+            distorted_path="a.mp4",
+            reference_path="b.mp4",
+            start_sec=0.0,
+            duration_sec=2.0,
+            metric="ssim",
+            model="vmaf_v0.6.1",
+            log_name=LOG_NAME_SSIM,
+            upscale_size=(3840, 2160),
+        )
+        graph = args[args.index("-lavfi") + 1]
+        self.assertEqual(
+            graph,
+            f"[0:v]scale=3840:2160:flags=bicubic[dist];[dist][1:v]ssim=stats_file={LOG_NAME_SSIM}",
+        )
+
+    def test_metric_command_combines_crop_and_upscale(self) -> None:
+        """크롭과 축소가 함께 있는 계획은 crop 뒤 기준 크기로 샘플을 되돌림"""
+        args = build_segment_metric_command(
+            ffmpeg_executable="ffmpeg",
+            distorted_path="a.mp4",
+            reference_path="b.mp4",
+            start_sec=0.0,
+            duration_sec=2.0,
+            metric="vmaf",
+            model="vmaf_v0.6.1",
+            log_name=LOG_NAME_VMAF,
+            crop_filter="crop=1920:1080:0:0",
+            upscale_size=(1920, 1080),
+        )
+        graph = args[args.index("-lavfi") + 1]
+        self.assertEqual(
+            graph,
+            "[1:v]crop=1920:1080:0:0[ref];[0:v]scale=1920:1080:flags=bicubic[dist];"
+            f"[dist][ref]libvmaf=model=version=vmaf_v0.6.1:n_threads={VMAF_THREADS}"
+            f":log_path={LOG_NAME_VMAF}:log_fmt=json",
+        )
+
 
 
 class _QualityTracker:
@@ -299,6 +482,53 @@ class TestTuneQualityForVideo(unittest.TestCase):
             self.assertLessEqual(len(result.probes), 4)
             self.assertIsNotNone(result.best_probe)
             self.assertGreater(result.best_quality, 22.0)
+
+    def test_downscale_plan_uses_job_size_for_metric_geometry(self) -> None:
+        """축소 계획 탐색이 TuneJob의 원본 크기로 지표 기하를 맞추는지 확인"""
+        with TemporaryDirectory() as tmp:
+            graphs: list[str] = []
+            tracker = _QualityTracker()
+
+            def _runner(args: list[str], work_dir: str) -> tuple[int, str]:
+                graphs.append(args[args.index("-lavfi") + 1])
+                return tracker.runner(args, work_dir)
+
+            result = tune_quality_for_video(
+                job=_job(),
+                plan=_plan(tmp, scale_filter="scale=1920:1080", crop_filter="crop=3840:1600:0:280"),
+                process_factory=tracker.factory,
+                metric_runner=_runner,
+            )
+            self.assertTrue(result.converged)
+            self.assertTrue(graphs)
+            for graph in graphs:
+                self.assertIn("scale=3840:1600:flags=bicubic[dist]", graph)
+                self.assertIn("crop=3840:1600:0:280[ref]", graph)
+
+    def test_downscale_plan_without_source_size_skips_measurement(self) -> None:
+        """원본 화소 크기를 모르는 축소 계획은 샘플 인코딩 없이 측정 불가로 되돌리는지 확인"""
+        with TemporaryDirectory() as tmp:
+            calls: list[str] = []
+
+            def _factory(args: Sequence[str], _on_line: Callable[[str], None]) -> _FakeProcess:
+                calls.append("factory")
+                return _FakeProcess(args, size=10, cancel=None)
+
+            def _runner(_args: list[str], _work_dir: str) -> tuple[int, str]:
+                calls.append("runner")
+                return 0, ""
+
+            result = tune_quality_for_video(
+                job=_job(width=0, height=0),
+                plan=_plan(tmp, scale_filter="scale=1920:1080"),
+                process_factory=_factory,
+                metric_runner=_runner,
+            )
+            self.assertEqual(calls, [])
+            self.assertFalse(result.converged)
+            self.assertEqual(result.reason, REASON_UNMEASURABLE)
+            self.assertEqual(result.best_quality, 22.0)
+            self.assertEqual(result.probes, ())
 
     def test_cancelled_search_returns_unconverged(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -430,6 +660,24 @@ class TestSampleTunerCache(unittest.TestCase):
             cache.save(record_from_result(key, result))
             bumped = _cache_key(tuner_version=key.tuner_version + 1)
             self.assertIsNone(cache.load(bumped))
+
+    def test_stale_version_two_rows_are_not_reused(self) -> None:
+        """지표 모델과 기하 선택이 바뀌기 전 판(2)의 캐시 행을 재사용하지 않는지 확인"""
+        with TemporaryDirectory() as tmp:
+            cache = self._cache(tmp)
+            self.assertEqual(_cache_key().tuner_version, SAMPLE_TUNER_VERSION)
+            self.assertGreater(SAMPLE_TUNER_VERSION, 2)
+            stale = SampleTuneRecord(
+                key=_cache_key(tuner_version=2),
+                best_quality=24.0,
+                converged=True,
+                reason=REASON_CONVERGED,
+                probes=(QualityProbe(quality=24.0, vmaf=97.0, ssim=0.997),),
+                measured_at="2026-01-01T00:00:00Z",
+            )
+            cache.save(stale)
+            self.assertEqual(cache.count(), 1)
+            self.assertIsNone(cache.load(_cache_key()))
 
     def test_plan_hash_and_target_change_the_key(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -599,6 +847,69 @@ class TestCompareDownscaleSamples(unittest.TestCase):
             self.assertTrue(comparison.use_downscale)
             self.assertEqual(comparison.reason, "candidate_smaller")
             self.assertLess(comparison.candidate_probe.bitrate_kbps, comparison.original_probe.bitrate_kbps)
+
+    def test_missing_source_size_keeps_original_without_measurement(self) -> None:
+        """원본 화소 크기가 없으면 샘플 인코딩 없이 원본 해상도를 유지하는지 확인"""
+        with TemporaryDirectory() as tmp:
+            calls: list[str] = []
+
+            def _factory(args: Sequence[str], _on_line: Callable[[str], None]) -> _FakeProcess:
+                calls.append("factory")
+                return _FakeProcess(args, size=1000, cancel=None)
+
+            def _runner(_args: list[str], _work_dir: str) -> tuple[int, str]:
+                calls.append("runner")
+                return 0, ""
+
+            comparison = service.compare_downscale_samples(
+                job=_job(width=0, height=0),
+                original_plan=_plan(tmp, quality=26.0),
+                candidate_plan=_plan(tmp, quality=22.0, scale_filter="scale=1920:1080"),
+                baseline_quality=22.0,
+                protect_quality=26.0,
+                process_factory=_factory,
+                metric_runner=_runner,
+            )
+            self.assertEqual(calls, [])
+            self.assertFalse(comparison.use_downscale)
+            self.assertEqual(comparison.reason, REASON_UNMEASURABLE)
+            self.assertEqual(comparison.candidate_probe.quality, 22.0)
+            self.assertEqual(comparison.original_probe.quality, 26.0)
+            self.assertEqual(
+                format_comparison_reason(comparison),
+                "품질값 정밀 결정: 원본 해상도 유지 (화질 측정 불가)",
+            )
+
+    def test_legacy_job_with_crop_measures_with_crop_geometry(self) -> None:
+        """원본 화소 크기가 0인 옛 작업 JSON도 크롭이 있으면 크롭 크기로 지표를 재는지 확인"""
+        with TemporaryDirectory() as tmp:
+            graphs: list[str] = []
+            tracker = _QualityTracker(at_baseline=99.0, slope=0.1)
+
+            def _runner(args: list[str], work_dir: str) -> tuple[int, str]:
+                graphs.append(args[args.index("-lavfi") + 1])
+                return tracker.runner(args, work_dir)
+
+            comparison = service.compare_downscale_samples(
+                job=_job(width=0, height=0),
+                original_plan=_plan(tmp, quality=26.0, crop_filter="crop=3840:1600:0:280"),
+                candidate_plan=_plan(
+                    tmp,
+                    quality=22.0,
+                    scale_filter="scale=1920:1080",
+                    crop_filter="crop=3840:1600:0:280",
+                ),
+                baseline_quality=22.0,
+                protect_quality=26.0,
+                process_factory=_factory(size=1000),
+                metric_runner=_runner,
+            )
+            self.assertTrue(graphs)
+            for graph in graphs:
+                self.assertIn("crop=3840:1600:0:280[ref]", graph)
+            self.assertTrue(any("scale=3840:1600:flags=bicubic[dist]" in graph for graph in graphs))
+            self.assertTrue(comparison.original_probe.measurable)
+            self.assertNotEqual(comparison.reason, REASON_UNMEASURABLE)
 
 
 class TestCompareDownscaleCache(unittest.TestCase):

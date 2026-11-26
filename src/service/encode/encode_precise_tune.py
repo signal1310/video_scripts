@@ -170,7 +170,6 @@ class PreciseQualityTuner:
         """정밀 결정을 실행. 취소로 중단했으면 None"""
         source = job.source_path
         previous_quality = job.quality
-        output_size = plan.output_size
         tune_job = TuneJob(
             source_path=source,
             source_size=job.source_size,
@@ -178,8 +177,8 @@ class PreciseQualityTuner:
             source_duration_sec=job.source_duration_sec,
             encoder=plan.encoder,
             baseline_quality=job.quality if job.baseline_quality is None else job.baseline_quality,
-            width=0 if output_size is None else output_size[0],
-            height=0 if output_size is None else output_size[1],
+            width=job.source_width or 0,
+            height=job.source_height or 0,
         )
         self._notify(batch_id, source, previous_quality, 0, TUNE_MAX_PROBES)
 

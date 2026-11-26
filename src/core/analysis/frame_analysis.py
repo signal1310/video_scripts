@@ -20,7 +20,7 @@ from src.core.config import (
     ClassifierConfig,
 )
 from src.core.models import ActiveFrame
-from src.core.quality_probe import build_metric_filter
+from src.core.quality_probe import METRIC_INPUT_LABELS, build_metric_filter
 from src.core.quality_target import (
     ROUNDTRIP_SSIM_THRESHOLD as _ROUNDTRIP_SSIM_THRESHOLD,
 )
@@ -77,7 +77,6 @@ ROUND_POINT_INDICES: tuple[tuple[int, ...], ...] = ((4,), (2, 6), (0, 8), (1, 3,
 MANUAL_FRAME_MIN_SIZE_PX: int = 32
 MANUAL_FRAME_ALIGN: int = 2
 # - 명령 필터 체인의 지표 입력 레이블, `build_metric_filter`의 기본 레이블을 이 값으로 바꿔 재사용
-_METRIC_INPUT_LABELS: str = "[0:v][1:v]"
 _DISTORTED_REFERENCE_LABELS: str = "[sc][ref]"
 _ACTIVE_LABELS: str = "[0:v]"
 
@@ -499,7 +498,7 @@ def _build_roundtrip_chain(
         f"{scale_filter(str(active_region.width), str(active_region.height), algorithm)}[sc]"
     )
     metric_filter = build_metric_filter(metric, model=model, log_name=log_name, n_subsample=n_subsample)
-    return f"{chain};{metric_filter.replace(_METRIC_INPUT_LABELS, _DISTORTED_REFERENCE_LABELS, 1)}"
+    return f"{chain};{metric_filter.replace(METRIC_INPUT_LABELS, _DISTORTED_REFERENCE_LABELS, 1)}"
 
 
 def build_roundtrip_command(

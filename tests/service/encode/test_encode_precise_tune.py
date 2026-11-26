@@ -54,7 +54,7 @@ def _plan(tmp: str, *, quality: float = 22.0) -> EncodePlan:
     )
 
 
-def _job(tmp: str, *, quality: float = 22.0) -> EncodeJob:
+def _job(tmp: str, *, quality: float = 22.0, source_width: int | None = None) -> EncodeJob:
     """정밀 결정 대상 절약 목적 작업"""
     return EncodeJob(
         filename="in.mp4",
@@ -72,6 +72,8 @@ def _job(tmp: str, *, quality: float = 22.0) -> EncodeJob:
         maxrate_kbps=None,
         baseline_quality=22.0,
         precise_tune=True,
+        source_width=source_width,
+        source_height=None if source_width is None else 1600,
     )
 
 
@@ -136,6 +138,33 @@ class TestPreciseQualityTuner(_TunerCase):
         assert outcome is not None
         self.assertEqual(outcome.adopted_quality, 22.0)
         self.assertEqual(outcome.reason, "품질값 22.0 유지 (기준 미달)")
+
+    def test_tune_job_carries_cropped_source_size(self) -> None:
+        """정밀 결정 입력이 축소 결과 크기가 아니라 크롭한 원본 크기를 담는지 확인
+
+        - 지표 기준 크기와 VMAF 모델을 원본에서 골라야 축소 계획의 측정이 성립
+        """
+        result = TuneResult(
+            best_quality=24.0,
+            probes=(QualityProbe(quality=24.0, vmaf=98.5, ssim=0.998),),
+            converged=True,
+            reason=REASON_CONVERGED,
+        )
+        self._tuner(result)(7, _job(self.tmp, source_width=3840), _plan(self.tmp))
+        tune_job = self.calls[0]["job"]
+        self.assertEqual((tune_job.width, tune_job.height), (3840, 1600))
+
+    def test_tune_job_size_is_zero_when_source_size_is_unknown(self) -> None:
+        """원본 크기를 모르면 지표 기준 크기를 0으로 두어 계획의 crop에서 유도하게 함"""
+        result = TuneResult(
+            best_quality=24.0,
+            probes=(QualityProbe(quality=24.0, vmaf=98.5, ssim=0.998),),
+            converged=True,
+            reason=REASON_CONVERGED,
+        )
+        self._tuner(result)(7, _job(self.tmp), _plan(self.tmp))
+        tune_job = self.calls[0]["job"]
+        self.assertEqual((tune_job.width, tune_job.height), (0, 0))
 
     def test_cancel_returns_none(self) -> None:
         abort = threading.Event()

@@ -21,6 +21,7 @@ from src.core.quality_probe import (
     ProcessCommandRunner,
     build_metric_command,
     build_metric_filter,
+    build_segment_metric_filter,
     encode_sample_segments,
     fit_quality_slope_k,
     measure_metric,
@@ -101,6 +102,55 @@ class TestQualityProbe(unittest.TestCase):
         self.assertEqual(command[:4], ["ffmpeg", "-hide_banner", "-nostdin", "-y"])
         self.assertEqual(command[command.index("-i") + 1], "a.mp4")
         self.assertEqual(command[-2:], ["null", "-"])
+
+    def test_segment_metric_filter_matches_plain_filter_without_geometry(self) -> None:
+        """자르거나 되돌릴 것이 없으면 기존 지표 필터와 같은 문자열인지 확인"""
+        for metric in (METRIC_VMAF, METRIC_SSIM):
+            self.assertEqual(
+                build_segment_metric_filter(metric, model=VMAF_MODEL_DEFAULT, log_name=LOG_NAME_SSIM),
+                build_metric_filter(metric, model=VMAF_MODEL_DEFAULT, log_name=LOG_NAME_SSIM),
+            )
+
+    def test_segment_metric_filter_crops_reference_only(self) -> None:
+        """crop만 있는 계획은 기준에만 crop을 붙이고 왜곡 입력은 그대로 씀"""
+        graph = build_segment_metric_filter(
+            METRIC_SSIM,
+            log_name=LOG_NAME_SSIM,
+            crop_filter="crop=1600:900:160:0",
+        )
+        self.assertEqual(
+            graph, f"[1:v]crop=1600:900:160:0[ref];[0:v][ref]ssim=stats_file={LOG_NAME_SSIM}"
+        )
+
+    def test_segment_metric_filter_upscales_distorted_only(self) -> None:
+        """축소만 있는 계획은 왜곡 입력만 기준 크기로 되돌림"""
+        graph = build_segment_metric_filter(
+            METRIC_SSIM,
+            log_name=LOG_NAME_SSIM,
+            upscale_size=(3840, 2160),
+        )
+        self.assertEqual(
+            graph,
+            f"[0:v]scale=3840:2160:flags=bicubic[dist];[dist][1:v]ssim=stats_file={LOG_NAME_SSIM}",
+        )
+
+    def test_segment_metric_filter_combines_crop_and_upscale(self) -> None:
+        """crop과 축소가 함께 있으면 crop한 기준 크기로 왜곡 입력을 되돌림"""
+        graph = build_segment_metric_filter(
+            METRIC_VMAF,
+            model=VMAF_MODEL_4K,
+            log_name=LOG_NAME_VMAF,
+            crop_filter="crop=3840:1600:0:280",
+            upscale_size=(3840, 1600),
+            algorithm="lanczos",
+        )
+        self.assertEqual(
+            graph,
+            "[1:v]crop=3840:1600:0:280[ref];[0:v]scale=3840:1600:flags=lanczos[dist];"
+            f"[dist][ref]libvmaf=model=version={VMAF_MODEL_4K}:n_threads=4"
+            f":log_path={LOG_NAME_VMAF}:log_fmt=json",
+        )
+
 
     def test_parse_vmaf_log_and_ssim_stats(self) -> None:
         log = json.dumps({"pooled_metrics": {"vmaf": {"mean": 94.25, "min": 90.0}}})

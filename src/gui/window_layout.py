@@ -30,6 +30,8 @@ from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import UiLayoutState, UiState
 from src.core.workspace_paths import parse_root_dirs
 from src.gui.constants import APP_WINDOW_TITLE
+from src.gui.crash_notice_bar import attach_pending_crash_notice
+from src.gui.diagnostics_qt import current_runtime, open_crash_report_folder
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.table.column_history import (
     COLUMN_FIT_HISTORY_LABEL,
@@ -265,6 +267,14 @@ def build_main_window_widgets(
     footer_bar = FooterBar(window)
     footer_bar.logs_clicked.connect(callbacks.on_show_logs)
     root_layout.addWidget(footer_bar)
+    # - 이전 실행이 비정상 종료했으면 창을 띄운 뒤 상단에 비차단 안내를 한 줄 붙임
+    runtime = current_runtime()
+    attach_pending_crash_notice(
+        central,
+        root_layout,
+        runtime.pending_report if runtime is not None else None,
+        open_crash_report_folder,
+    )
 
     drop_overlay = QFrame(central)
     drop_overlay.setObjectName("DropOverlay")

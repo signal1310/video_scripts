@@ -21,6 +21,15 @@ QFrame#DropOverlay {{
     border: 2px dashed {p.accent_blue};
     border-radius: 12px;
 }}
+QFrame#CrashNoticeBar {{
+    background-color: {p.bg_elevated};
+    border: 1px solid {p.accent_orange};
+    border-radius: 8px;
+}}
+QLabel#CrashNoticeText {{
+    color: {p.text_primary};
+    font-size: 9pt;
+}}
 QLabel#DropOverlayTitle {{
     font-size: 13pt;
     font-weight: 700;

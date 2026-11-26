@@ -9,6 +9,7 @@ from src.core.logging_setup import ensure_console_logging, ensure_file_logging
 from src.core.settings.app_state import ensure_default_config_files
 from src.gui.constants import make_ui_font
 from src.gui.controllers.worker import ClassifierWorker
+from src.gui.diagnostics_qt import start_gui_diagnostics, stop_gui_diagnostics
 from src.gui.main_window import MainWindow
 from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
@@ -39,6 +40,8 @@ def run_gui(
 ) -> int:
     """PyQt6 QApplication 인스턴스를 초기화하고 메인 GUI 윈도우를 실행"""
     configure_multimedia_environment()
+    # - 창을 만들기 전에 네이티브 로그와 예외 훅을 켜야 창 생성 중 접근 위반도 파일에 남음
+    start_gui_diagnostics()
     app_inst = QApplication.instance()
     owns_app = False
     if isinstance(app_inst, QApplication):
@@ -51,6 +54,7 @@ def run_gui(
     ensure_console_logging()
     ensure_file_logging()
     ensure_default_config_files()
+    app.aboutToQuit.connect(stop_gui_diagnostics)
 
     window = MainWindow(classifier=classifier, initial_dir=initial_dir)
     window.show()

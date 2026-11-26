@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from src.classifier import VideoClassifier
 from src.core.config import DEFAULT_THRESHOLDS
+from src.core.messages import ColumnId
 from src.core.settings.app_state import load_app_state, save_app_state
 from src.gui.help.help_dialog import HelpDialog
 from src.gui.main_window import MainWindow
@@ -187,7 +188,8 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         mw, _, _ = self._menu_window()
         menu = mw.menu
         self.assertEqual(
-            [act.text() for act in menu.preset_menu.actions()], ["기본", "화질, 해상도", "기술 사양", "전체"]
+            [act.text() for act in menu.preset_menu.actions() if not act.isSeparator()],
+            ["기본", "화질, 해상도", "기술 사양", "전체", "이 프리셋을 기본 배치로 되돌리기"],
         )
         menu._preset_actions["specs"].trigger()
         self.assertTrue(menu._preset_actions["specs"].isChecked())
@@ -208,8 +210,8 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기본")
         self.assertTrue(menu._preset_actions["default"].isChecked())
 
-    def test_toggling_a_column_marks_custom_preset_and_unchecks_radios(self) -> None:
-        """표시할 열 하나를 토글하면 필터 바가 사용자 지정이 되고 프리셋 라디오가 모두 해제됨을 검증"""
+    def test_toggling_a_column_keeps_the_preset_name_and_saves_its_layout(self) -> None:
+        """표시할 열 하나를 토글해도 프리셋 이름은 그대로이고 배치만 그 프리셋에 저장됨을 검증"""
         mw, _, _ = self._menu_window()
         menu = mw.menu
         self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기본")
@@ -219,14 +221,18 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         opt_act = mw.menu.columns_menu.actions()[VideoTableModel.COL_OPT_BITRATE]
         opt_act.trigger()
 
-        self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 사용자 지정")
-        self.assertFalse(any(act.isChecked() for act in menu._preset_actions.values()))
-
-        # - 표 밖에서 숨김이 바뀐 경우(화질 분석 자동 표시 등) 창 수준 동기화로도 라벨이 맞춰짐
-        mw.table_view.setColumnHidden(VideoTableModel.COL_OPT_BITRATE, True)
-        mw.sync_preset()
         self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기본")
         self.assertTrue(menu._preset_actions["default"].isChecked())
+        stored = {
+            cid: layout.hidden
+            for cid, layout in (
+                decode_column_layouts(
+                    load_app_state().ui.layout.column_preset_layouts["default"]
+                )
+                or {}
+            ).items()
+        }
+        self.assertFalse(stored[ColumnId.OPT_BITRATE])
 
     def test_undo_after_preset_switch_resyncs_preset_label_and_radios(self) -> None:
         """프리셋 전환 뒤 되돌리기가 필터 바 라벨과 보기 메뉴 프리셋 체크를 함께 되돌리는지 검증"""

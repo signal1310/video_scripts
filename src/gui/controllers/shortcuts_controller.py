@@ -139,6 +139,7 @@ class ShortcutsController:
         - 열 상태는 columns가 참일 때만 담음, 자동 열 너비 변화가 다른 단계의 비교에 섞이지 않게 함
         """
         ui = self._host.session.state.ui
+        layout = ui.layout
         return UndoableSnapshot(
             config=self._host.session.state.to_classifier_config(),
             exception_tokens=tuple(ui.exception_tokens),
@@ -152,6 +153,8 @@ class ShortcutsController:
             show_setting_hints=ui.show_setting_hints,
             search=ui.filters.search,
             column_layout=capture_column_state(self._host.table_view) if columns else "",
+            column_preset=layout.column_preset,
+            preset_layouts=tuple(sorted(layout.column_preset_layouts.items())),
         )
 
     def record_change(
@@ -306,6 +309,15 @@ class ShortcutsController:
                 self._refresh_widgets(target)
             if target.column_layout != other.column_layout:
                 restore_column_state(self._host.table_view, target.column_layout)
+            if (
+                target.column_layout != other.column_layout
+                or target.column_preset != other.column_preset
+                or target.preset_layouts != other.preset_layouts
+            ):
+                layout = self._host.session.state.ui.layout
+                layout.column_preset = target.column_preset
+                layout.column_preset_layouts = dict(target.preset_layouts)
+                layout.table_header_state = target.column_layout
                 self._host.sync_preset()
             self._host.session.persist()
         finally:

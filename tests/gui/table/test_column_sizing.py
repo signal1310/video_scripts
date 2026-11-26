@@ -23,6 +23,11 @@ from src.gui.constants import (
     PRESET_SPECS,
     preset_label,
 )
+from src.gui.table.column_presets import (
+    PRESET_ALL,
+    detect_column_preset,
+    hidden_columns_for_preset,
+)
 from src.gui.table.column_sizing import (
     CELL_PADDING_PX,
     COMPACT_ROW_HEIGHT_PX,
@@ -31,12 +36,9 @@ from src.gui.table.column_sizing import (
     NAME_COL_DEFAULT_WIDTH,
     NAME_COL_MAX_WIDTH,
     NORMAL_ROW_HEIGHT_PX,
-    PRESET_ALL,
     TextWidthCache,
     apply_compact_mode,
     auto_fit_visible_columns,
-    detect_column_preset,
-    hidden_columns_for_preset,
     measure_column_content_widths,
     measure_name_content_width,
 )

@@ -121,6 +121,37 @@ class TestAppStateModule(unittest.TestCase):
                 parsed = json.loads(strip_jsonc_comments(f.read()))
             self.assertNotIn("root_dir", parsed["paths"])
 
+    def test_column_preset_layouts_round_trip_and_reset(self) -> None:
+        """프리셋 키별 열 배치와 활성 프리셋이 설정 파일 왕복에서 유지되고 초기화 뒤 기본값으로 돌아가는지 검증"""
+        from src.core.settings.ui_state import DEFAULT_COLUMN_PRESET
+
+        quality_layout = '{"version": 2, "columns": {"name": {"order": 0, "width": 300, "hidden": false}}}'
+        with tempfile.TemporaryDirectory() as tmpdir, _isolated_data_paths(tmpdir) as (_root_path, _state_path):
+            save_app_state(
+                AppState(
+                    ui=UiState(
+                        layout=UiLayoutState(
+                            column_preset="quality",
+                            column_preset_layouts={"quality": quality_layout},
+                        )
+                    )
+                ),
+                root_dir=tmpdir,
+            )
+
+            loaded = load_app_state().ui.layout
+            self.assertEqual(loaded.column_preset, "quality")
+            self.assertEqual(loaded.column_preset_layouts, {"quality": quality_layout})
+
+            reset = reset_app_state(
+                preserve_root_dir=True, preserve_recent_dirs=True, preserve_layout=False
+            )
+            self.assertEqual(reset.ui.layout.column_preset, DEFAULT_COLUMN_PRESET)
+            self.assertEqual(reset.ui.layout.column_preset_layouts, {})
+
+            kept = reset_app_state(preserve_root_dir=True, preserve_recent_dirs=True)
+            self.assertEqual(kept.ui.layout.column_preset, DEFAULT_COLUMN_PRESET)
+
     def test_rootdir_file_is_single_source_and_ignores_legacy_json_root_dir(self) -> None:
         """data/rootdir.txt만 작업 경로 기준 정의로 사용되고 구형 config.json의 root_dir은 무시, 정리됨을 검증"""
         with (

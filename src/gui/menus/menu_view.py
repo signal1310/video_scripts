@@ -38,6 +38,7 @@ class ViewMenu:
     preset_menu: QMenu
     preset_group: QActionGroup
     preset_actions: dict[str, QAction]
+    act_reset_column_preset: QAction
     act_fit_all_columns: QAction
     act_compact_table: QAction
 
@@ -106,6 +107,15 @@ def build_view_menu(
     preset_menu, preset_group, preset_actions = _build_preset_menu(
         ctx, view_menu, callbacks
     )
+    act_reset_column_preset = ctx.create_action(
+        "이 프리셋을 기본 배치로 되돌리기",
+        callbacks.on_reset_column_preset or (lambda: None),
+        action_id="view.reset_column_preset",
+        icon_name="rotate-ccw",
+        status_tip="지금 적용한 열 프리셋의 열 순서와 표시를 프리셋 기본 배치로 되돌리고 저장한 배치를 지웁니다.",
+    )
+    preset_menu.addSeparator()
+    preset_menu.addAction(act_reset_column_preset)
 
     act_fit_all_columns = ctx.create_action(
         "모든 열 크기 맞춤",
@@ -173,6 +183,7 @@ def build_view_menu(
         preset_menu=preset_menu,
         preset_group=preset_group,
         preset_actions=preset_actions,
+        act_reset_column_preset=act_reset_column_preset,
         act_fit_all_columns=act_fit_all_columns,
         act_compact_table=act_compact_table,
     )

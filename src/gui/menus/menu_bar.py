@@ -114,6 +114,7 @@ class MainMenuController:
         self._preset_group = view_menu.preset_group
         self._preset_actions = view_menu.preset_actions
         self.act_fit_all_columns = view_menu.act_fit_all_columns
+        self.act_reset_column_preset = view_menu.act_reset_column_preset
         self.act_compact_table = view_menu.act_compact_table
         self.act_analyze_default = analysis_menu.act_analyze_default
         self.act_analyze_fast = analysis_menu.act_analyze_fast
@@ -211,10 +212,11 @@ class MainMenuController:
         """하위 폴더 포함 메뉴 항목의 체크 상태를 설정 값과 맞춤"""
         self.act_recursive.setChecked(bool(enabled))
 
-    def sync_table_display(self, preset_key: str, compact: bool) -> None:
+    def sync_table_display(self, preset_key: str, compact: bool, *, can_reset: bool = True) -> None:
         """현재 열 프리셋과 좁게 보기 상태를 보기 메뉴 라디오, 체크 항목에 맞춤
 
         - 사용자 지정처럼 메뉴에 없는 키는 이전 프리셋 체크가 남지 않도록 모두 해제
+        - 되돌릴 배치가 없으면(이미 프리셋 기본 배치) 프리셋 초기화 항목을 비활성화
         """
         preset_act = self._preset_actions.get(preset_key)
         if preset_act is not None:
@@ -222,6 +224,7 @@ class MainMenuController:
         else:
             clear_radio_checks(self._preset_group, self._preset_actions.values())
         self.act_compact_table.setChecked(bool(compact))
+        self.act_reset_column_preset.setEnabled(can_reset)
 
     def _populate_columns_menu(self) -> None:
         getter = self._callbacks.get_column_visibility

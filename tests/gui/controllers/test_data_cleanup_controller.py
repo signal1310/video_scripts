@@ -695,10 +695,19 @@ class ExecuteCleanupTest(unittest.TestCase):
         self.controller = _controller(self.window)
         self.service = _Service()
         self.controller._service_cache = cast("DataCleanupService", self.service)
-        for name in ("auto_fit_visible_columns", "capture_column_layouts", "encode_column_layouts"):
+        for name in ("auto_fit_visible_columns",):
             patcher = mock.patch.object(controller_module, name, return_value="layout")
             self.addCleanup(patcher.stop)
             patcher.start()
+        store_patcher = mock.patch.object(
+            controller_module,
+            "store_preset_layout",
+            side_effect=lambda _view, layout, _key: setattr(
+                layout, "table_header_state", "layout"
+            ),
+        )
+        self.addCleanup(store_patcher.stop)
+        store_patcher.start()
 
     def test_storage_cleanup_refreshes_views_and_saves_ui_resets(self) -> None:
         """저장 데이터를 지우고 화면, 설정 항목을 되돌린 뒤 결과와 상태를 남기는지 검증"""
@@ -859,12 +868,19 @@ class UiResetsTest(unittest.TestCase):
         self.controller = _controller(self.window)
         for name in (
             "auto_fit_visible_columns",
-            "capture_column_layouts",
-            "encode_column_layouts",
         ):
             patcher = mock.patch.object(controller_module, name, return_value="layout")
             setattr(self, name, patcher.start())
             self.addCleanup(patcher.stop)
+        store_patcher = mock.patch.object(
+            controller_module,
+            "store_preset_layout",
+            side_effect=lambda _view, layout, _key: setattr(
+                layout, "table_header_state", "layout"
+            ),
+        )
+        self.store_preset_layout = store_patcher.start()
+        self.addCleanup(store_patcher.stop)
 
     def test_column_order_is_restored_and_saved(self) -> None:
         """열 순서를 기본 순서로 되돌리고 저장 상태에 반영하는지 검증"""
@@ -898,6 +914,23 @@ class UiResetsTest(unittest.TestCase):
         self.window.table_view.hidden = {0, 1}
         self.controller._reset_column_visibility()
         self.assertEqual(self.window.table_view.hidden, set(DEFAULT_HIDDEN_COLS))
+
+    def test_column_visibility_reset_uses_the_active_presets_default_columns(self) -> None:
+        """기술 사양 프리셋에서 표시 초기화가 기본 프리셋 표시 열이 아니라 그 프리셋의 기본 표시 열로 되돌리는지 검증"""
+        from src.gui.constants import PRESET_SPECS
+        from src.gui.table.column_presets import hidden_columns_for_preset
+
+        self.window._session.state.ui.layout.column_preset = PRESET_SPECS
+        # - 대역 표는 열이 5개뿐이라 프리셋 숨김 열 중 표 범위 안의 것만 남음
+        columns = self.window.table_model.columnCount()
+        specs_hidden = {col for col in hidden_columns_for_preset(PRESET_SPECS) if col < columns}
+        self.assertNotEqual(specs_hidden, set(DEFAULT_HIDDEN_COLS))
+        self.window.table_view.hidden = set(DEFAULT_HIDDEN_COLS)
+        self.assertTrue(self.controller._column_visibility_changed())
+
+        self.controller._reset_column_visibility()
+
+        self.assertEqual(self.window.table_view.hidden, specs_hidden)
 
     def test_sort_group_filters_are_cleared(self) -> None:
         """정렬, 그룹, 필터, 검색어와 저장 상태를 모두 지우는지 검증"""

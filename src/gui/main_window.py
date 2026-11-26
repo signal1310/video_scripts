@@ -324,6 +324,7 @@ class MainWindow(QMainWindow):
             on_select_column_preset=lambda key: self.table_display.apply_preset(key),
             on_fit_all_columns=lambda: self.table_display.fit_all(),
             on_set_compact_table=lambda enabled: self.table_display.set_compact(enabled),
+            on_reset_column_preset=lambda: self.table_display.reset_preset_layout(),
         )
         callbacks.on_undo = lambda: self.shortcuts.trigger_undo()
         callbacks.on_redo = lambda: self.shortcuts.trigger_redo()

@@ -34,7 +34,7 @@ from src.core.settings.ui_state import (
     DEFAULT_THEME_MODE,
     GROUP_BY_NONE,
 )
-from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH
+from src.gui.constants import PRESET_DEFAULT, WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
 from src.gui.controllers.encode_trash import move_to_trash, needs_permanent_confirm
 from src.gui.controllers.frame_analysis_controller import FrameAnalysisController
@@ -43,7 +43,7 @@ from src.gui.controllers.shortcuts_controller import ShortcutsController
 from src.gui.controllers.task_runner import TaskRunner
 from src.gui.dialogs.data_cleanup_dialog import DataCleanupDialog
 from src.gui.menus.menu_bar import MainMenuController
-from src.gui.table.column_layout_state import capture_column_layouts, encode_column_layouts
+from src.gui.table.column_presets import hidden_columns_for_preset, store_preset_layout
 from src.gui.table.column_sizing import auto_fit_visible_columns
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.table_model import VideoTableModel
@@ -425,10 +425,17 @@ class DataCleanupController:
         resized = cast("set[int] | None", _member(view, USER_RESIZED_COLS_ATTR))
         return name_resized or bool(resized)
 
+    def _active_preset_hidden_columns(self) -> frozenset[int]:
+        """활성 열 프리셋의 기본 숨김 열, 기본 프리셋은 표의 기본 숨김 열을 따름"""
+        preset = self._deps.session.state.ui.layout.column_preset
+        if preset == PRESET_DEFAULT:
+            return self._deps.table_view.DEFAULT_HIDDEN_COLS
+        return hidden_columns_for_preset(preset)
+
     def _column_visibility_changed(self) -> bool:
         view = self._deps.table_view
         hidden = {col for col in range(self._deps.table_model.columnCount()) if view.isColumnHidden(col)}
-        return hidden != set(view.DEFAULT_HIDDEN_COLS)
+        return hidden != set(self._active_preset_hidden_columns())
 
     def _sort_group_changed(self) -> bool:
         deps = self._deps
@@ -517,8 +524,10 @@ class DataCleanupController:
 
     def _reset_column_visibility(self) -> None:
         deps = self._deps
+        # - 활성 프리셋의 기본 표시 열로 되돌려, 다른 프리셋 이름 아래에 기본 프리셋의 표시 열이 저장되지 않게 함
+        hidden = self._active_preset_hidden_columns()
         for col in range(deps.table_model.columnCount()):
-            deps.table_view.setColumnHidden(col, col in deps.table_view.DEFAULT_HIDDEN_COLS)
+            deps.table_view.setColumnHidden(col, col in hidden)
         self._persist_columns()
 
     def _reset_sort_group(self) -> None:
@@ -614,9 +623,10 @@ class DataCleanupController:
         self._apply_config_reset()
 
     def _persist_columns(self) -> None:
-        """바뀐 열 배치를 저장 상태에 반영하고 필터 바 라벨과 보기 메뉴를 다시 맞춤"""
+        """바뀐 열 배치를 활성 프리셋 배치와 저장 상태에 반영하고 필터 바 라벨과 보기 메뉴를 다시 맞춤"""
         deps = self._deps
-        deps.session.state.ui.layout.table_header_state = encode_column_layouts(capture_column_layouts(deps.table_view))
+        layout = deps.session.state.ui.layout
+        store_preset_layout(deps.table_view, layout, layout.column_preset)
         deps.table_display.sync_preset()
 
     def _apply_config_reset(self) -> None:

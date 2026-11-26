@@ -2,23 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import QTableView, QWidget
 
 from src.core.smart_action import SMART_ACTION_REASONS
 from src.gui.constants import (
-    COLUMN_PRESETS,
     COMPACT_PROPERTY,
     COMPACT_VALUE_OFF,
     COMPACT_VALUE_ON,
-    PRESET_ALL,
-    PRESET_CUSTOM,
-    PRESET_DEFAULT,
-    PRESET_QUALITY,
-    PRESET_SPECS,
 )
 from src.gui.table.table_model import VideoTableModel
 
@@ -71,18 +63,18 @@ MIN_COL_WIDTHS: dict[int, int] = {
 FIXED_VALUE_COLUMNS: dict[int, tuple[str, ...]] = {
     VideoTableModel.COL_REASON: SMART_ACTION_REASONS,
 }
-# 의사결정 열(이름, 권장 처리, 판정 구간, 예상 절약)을 앞에 두고 기술 사양은 뒤에 배치
+# 판정(권장 처리, 품질값, 판정 사유, 화질 등급) -> 효과(절약, 용량, 길이, 시간) -> 상태 -> 사양 순서
 DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_NAME,
     VideoTableModel.COL_ACTION,
     VideoTableModel.COL_QUALITY_VALUE,
+    VideoTableModel.COL_REASON,
     VideoTableModel.COL_ZONE,
     VideoTableModel.COL_SAVED_SIZE,
-    VideoTableModel.COL_SAVED_PER_MIN,
     VideoTableModel.COL_SIZE,
     VideoTableModel.COL_DURATION,
     VideoTableModel.COL_EST_ENCODE_TIME,
-    VideoTableModel.COL_REASON,
+    VideoTableModel.COL_SAVED_PER_MIN,
     VideoTableModel.COL_ENCODE_STATE,
     VideoTableModel.COL_OUTPUT_RES,
     VideoTableModel.COL_ACTIVE_FRAME,
@@ -116,64 +108,6 @@ DEFAULT_HIDDEN_COLS: frozenset[int] = frozenset(
         VideoTableModel.COL_FFMPEG_ARGS,
     }
 )
-# - 프리셋마다 보이는 열을 나열하고, 나머지는 숨김으로 계산해 열 추가 때 누락을 막음
-_PRESET_VISIBLE_COLS: dict[str, frozenset[int]] = {
-    PRESET_QUALITY: frozenset(
-        {
-            VideoTableModel.COL_NAME,
-            VideoTableModel.COL_ACTION,
-            VideoTableModel.COL_ZONE,
-            VideoTableModel.COL_OUTPUT_RES,
-            VideoTableModel.COL_ACTIVE_FRAME,
-            VideoTableModel.COL_DOWNSCALE_CANDIDATE,
-            VideoTableModel.COL_QUALITY_METRIC,
-            VideoTableModel.COL_WIDTH,
-            VideoTableModel.COL_HEIGHT,
-            VideoTableModel.COL_SAVED_SIZE,
-            VideoTableModel.COL_ENCODE_STATE,
-        }
-    ),
-    PRESET_SPECS: frozenset(
-        {
-            VideoTableModel.COL_NAME,
-            VideoTableModel.COL_CODEC,
-            VideoTableModel.COL_WIDTH,
-            VideoTableModel.COL_HEIGHT,
-            VideoTableModel.COL_FPS,
-            VideoTableModel.COL_DURATION,
-            VideoTableModel.COL_BITRATE,
-            VideoTableModel.COL_OPT_BITRATE,
-            VideoTableModel.COL_OUT_BITRATE,
-            VideoTableModel.COL_RATIO,
-            VideoTableModel.COL_TARGET_RATIO,
-            VideoTableModel.COL_KEYFRAME,
-            VideoTableModel.COL_ROTATE,
-            VideoTableModel.COL_SIZE,
-            VideoTableModel.COL_AFTER_SIZE,
-        }
-    ),
-}
-
-
-def hidden_columns_for_preset(preset_key: str) -> frozenset[int]:
-    """프리셋 키에 해당하는 숨김 열 집합, 알 수 없는 키는 기본 프리셋으로 처리"""
-    if preset_key == PRESET_ALL:
-        return frozenset()
-    if preset_key == PRESET_DEFAULT:
-        return DEFAULT_HIDDEN_COLS
-    visible = _PRESET_VISIBLE_COLS.get(preset_key)
-    if visible is None:
-        return DEFAULT_HIDDEN_COLS
-    return ALL_COLUMNS - visible
-
-
-def detect_column_preset(hidden_cols: Iterable[int]) -> str:
-    """숨김 열 집합이 프리셋과 정확히 같으면 그 키, 다르면 사용자 지정 키"""
-    hidden = frozenset(hidden_cols)
-    for preset_key in COLUMN_PRESETS:
-        if hidden_columns_for_preset(preset_key) == hidden:
-            return preset_key
-    return PRESET_CUSTOM
 
 
 HEADER_TEXT_H_MARGIN_PX: int = 20

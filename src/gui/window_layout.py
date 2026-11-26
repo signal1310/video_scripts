@@ -29,13 +29,14 @@ from PyQt6.QtWidgets import (
 from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import UiLayoutState, UiState
 from src.core.workspace_paths import parse_root_dirs
-from src.gui.constants import APP_WINDOW_TITLE
+from src.gui.constants import APP_WINDOW_TITLE, COLUMN_PRESETS, PRESET_DEFAULT
 from src.gui.crash_notice_bar import attach_pending_crash_notice
 from src.gui.diagnostics_qt import current_runtime, open_crash_report_folder
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.table.column_history import (
     COLUMN_FIT_HISTORY_LABEL,
     COLUMN_PRESET_HISTORY_LABEL,
+    COLUMN_PRESET_RESET_HISTORY_LABEL,
     COLUMN_RESET_HISTORY_LABEL,
     COLUMN_VISIBILITY_HISTORY_LABEL,
     ColumnHistoryRecorder,
@@ -46,12 +47,15 @@ from src.gui.table.column_layout_state import (
     decode_column_layouts,
     encode_column_layouts,
 )
+from src.gui.table.column_presets import (
+    apply_preset_default,
+    is_preset_default_layout,
+    load_preset_layout,
+    store_preset_layout,
+)
 from src.gui.table.column_sizing import (
-    COLUMN_PRESETS,
     apply_compact_mode,
     auto_fit_visible_columns,
-    detect_column_preset,
-    hidden_columns_for_preset,
 )
 from src.gui.table.table_grouping import RowGroupingCoordinator, attach_row_grouping
 from src.gui.table.table_viewport_restore import attach_viewport_restore
@@ -311,7 +315,10 @@ def restore_window_ui_state(
     layout: UiLayoutState,
     table_view: VideoTableView,
 ) -> None:
-    """저장된 창 지오메트리(Base64), 열 상태(JSON), 상단 영역 접힘 상태, 표 시작 위치와 가로 스크롤, 포커스 행을 복원하고 형식이 맞지 않으면 기본값 적용"""
+    """저장된 창 지오메트리(Base64), 열 상태(JSON), 상단 영역 접힘 상태, 표 시작 위치와 가로 스크롤, 포커스 행을 복원하고 형식이 맞지 않으면 기본값 적용
+
+    - 활성 프리셋에 저장한 사용자 배치가 없으면 이전 형식의 열 상태를 그 프리셋 배치로 승계
+    """
     top_area = window.findChild(CollapsibleTopArea)
     if top_area is not None:
         top_area.set_collapsed(layout.top_area_collapsed)
@@ -321,13 +328,18 @@ def restore_window_ui_state(
             window.restoreGeometry(geom)
     table_view.request_top_restore(layout.table_top_filename, layout.table_top_row)
     # - 열 상태 복원이 열 폭을 바꾸므로 가로 스크롤과 포커스 복원은 그 뒤에 연결
-    if layout.table_header_state:
-        layouts = decode_column_layouts(layout.table_header_state)
-        if layouts is not None:
-            apply_column_layouts(table_view, layouts, reset_sort=False)
-        else:
-            table_view.reset_columns()
+    saved = layout.column_preset_layouts.get(layout.column_preset) or layout.table_header_state
+    layouts = decode_column_layouts(saved) if saved else None
+    if layouts is None:
+        table_view.reset_columns()
+        apply_preset_default(table_view, layout.column_preset)
+    else:
+        apply_column_layouts(table_view, layouts, reset_sort=False)
+        if not layout.column_preset_layouts:
+            # - 이전 형식의 열 상태를 활성 프리셋 사용자 배치로 옮겨 저장 배치를 잃지 않게 함
+            layout.column_preset_layouts[layout.column_preset] = saved
     attach_viewport_restore(table_view, layout)
+
 
 
 def export_window_ui_state(
@@ -464,6 +476,7 @@ class TableDisplayCoordinator:
     """열 프리셋, 모든 열 크기 맞춤, 좁게 보기를 표와 필터 바, 보기 메뉴, 저장 상태에 함께 반영
 
     - 표 위젯은 열 폭과 숨김만 담당하고, 되돌리기 기록과 저장은 이 조율자가 맡음
+    - 프리셋은 표시 열과 순서를 함께 정하며, 사용자가 바꾼 배치는 활성 프리셋 키 아래에 보관
     """
 
     def __init__(
@@ -490,28 +503,42 @@ class TableDisplayCoordinator:
         self.sync_preset()
 
     def sync_preset(self) -> None:
-        """현재 숨김 열에서 프리셋을 다시 감지해 필터 바 라벨과 보기 메뉴 체크를 맞춤
+        """활성 프리셋 키를 필터 바 라벨과 보기 메뉴 체크에 맞춤
 
-        - 되돌리기, 헤더 우클릭 열 표시 변경, 화질 분석 자동 표시처럼 표 밖에서 숨김이 바뀐 경우 호출
+        - 사용자가 열 표시나 순서를 바꿔도 프리셋 이름은 그대로 두고 배치만 그 프리셋 아래에 저장
         - 숨김이 바뀌면 행 묶기 기준 열도 다시 확인해 숨겨진 열의 묶기를 해제하고 버튼을 맞춤
         """
-        hidden = self._hidden_columns()
-        preset = detect_column_preset(hidden)
+        preset = self._ui.layout.column_preset
         self._filter_bar.set_column_preset(preset)
         self._sync_menu(preset)
         if self.row_grouping is not None:
             self.row_grouping.sync_options()
 
     def apply_preset(self, preset_key: str) -> None:
-        """열 프리셋의 숨김 열 집합을 표에 적용하고 라벨, 메뉴, 저장 상태를 갱신"""
-        hidden = hidden_columns_for_preset(preset_key)
+        """프리셋의 표시 열과 순서를 표에 적용하고 라벨, 메뉴, 저장 상태를 갱신
+
+        - 그 프리셋에 저장된 사용자 배치가 있으면 그것을, 없으면 프리셋 기본 배치를 씀
+        """
 
         def _apply() -> None:
-            for col in range(self._table_view.table_model.columnCount()):
-                self._table_view.setColumnHidden(col, col in hidden)
+            self._ui.layout.column_preset = preset_key
+            load_preset_layout(self._table_view, self._ui.layout, preset_key)
 
         self._run_column_command(COLUMN_PRESET_HISTORY_LABEL, _apply)
         self.sync_preset()
+        self._persist_display_state()
+
+    def reset_preset_layout(self) -> None:
+        """활성 프리셋의 저장된 사용자 배치를 지우고 프리셋 기본 배치로 되돌림"""
+        preset_key = self._ui.layout.column_preset
+
+        def _apply() -> None:
+            self._ui.layout.column_preset_layouts.pop(preset_key, None)
+            load_preset_layout(self._table_view, self._ui.layout, preset_key)
+
+        self._run_column_command(COLUMN_PRESET_RESET_HISTORY_LABEL, _apply)
+        self.sync_preset()
+        # - 기본 배치가 된 상태는 저장 키를 만들지 않으므로 초기화 결과가 종료 저장에서도 유지됨
         self._persist_display_state()
 
     def fit_all(self) -> None:
@@ -535,7 +562,7 @@ class TableDisplayCoordinator:
         self._persist_display_state()
 
     def set_column_visible(self, col: int, visible: bool) -> None:
-        """보기 메뉴에서 바꾼 열 표시를 되돌리기 기록과 함께 적용하고 프리셋 라벨을 다시 계산"""
+        """보기 메뉴에서 바꾼 열 표시를 되돌리기 기록과 함께 적용하고 활성 프리셋 배치에 저장"""
         self._run_column_command(
             COLUMN_VISIBILITY_HISTORY_LABEL,
             lambda: self._table_view.setColumnHidden(col, not visible),
@@ -544,8 +571,16 @@ class TableDisplayCoordinator:
         self._persist_display_state()
 
     def reset_columns(self) -> None:
-        """열 순서, 표시, 폭을 기본값으로 되돌리고 프리셋 라벨을 갱신"""
-        self._run_column_command(COLUMN_RESET_HISTORY_LABEL, self._table_view.reset_columns)
+        """기본 프리셋의 저장된 배치를 지우고 그 프리셋의 기본 배치와 기본 열 폭으로 되돌림"""
+        preset_key = PRESET_DEFAULT
+
+        def _apply() -> None:
+            self._ui.layout.column_preset = preset_key
+            self._ui.layout.column_preset_layouts.pop(preset_key, None)
+            self._table_view.reset_columns()
+            apply_preset_default(self._table_view, preset_key)
+
+        self._run_column_command(COLUMN_RESET_HISTORY_LABEL, _apply)
         self.sync_preset()
         self._persist_display_state()
 
@@ -557,24 +592,26 @@ class TableDisplayCoordinator:
         action()
 
     def _persist_display_state(self) -> None:
-        """열 배치를 저장 상태에 먼저 반영한 뒤 설정을 저장해 이전 배치가 남지 않게 함"""
-        self._ui.layout.table_header_state = encode_column_layouts(
-            capture_column_layouts(self._table_view)
+        """열 배치를 활성 프리셋 키 아래와 저장 상태에 먼저 반영한 뒤 설정을 저장해 이전 배치가 남지 않게 함"""
+        store_preset_layout(
+            self._table_view, self._ui.layout, self._ui.layout.column_preset
         )
         self._persist()
+
+    def on_layout_edited(self) -> None:
+        """헤더에서 사용자가 열 순서나 표시를 바꾼 뒤 활성 프리셋 배치로 저장하고 라벨을 맞춤"""
+        self.sync_preset()
+        self._persist_display_state()
 
     def _sync_menu(self, preset: str) -> None:
         menu = getattr(self._window, "menu", None)
         sync = getattr(menu, "sync_table_display", None)
         if callable(sync):
-            sync(preset, self._filter_bar.is_compact())
-
-    def _hidden_columns(self) -> set[int]:
-        return {
-            col
-            for col in range(self._table_view.table_model.columnCount())
-            if self._table_view.isColumnHidden(col)
-        }
+            sync(
+                preset,
+                self._filter_bar.is_compact(),
+                can_reset=not is_preset_default_layout(self._table_view, preset),
+            )
 
 
 def attach_table_display(
@@ -589,8 +626,8 @@ def attach_table_display(
     filter_bar.column_preset_selected.connect(coordinator.apply_preset)
     filter_bar.auto_fit_requested.connect(coordinator.fit_all)
     filter_bar.compact_toggled.connect(coordinator.set_compact)
-    # - 헤더 우클릭 메뉴의 열 표시 변경은 표에서 직접 일어나므로 편집 종료 신호로 프리셋 라벨을 다시 맞춤
-    table_view.filter_header.layout_edit_finished.connect(coordinator.sync_preset)
+    # - 헤더 우클릭 메뉴의 열 표시 변경은 표에서 직접 일어나므로 편집 종료 신호로 활성 프리셋 배치에 저장
+    table_view.filter_header.layout_edit_finished.connect(coordinator.on_layout_edited)
     coordinator.row_grouping = attach_row_grouping(table_view, filter_bar, ui_state, persist)
     menu = getattr(window, "menu", None)
     preset_menu = getattr(menu, "preset_menu", None)
@@ -630,6 +667,7 @@ def build_menu_callbacks(
     on_select_column_preset: Callable[[str], None] | None = None,
     on_fit_all_columns: Callable[[], None] | None = None,
     on_set_compact_table: Callable[[bool], None] | None = None,
+    on_reset_column_preset: Callable[[], None] | None = None,
 ) -> MenuBarCallbacks:
     """공유 MainWindowCallbacks를 재사용해 MenuBarCallbacks 조립"""
     return MenuBarCallbacks(
@@ -674,5 +712,6 @@ def build_menu_callbacks(
         on_select_column_preset=on_select_column_preset,
         on_fit_all_columns=on_fit_all_columns,
         on_set_compact_table=on_set_compact_table,
+        on_reset_column_preset=on_reset_column_preset,
         column_presets=dict(COLUMN_PRESETS),
     )

@@ -18,7 +18,7 @@ from src.core.settings.state_codec import (
     render_state_jsonc,
     strip_jsonc_comments,
 )
-from src.core.settings.ui_state import UiLayoutState, UiState
+from src.core.settings.ui_state import DEFAULT_COLUMN_PRESET, UiLayoutState, UiState
 from src.core.workspace_paths import parse_root_dirs
 
 CONFIG_FILENAME = "config.json"
@@ -264,6 +264,14 @@ def reset_app_state(
                 ),
                 table_current_filename=(
                     current.ui.layout.table_current_filename if preserve_layout else ""
+                ),
+                column_preset=(
+                    current.ui.layout.column_preset
+                    if preserve_layout
+                    else DEFAULT_COLUMN_PRESET
+                ),
+                column_preset_layouts=(
+                    dict(current.ui.layout.column_preset_layouts) if preserve_layout else {}
                 ),
             ),
         ),

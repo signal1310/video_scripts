@@ -35,6 +35,7 @@ from src.core.workspace_paths import (
     normalize_root_spec,
     parse_root_dirs,
 )
+from src.gui.table.column_presets import store_preset_layout
 from src.gui.table.table_state_sync import (
     apply_saved_filters,
     apply_saved_sort,
@@ -796,9 +797,11 @@ class SessionCoordinator:
         if filter_bar is not None:
             # - 입력을 마치지 않고 창을 닫아도 방금 친 검색어가 저장값에 반영되게 함
             filter_bar.flush_pending()
-        geom_b64, hdr_b64 = export_window_ui_state(window, table_view)
+        geom_b64, _ = export_window_ui_state(window, table_view)
         self.state.ui.layout.window_geometry = geom_b64
-        self.state.ui.layout.table_header_state = hdr_b64
+        # - 활성 프리셋 배치에도 현재 배치를 남겨 다음 실행에서 그 프리셋을 고르면 같은 배치가 나오게 함
+        #   프리셋 기본 배치 그대로면 저장 키를 두지 않아 초기화한 상태가 종료 때 되살아나지 않음
+        store_preset_layout(table_view, self.state.ui.layout, self.state.ui.layout.column_preset)
         self.state.ui.layout.top_area_collapsed = export_top_area_collapsed(window)
         # - 빈 표에서는 맨 위 행이 없으므로 이전에 저장한 위치를 유지
         if (top := table_view.top_visible_row_key()) is not None:

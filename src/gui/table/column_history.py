@@ -14,6 +14,7 @@ COLUMN_ORDER_HISTORY_LABEL: str = "열 순서 변경"
 COLUMN_VISIBILITY_HISTORY_LABEL: str = "열 표시 변경"
 COLUMN_RESET_HISTORY_LABEL: str = "기본 열 너비, 표시 복원"
 COLUMN_PRESET_HISTORY_LABEL: str = "열 프리셋 변경"
+COLUMN_PRESET_RESET_HISTORY_LABEL: str = "프리셋 기본 배치로 되돌리기"
 COLUMN_FIT_HISTORY_LABEL: str = "모든 열 크기 맞춤"
 _COLUMN_FALLBACK_HISTORY_LABEL: str = "열 너비, 표시, 순서 변경"
 

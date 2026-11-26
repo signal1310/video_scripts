@@ -16,14 +16,13 @@ from src.core.messages import (
 from src.core.smart_action import SmartAction
 from src.gui.table.column_filters import ColumnDataType
 from src.gui.table.column_layout_state import COL_INDEX_TO_ID
-from src.gui.table.column_sizing import (
-    DEFAULT_COL_ORDER,
-    DEFAULT_HIDDEN_COLS,
+from src.gui.table.column_presets import (
     PRESET_DEFAULT,
     PRESET_QUALITY,
     PRESET_SPECS,
     hidden_columns_for_preset,
 )
+from src.gui.table.column_sizing import DEFAULT_COL_ORDER, DEFAULT_HIDDEN_COLS
 from src.gui.table.numeric_buckets import NumericBucketKind
 from src.gui.table.table_cell_tooltips import quality_value_cell_tip
 from src.gui.table.table_column_formats import (

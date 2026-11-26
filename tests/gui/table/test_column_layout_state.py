@@ -15,6 +15,7 @@ from src.gui.table.column_layout_state import (
     decode_column_layouts,
     encode_column_layouts,
 )
+from src.gui.table.column_sizing import DEFAULT_COL_ORDER
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.video_table_view import VideoTableView
 from tests._gui_helpers import GuiTestCase
@@ -149,9 +150,10 @@ class ColumnLayoutApplyTests(GuiTestCase):
         self.assertGreater(view.columnWidth(VideoTableModel.COL_QUALITY_VALUE), 0)
         # - 저장되지 않은 열은 기본 순서대로 뒤에 붙으므로 품질값이 누락 열의 첫 자리를 차지함
         self.assertEqual(header.visualIndex(VideoTableModel.COL_QUALITY_VALUE), 3)
+        # - 화질 등급도 저장되지 않은 열이라 품질값 다음 기본 순서 자리에 놓임
         self.assertEqual(
             header.visualIndex(VideoTableModel.COL_ZONE),
-            VideoTableView.DEFAULT_COL_ORDER.index(VideoTableModel.COL_ZONE) + 1,
+            DEFAULT_COL_ORDER.index(VideoTableModel.COL_ZONE),
         )
 
 

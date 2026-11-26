@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 
 from src.core.config import ClassifierConfig
 from src.core.resolution_tiers import copy_manual_targets
-from src.core.settings.ui_state import DEFAULT_ANALYZE_MODE, DEFAULT_FILTER_SEARCH, DEFAULT_THEME_MODE
+from src.core.settings.ui_state import (
+    DEFAULT_ANALYZE_MODE,
+    DEFAULT_COLUMN_PRESET,
+    DEFAULT_FILTER_SEARCH,
+    DEFAULT_THEME_MODE,
+)
 
 MAX_UNDO_STEPS: int = 50
 UNDO_COALESCE_WINDOW_MS: int = 800
@@ -32,6 +37,9 @@ class UndoableSnapshot:
     show_setting_hints: bool = True
     search: str = DEFAULT_FILTER_SEARCH
     column_layout: str = ""
+    column_preset: str = DEFAULT_COLUMN_PRESET
+    # - 프리셋별 사용자 배치를 불변 튜플로 담아 상태 비교와 복원을 함께 처리
+    preset_layouts: tuple[tuple[str, str], ...] = ()
 
     def same_data(self, other: UndoableSnapshot) -> bool:
         """분류 결과에 영향을 주는 설정, 예외 규칙, 직접 지정 상태가 같은지 비교"""
@@ -53,6 +61,8 @@ class UndoableSnapshot:
             and self.show_setting_hints == other.show_setting_hints
             and self.search == other.search
             and self.column_layout == other.column_layout
+            and self.column_preset == other.column_preset
+            and self.preset_layouts == other.preset_layouts
         )
 
     def clone(self) -> UndoableSnapshot:
@@ -70,6 +80,8 @@ class UndoableSnapshot:
             show_setting_hints=self.show_setting_hints,
             search=self.search,
             column_layout=self.column_layout,
+            column_preset=self.column_preset,
+            preset_layouts=self.preset_layouts,
         )
 
 

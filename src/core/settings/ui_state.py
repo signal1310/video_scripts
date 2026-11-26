@@ -33,6 +33,19 @@ DEFAULT_GROUP_BY: str = GROUP_BY_NONE
 # - 접힌 그룹 이름 저장 상한. 그룹 수가 많은 폴더에서 상태 파일이 비대해지지 않게 함
 MAX_COLLAPSED_GROUP_LABELS: int = 500
 
+# - 열 프리셋 키: 기본, 화질/해상도, 기술 사양, 전체. GUI 상수와 저장 검증이 같은 값을 씀
+COLUMN_PRESET_DEFAULT: str = "default"
+COLUMN_PRESET_QUALITY: str = "quality"
+COLUMN_PRESET_SPECS: str = "specs"
+COLUMN_PRESET_ALL: str = "all"
+DEFAULT_COLUMN_PRESET: str = COLUMN_PRESET_DEFAULT
+VALID_COLUMN_PRESETS: tuple[str, ...] = (
+    COLUMN_PRESET_DEFAULT,
+    COLUMN_PRESET_QUALITY,
+    COLUMN_PRESET_SPECS,
+    COLUMN_PRESET_ALL,
+)
+
 DEFAULT_THEME_MODE: str = "system"
 VALID_THEME_MODES: tuple[str, ...] = ("system", "dark", "light")
 
@@ -170,6 +183,16 @@ class UiLayoutState:
     table_current_filename: str = field(
         default="",
         metadata=setting_meta("종료 시 포커스가 있던 영상 파일명, 시작 시 같은 영상으로 포커스 복원"),
+    )
+    column_preset: str = field(
+        default=DEFAULT_COLUMN_PRESET,
+        metadata=setting_meta(
+            '마지막으로 적용한 열 프리셋: "default" | "quality" | "specs" | "all"'
+        ),
+    )
+    column_preset_layouts: dict[str, str] = field(
+        default_factory=dict,
+        metadata=setting_meta("프리셋별 사용자 열 배치 (프리셋 키 -> 열 상태 JSON)"),
     )
 
 
@@ -322,6 +345,9 @@ class UiState:
                     key: list(labels) for key, labels in self.filters.collapsed_groups.items()
                 },
             ),
-            layout=replace(self.layout),
+            layout=replace(
+                self.layout,
+                column_preset_layouts=dict(self.layout.column_preset_layouts),
+            ),
         )
 

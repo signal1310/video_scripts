@@ -38,6 +38,7 @@ from src.core.settings.preview_info import (
 from src.core.settings.shortcuts import sanitize_shortcut_overrides
 from src.core.settings.ui_state import (
     DEFAULT_ANALYZE_MODE,
+    DEFAULT_COLUMN_PRESET,
     DEFAULT_COMPARE_TOP_BAR_COLLAPSED,
     DEFAULT_FILTER_SEARCH,
     DEFAULT_GROUP_BY,
@@ -53,6 +54,7 @@ from src.core.settings.ui_state import (
     PREVIEW_VOLUME_MAX,
     TEXT_MODE_CONTAINS,
     VALID_ANALYZE_MODES,
+    VALID_COLUMN_PRESETS,
     VALID_PREVIEW_PLAYBACK_RATES,
     VALID_PREVIEW_SEEK_SECONDS,
     VALID_TEXT_MODES,
@@ -196,6 +198,8 @@ class AppState:
                     "table_top_row": lay.table_top_row,
                     "table_left_scroll": lay.table_left_scroll,
                     "table_current_filename": lay.table_current_filename,
+                    "column_preset": lay.column_preset,
+                    "column_preset_layouts": dict(lay.column_preset_layouts),
                 },
             },
         }
@@ -472,6 +476,23 @@ def _sanitize_manual_target_tiers(raw: Any) -> dict[str, dict[str, str]]:
     return store
 
 
+def _sanitize_preset_layouts(raw: Any) -> dict[str, str]:
+    """프리셋 키와 열 상태 JSON 문자열 쌍만 남기고 알 수 없는 키는 버림"""
+    if not isinstance(raw, dict):
+        return {}
+    raw_map: dict[Any, Any] = raw
+    return {
+        key: text
+        for key, text in raw_map.items()
+        if isinstance(key, str) and key in VALID_COLUMN_PRESETS and isinstance(text, str) and text
+    }
+
+
+def _sanitize_column_preset(raw: Any) -> str:
+    """저장된 열 프리셋 키가 목록에 있을 때만 사용하고 나머지는 기본 프리셋으로 되돌림"""
+    return _sanitize_choice(raw, VALID_COLUMN_PRESETS, DEFAULT_COLUMN_PRESET)
+
+
 def parse_state_mapping(raw: dict[str, Any]) -> AppState:
     """계층화된 통합 설정 사전을 AppState 객체로 복원"""
     cfg = ClassifierConfig.from_dict(raw)
@@ -557,6 +578,10 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
                 ),
                 table_current_filename=_sanitize_str_field(
                     layout_raw.get("table_current_filename")
+                ),
+                column_preset=_sanitize_column_preset(layout_raw.get("column_preset")),
+                column_preset_layouts=_sanitize_preset_layouts(
+                    layout_raw.get("column_preset_layouts")
                 ),
             ),
         ),

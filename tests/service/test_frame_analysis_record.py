@@ -79,6 +79,32 @@ class RecordConversionTests(unittest.TestCase):
         self.assertTrue(result_from_record(record).active_region.margins_vary)
         self.assertTrue(row_to_record(record_to_row(record)).margins_vary)
 
+    def test_dark_outliers_ignored_survives_the_roundtrip(self) -> None:
+        """어두운 근거 무시 플래그가 결과, 캐시 행, 행 값 왕복에서 유지됨"""
+        result = FrameAnalysisResult(
+            active_region=ActiveRegion(
+                width=1920,
+                height=1080,
+                x=120,
+                y=0,
+                has_black_bars=True,
+                dark_outliers_ignored=True,
+            ),
+            metric_used="VMAF",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=3,
+            total_segment_count=3,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        record = record_from_result(_request(), result, measured_at="2026-11-23T00:00:00Z")
+        self.assertTrue(record.dark_outliers_ignored)
+        self.assertTrue(record.active_region.dark_outliers_ignored)
+        self.assertTrue(result_from_record(record).active_region.dark_outliers_ignored)
+        self.assertTrue(row_to_record(record_to_row(record)).dark_outliers_ignored)
+
     def test_row_roundtrip_follows_the_record_columns(self) -> None:
         record = record_from_result(_request(), _result(), measured_at="2026-11-23T00:00:00Z")
         row = record_to_row(record)

@@ -65,7 +65,7 @@ from src.service.encode.encode_resume import (
     find_unrecorded_parts,
     prepare_resume,
 )
-from src.service.frame_analysis_service import FrameAnalysisStore
+from src.service.frame_analysis_store import FrameAnalysisStore
 
 logger = logging.getLogger(__name__)
 

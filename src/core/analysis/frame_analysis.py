@@ -96,27 +96,28 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
         mode=FRAME_ANALYSIS_MODE_FAST,
         segment_duration_sec=0.5,
         fast_keyframe_seek=True,
-        analysis_version=229,
+        analysis_version=232,
     ),
     FRAME_ANALYSIS_MODE_BALANCED: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_BALANCED,
         segment_duration_sec=1.0,
         fast_keyframe_seek=True,
-        analysis_version=230,
+        analysis_version=233,
     ),
     FRAME_ANALYSIS_MODE_PRECISE: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_PRECISE,
         segment_duration_sec=2.0,
         fast_keyframe_seek=False,
-        analysis_version=231,
+        analysis_version=234,
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
 # - 보간 방식별 캐시 버전 간격. 방식 이름 순서로 10씩 떨어뜨려 방식, 화질 분석 방식 조합마다 다른 버전을 씀
 SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
-# - 화질 분석 방식 버전(229-231)과 번호가 겹치면 전용 행이 그 방식의 결과로 오인되므로 그 뒤 번호를 씀
-CROP_SCAN_VERSION: int = 228
+# - 화질 분석 방식 버전 값(232-234, 보간 방식 오프셋 포함)과 겹치는 번호를 쓰면 전용 행이 그 방식의 결과로 오인되므로,
+#   방식 버전 값을 피해 고르고 방식을 올릴 때도 겹치지 않는지 확인함
+CROP_SCAN_VERSION: int = 235
 METRIC_CROP_ONLY: str = ""
 
 
@@ -200,7 +201,7 @@ class ActiveRegion:
     has_black_bars: bool
     # - 구간마다 여백이 달라 합집합으로만 잡을 수 있었는지. 잘라내기 판정에는 쓰지 않고 안내에만 씀
     margins_vary: bool = False
-    # - 어두운 근거로 지점을 무시해 안쪽 경계를 채택했는지. 전체 프레임이면 참이 될 수 없고, 잘라내기 판정에는 쓰지 않고 안내에만 씀
+    # - 어두운 근거로 지점을 무시해 안쪽 경계를 채택했는지. 전체 프레임이면 참이 될 수 없음
     dark_outliers_ignored: bool = False
 
     def to_active_frame(self) -> ActiveFrame:
@@ -267,6 +268,35 @@ def resolve_crop_frame(
     if excluded or not region.has_black_bars:
         return None
     return region.to_active_frame()
+
+
+def needs_crop_review(region: ActiveRegion) -> bool:
+    """어두운 근거로 지점을 무시해 안쪽 경계를 채택한 영상인지(사람 확인 필요)
+
+    - 전체 프레임이면 안쪽 경계를 채택하지 않았으므로 대상이 아님
+    """
+    return region.has_black_bars and region.dark_outliers_ignored
+
+
+def review_holds_automatic_crop(
+    region: ActiveRegion,
+    *,
+    replace_original: bool,
+    crop_enabled: bool = True,
+    is_vr_protected: bool = False,
+    manual_frame: ActiveFrame | None = None,
+) -> bool:
+    """어두운 근거로 지점을 무시한 자동 크롭을 원본 교체 인코딩에서 보류할지
+
+    - 어두운 근거로 안쪽 경계를 채택한 영상은 사람이 확인해야 하므로 원본을 대체하는 인코딩에는 자동 크롭을 쓰지 않음
+    - 별도 출력은 원본을 남기므로 자동 크롭을 그대로 씀
+    - 사용자 지정 활성 화면, 잘라내기 설정 끔, VR 보호는 기존 확정 규칙대로 보류 대상이 아님
+    """
+    if not replace_original or manual_frame is not None:
+        return False
+    if not crop_enabled or is_vr_protected:
+        return False
+    return needs_crop_review(region)
 
 
 @dataclass(frozen=True, slots=True)

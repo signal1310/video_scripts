@@ -1,6 +1,6 @@
 """화질 분석 캐시 행과 분석 요청 표현, 행/결과 변환
 
-- 저장소와 실행 서비스는 이 표현을 그대로 쓰고, SQLite 입출력만 `frame_analysis_service.py`가 맡음
+- 저장소와 실행 서비스는 이 표현을 그대로 쓰고, SQLite 입출력만 `frame_analysis_store.py`가 맡음
 - 열 순서(`RECORD_COLUMNS`)를 한 곳에 두어 스키마와 행 변환이 어긋나지 않게 함
 """
 
@@ -39,6 +39,7 @@ RECORD_COLUMNS: tuple[str, ...] = (
     "measured_at",
     "analysis_version",
     "margins_vary",
+    "dark_outliers_ignored",
 )
 
 
@@ -66,6 +67,8 @@ class FrameAnalysisRecord:
     analysis_version: int
     # - 구간별 여백 차이 여부. 기존 저장 값과 이전 DB에는 없는 정보라 기본값을 둠
     margins_vary: bool = False
+    # - 어두운 근거로 지점을 무시해 안쪽 경계를 채택했는지. 기존 저장 값과 이전 DB에는 없는 정보라 기본값을 둠
+    dark_outliers_ignored: bool = False
 
     @property
     def key(self) -> FileKey:
@@ -82,6 +85,7 @@ class FrameAnalysisRecord:
             y=self.active_y,
             has_black_bars=self.has_black_bars,
             margins_vary=self.margins_vary,
+            dark_outliers_ignored=self.dark_outliers_ignored,
         )
 
 
@@ -129,6 +133,7 @@ def row_to_record(row: sqlite3.Row | tuple[object, ...]) -> FrameAnalysisRecord:
         measured_at=str(values["measured_at"]),
         analysis_version=int(values["analysis_version"]),
         margins_vary=bool(values["margins_vary"]),
+        dark_outliers_ignored=bool(values["dark_outliers_ignored"]),
     )
 
 
@@ -154,6 +159,7 @@ def record_to_row(record: FrameAnalysisRecord) -> tuple[object, ...]:
         record.measured_at,
         record.analysis_version,
         int(record.margins_vary),
+        int(record.dark_outliers_ignored),
     )
 
 
@@ -185,6 +191,7 @@ def record_from_result(
         measured_at=measured_at,
         analysis_version=result.analysis_version,
         margins_vary=region.margins_vary,
+        dark_outliers_ignored=region.dark_outliers_ignored,
     )
 
 

@@ -40,7 +40,8 @@ from src.service.encode.encode_history import EncodeHistory, NewItem
 from src.service.encode.encode_leftovers import TrashFn
 from src.service.encode.encode_output_history import EncodeOutputHistory
 from src.service.encode.encode_reasons import REPLACE_FORFEITED
-from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
+from src.service.frame_analysis_record import FrameAnalysisRecord
+from src.service.frame_analysis_store import FrameAnalysisStore
 from src.service.session import normalize_root_key
 
 _CATEGORY_SIZES: dict[str, int] = {"encode": 3, "analysis": 6, "layout": 6, "settings": 5}

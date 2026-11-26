@@ -71,11 +71,11 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(EDGE_SNAP_RATIO, 0.02)
         self.assertEqual(EDGE_SNAP_MIN_PX, 8)
         self.assertEqual(MANUAL_FRAME_MIN_SIZE_PX, 32)
-        self.assertEqual(FRAME_ANALYSIS_VERSION, 230)
-        self.assertEqual(analysis_version_for_mode("fast"), 229)
-        self.assertEqual(analysis_version_for_mode("balanced"), 230)
-        self.assertEqual(analysis_version_for_mode("precise"), 231)
-        self.assertEqual(analysis_version_for_mode("unknown"), 230)
+        self.assertEqual(FRAME_ANALYSIS_VERSION, 233)
+        self.assertEqual(analysis_version_for_mode("fast"), 232)
+        self.assertEqual(analysis_version_for_mode("balanced"), 233)
+        self.assertEqual(analysis_version_for_mode("precise"), 234)
+        self.assertEqual(analysis_version_for_mode("unknown"), 233)
         self.assertEqual(SSIM_CONFIRMED_PASS_SCORE, 0.998)
         self.assertEqual(SSIM_CONFIRMED_FAIL_SCORE, 0.995)
         self.assertEqual(VMAF_CONFIRMED_PASS_SCORE, 99.5)
@@ -541,16 +541,16 @@ class CropScanVersionTests(unittest.TestCase):
     """검은 여백 감지 전용 버전과 캐시 유효성 기준 검증"""
 
     def test_crop_only_result_is_recognized_by_its_version(self) -> None:
-        self.assertEqual(CROP_SCAN_VERSION, 228)
+        self.assertEqual(CROP_SCAN_VERSION, 235)
         self.assertEqual(METRIC_CROP_ONLY, "")
         self.assertTrue(is_crop_only_result(_Versioned(CROP_SCAN_VERSION)))
         self.assertFalse(is_crop_only_result(_Versioned(FRAME_ANALYSIS_VERSION)))
 
     def test_crop_version_stays_usable_across_quality_modes(self) -> None:
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 229))
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 231))
-        self.assertTrue(is_usable_analysis_version(230, 230))
-        self.assertFalse(is_usable_analysis_version(225, 230))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 232))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 234))
+        self.assertTrue(is_usable_analysis_version(233, 233))
+        self.assertFalse(is_usable_analysis_version(230, 233))
 
 
 class FrameAnalysisThresholdTests(unittest.TestCase):

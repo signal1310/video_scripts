@@ -23,7 +23,7 @@ from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_leftovers import TrashFn, is_protected_part
 from src.service.encode.encode_output_history import EncodeOutputHistory
 from src.service.encode.encode_resume import find_unrecorded_parts
-from src.service.frame_analysis_service import FrameAnalysisStore
+from src.service.frame_analysis_store import FrameAnalysisStore
 
 logger = logging.getLogger(__name__)
 

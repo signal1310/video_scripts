@@ -48,8 +48,8 @@ from src.service.analysis_store import open_default_store
 from src.service.frame_analysis_service import (
     FrameAnalysisRequest,
     FrameAnalysisService,
-    FrameAnalysisStore,
 )
+from src.service.frame_analysis_store import FrameAnalysisStore
 from src.service.session import ClassifierSession
 
 logger = logging.getLogger(__name__)

@@ -39,7 +39,8 @@ from src.gui.controllers.frame_compare_controller import (
 from src.gui.table.video_table_view import VideoTableView
 from src.service.encode.encode_history import EncodeHistory, NewItem
 from src.service.encode.encode_job import EncodeJob, job_to_json
-from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
+from src.service.frame_analysis_record import FrameAnalysisRecord
+from src.service.frame_analysis_store import FrameAnalysisStore
 from src.service.frame_compare_service import (
     ExtractedFrames,
     FrameCompareExecutionError,

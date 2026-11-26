@@ -29,8 +29,8 @@ from src.core.encode.ffmpeg_capability import probe_ffmpeg_capability  # noqa: E
 from src.service.frame_analysis_service import (  # noqa: E402
     FrameAnalysisRequest,
     FrameAnalysisService,
-    FrameAnalysisStore,
 )
+from src.service.frame_analysis_store import FrameAnalysisStore  # noqa: E402
 
 VIDEO_DURATION_SEC: float = 25.0
 FRAME_RATE: int = 30

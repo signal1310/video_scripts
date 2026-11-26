@@ -14,7 +14,7 @@ from src.core.analysis.frame_analysis import (
     TierScore,
 )
 from src.core.analysis.probe_version_rules import KEYFRAME_MEASURE_VERSION
-from src.core.config import ClassifierConfig
+from src.core.config import RESULT_POLICY_REPLACE, RESULT_POLICY_SEPARATE, ClassifierConfig
 from src.core.encode_fingerprint import compute_encode_fingerprint
 from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.core.models import ActiveFrame, QualityZone
@@ -32,7 +32,8 @@ from src.service.cache import CacheRegistry, TableCache
 from src.service.classifier_service import VideoClassifierService, _resolve_frame_cache_for
 from src.service.encode.encode_job import jobs_from_evaluations
 from src.service.encode.encode_output_history import EncodeOutputHistory, record_done_output
-from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
+from src.service.frame_analysis_record import FrameAnalysisRecord
+from src.service.frame_analysis_store import FrameAnalysisStore
 from tests._factories import make_video
 
 
@@ -377,6 +378,77 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         self.assertEqual(report.evaluations[0].active_frame, manual)
         jobs = jobs_from_evaluations(report.evaluations, self.root)
         self.assertEqual(jobs[0].crop_filter, "crop=1280:720:0:180")
+
+    def test_crop_review_hold_applies_only_to_original_replacement(self) -> None:
+        """어두운 근거로 지점을 무시한 자동 크롭은 원본 교체에서 보류되고 별도 출력에서는 유지되는지 검증"""
+        clip = os.path.join(self.root, "review.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="review.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1600,
+                    active_height=1000,
+                    active_x=260,
+                    active_y=40,
+                    has_black_bars=True,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                    dark_outliers_ignored=True,
+                )
+            )
+        finally:
+            frame_store.close()
+
+        vid = make_video(
+            filename="review.mp4", width=1920, height=1080, vid_kbps=10000, vid_size_MB=200.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        svc = self._service()
+
+        detected = ActiveFrame(1600, 1000, 260, 40)
+        self.config.execution.result_policy = RESULT_POLICY_REPLACE
+        replaced = svc.evaluate_all()
+        self.assertIsNone(replaced.evaluations[0].active_frame)
+        self.assertIsNone(jobs_from_evaluations(replaced.evaluations, self.root)[0].crop_filter)
+
+        self.config.execution.result_policy = RESULT_POLICY_SEPARATE
+        separated = svc.evaluate_all()
+        self.assertEqual(separated.evaluations[0].active_frame, detected)
+        self.assertEqual(
+            jobs_from_evaluations(separated.evaluations, self.root)[0].crop_filter,
+            detected.crop_filter_expr(),
+        )
+
+        # 사용자 지정 활성 화면은 원본 교체에서도 사람 확인 보류를 풂
+        manual = ActiveFrame(1280, 720, 0, 180)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.set_manual_active_frame(
+                clip, manual, frame_width=1920, frame_height=1080
+            )
+        finally:
+            frame_store.close()
+        self.config.execution.result_policy = RESULT_POLICY_REPLACE
+        lifted = svc.evaluate_all()
+        self.assertEqual(lifted.evaluations[0].active_frame, manual)
+        self.assertEqual(
+            jobs_from_evaluations(lifted.evaluations, self.root)[0].crop_filter,
+            manual.crop_filter_expr(),
+        )
 
     def test_frame_analysis_target_feeds_downscale_judgment(self) -> None:
         """화질 분석 캐시의 축소 후보가 자동 적용되어 화질 분석 축소 사유로 판정되는지 검증"""

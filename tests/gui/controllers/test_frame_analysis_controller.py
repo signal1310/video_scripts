@@ -41,8 +41,8 @@ from src.gui.widgets.footer_bar import FooterBar
 from src.service.frame_analysis_service import (
     FrameAnalysisRequest,
     FrameAnalysisService,
-    FrameAnalysisStore,
 )
+from src.service.frame_analysis_store import FrameAnalysisStore
 from tests._factories import make_eval, make_report, make_video
 
 _APP = QApplication.instance() or QApplication([])

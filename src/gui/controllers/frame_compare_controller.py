@@ -40,7 +40,8 @@ from src.gui.table.video_table_view import VideoTableView
 from src.service.analysis_store import open_default_store
 from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_job import job_from_json
-from src.service.frame_analysis_service import FrameAnalysisRecord, FrameAnalysisStore
+from src.service.frame_analysis_record import FrameAnalysisRecord
+from src.service.frame_analysis_store import FrameAnalysisStore
 from src.service.frame_compare_service import (
     WORK_DIR_NAME,
     ExtractedFrames,

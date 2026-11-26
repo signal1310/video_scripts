@@ -1,4 +1,4 @@
-"""화질 분석 실행기 대역과 명령 해석 도우미(FFmpeg 없이 측정 흐름 검증)"""
+"""화질 분석 테스트 대역: 실행기 대역, 명령 해석 도우미, 캐시 행 생성기(FFmpeg 없이 측정 흐름 검증)"""
 
 import json
 import re
@@ -6,7 +6,9 @@ import threading
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, TierScore
 from src.core.resolution_tiers import RESOLUTION_TIERS, calc_scaled_dimensions
+from src.service.frame_analysis_record import FrameAnalysisRecord
 
 _SCALE_RE: re.Pattern[str] = re.compile(r"scale=(\d+):(\d+)")
 _DISTORTED_RE: re.Pattern[str] = re.compile(
@@ -18,6 +20,37 @@ _GRAY_BAR_LUMA: int = 16
 _GRAY_PICTURE_LUMA: int = 120
 # - 대역이 회색조 프레임을 만들 때 쓰는 기본 영상 크기. 실제 크기를 아는 호출자는 `frame_size`로 바꿈
 DEFAULT_FAKE_FRAME_SIZE: tuple[int, int] = (1920, 1080)
+
+
+def make_frame_record(
+    filename: str,
+    *,
+    size: int = 100,
+    mtime: int = 1,
+    version: int = FRAME_ANALYSIS_VERSION,
+    has_black_bars: bool = True,
+) -> FrameAnalysisRecord:
+    """화질 분석 캐시 행 대역. 테스트가 지정한 파일 식별 값과 규격 점수만 다르게 둠"""
+    return FrameAnalysisRecord(
+        filename=filename,
+        filesize_bytes=size,
+        mtime_ns=mtime,
+        active_width=720,
+        active_height=1080,
+        active_x=600,
+        active_y=0,
+        has_black_bars=has_black_bars,
+        metric_used="vmaf",
+        vmaf_model="vmaf_v0.6.1",
+        tier_scores=(TierScore("720p", 0.997, 98.5),),
+        candidate_tier="720p",
+        valid_segments=9,
+        total_segments=9,
+        unmeasurable=False,
+        is_vr_protected=False,
+        measured_at="2026-01-01T00:00:00Z",
+        analysis_version=version,
+    )
 
 
 def _gray_plane(

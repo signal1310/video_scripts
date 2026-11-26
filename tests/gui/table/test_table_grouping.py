@@ -299,6 +299,33 @@ class VideoGroupProxyModelTests(unittest.TestCase):
         self.group.setSourceModel(None)
         self.assertEqual(self.group.rowCount(), 0)
 
+    def test_staged_row_arrival_applies_every_saved_collapsed_label(self) -> None:
+        """원본 행이 나눠 도착해도 미리 넘긴 접힘 이름이 모두 반영되는지 검증
+
+        - 첫 재구성에서 지금 없는 이름까지 소비하면 뒤에 도착한 그룹의 접힘이 사라짐
+        """
+        self.model.set_data_source([], root_dir=_ROOT_DIR)
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        self.group.set_collapsed_labels(["a", "b", "(최상위)"])
+        self.assertEqual(self.group.collapsed_labels, [])
+        self.model.set_data_source(self.evals[:2], root_dir=_ROOT_DIR)
+        self.assertEqual(self.group.collapsed_labels, ["a"])
+        self.model.set_data_source(self.evals, root_dir=_ROOT_DIR)
+        self.assertEqual(self.group.collapsed_labels, ["(최상위)", "a", "b"])
+
+    def test_saved_labels_replace_the_current_collapsed_set(self) -> None:
+        """새로 넘긴 이름이 지금 접힘을 대체하고 아직 없는 이름은 예약으로 남는지 검증"""
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        self.group.toggle_group(0)
+        self.assertEqual(self.group.collapsed_labels, ["a"])
+        self.group.set_collapsed_labels(["b", "나중에 생길 그룹"])
+        self.assertEqual(self.group.collapsed_labels, ["b"])
+        self.model.set_data_source(
+            [*self.evals, make_eval(video=make_video(filename="나중에 생길 그룹/x.mp4"))],
+            root_dir=_ROOT_DIR,
+        )
+        self.assertEqual(self.group.collapsed_labels, ["b", "나중에 생길 그룹"])
+
     def test_filtering_and_sorting_keep_group_order(self) -> None:
         self.group.set_group_by(f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}")
         self.proxy.set_search_text("mp4")
@@ -683,6 +710,53 @@ class CollapsedGroupPersistenceTests(unittest.TestCase):
         self.assertEqual(self.view.group_model.collapsed_labels, [])
         self.view.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
         self.assertEqual(self.view.group_model.collapsed_labels, ["a"])
+
+    def test_pending_restore_survives_a_rebuild_with_part_of_the_groups(self) -> None:
+        """그룹이 일부만 있는 재구성을 거쳐도 저장한 접힘이 모두 적용되는지 검증
+
+        - 시작 복원은 행이 일부만 도착한 재구성을 여러 번 거쳐, 먼저 온 그룹만 접히고
+          나머지 이름은 다음 재구성에서 적용되어야 함
+        """
+        self.ui.filters.group_by = GROUP_BY_FOLDER
+        self.ui.filters.collapsed_groups = {GROUP_BY_FOLDER: ["a", "b", "(최상위)"]}
+        self.view.table_model.set_data_source([], root_dir=_ROOT_DIR)
+        self.coordinator.sync_from_state()
+        self.view.table_model.set_data_source(_sample_evals()[:2], root_dir=_ROOT_DIR)
+        self.assertEqual(self.view.group_model.collapsed_labels, ["a"])
+        self.view.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        self.assertEqual(
+            self.view.group_model.collapsed_labels, ["(최상위)", "a", "b"]
+        )
+        # - 모든 이름을 적용한 뒤에는 예약이 남지 않아 다음 재구성이 접힘을 바꾸지 않음
+        self.view.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        self.assertEqual(
+            self.view.group_model.collapsed_labels, ["(최상위)", "a", "b"]
+        )
+
+    def test_folder_change_drops_pending_restore_names(self) -> None:
+        """폴더가 바뀌면 아직 적용하지 못한 복원 예약도 함께 버리는지 검증"""
+        self.ui.filters.group_by = GROUP_BY_FOLDER
+        self.ui.filters.collapsed_groups = {GROUP_BY_FOLDER: ["a", "b"]}
+        self.view.table_model.set_data_source([], root_dir=_ROOT_DIR)
+        self.coordinator.sync_from_state()
+        self.view.table_model.set_data_source(_sample_evals()[:2], root_dir=_ROOT_DIR)
+        self.assertEqual(self.view.group_model.collapsed_labels, ["a"])
+        self.view.table_model.set_data_source(_sample_evals(), root_dir="C:/other")
+        self.assertEqual(self.view.group_model.collapsed_labels, [])
+        # - 이전 폴더의 예약이 남아 있으면 새 폴더의 같은 이름 그룹이 저절로 접힘
+        self.view.table_model.set_data_source(_sample_evals(), root_dir="C:/other")
+        self.assertEqual(self.view.group_model.collapsed_labels, [])
+
+    def test_user_toggle_drops_pending_restore_names(self) -> None:
+        """사용자가 그룹을 직접 접으면 남은 복원 예약을 버리는지 검증"""
+        self.ui.filters.group_by = GROUP_BY_FOLDER
+        self.ui.filters.collapsed_groups = {GROUP_BY_FOLDER: ["a", "b"]}
+        self.view.table_model.set_data_source([], root_dir=_ROOT_DIR)
+        self.coordinator.sync_from_state()
+        self.view.table_model.set_data_source(_sample_evals()[:2], root_dir=_ROOT_DIR)
+        self.view.group_model.toggle_group(0)
+        self.view.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
+        self.assertEqual(self.view.group_model.collapsed_labels, [])
 
     def test_switching_group_by_does_not_apply_other_labels(self) -> None:
         """폴더 묶기에서 접은 이름이 열 묶기 그룹에 적용되지 않는지 검증"""

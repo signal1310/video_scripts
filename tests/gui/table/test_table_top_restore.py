@@ -131,6 +131,20 @@ class TestTableTopRestore(GuiTestCase):
         self.assertEqual(top, ("f150.mp4", 150 + _INSERTED_COUNT))
         self.assertEqual(self.view.rowAt(0), 150 + _INSERTED_COUNT)
 
+    def test_anchor_survives_a_rebuild_before_the_saved_file_arrives(self) -> None:
+        """저장한 영상이 아직 없는 중간 재구성을 거쳐도 도착한 뒤 맨 위에 놓는지 검증
+
+        - 기준을 첫 재구성에서 소비하면 뒤에 도착한 영상이 맨 위에 오지 않음
+        """
+        self.view.request_top_restore("f150.mp4", 150)
+        self._load(self.evals[:40])
+        _APP.processEvents()
+        self.assertTrue(self.view.top_restore.active)
+
+        self._load(self.evals)
+        _APP.processEvents()
+        self.assertEqual(self.view.top_visible_row_key(), ("f150.mp4", 150))
+
     def test_layout_change_from_frame_results_keeps_the_same_video_on_top(self) -> None:
         """정렬 순서를 다시 계산하는 layoutChanged 뒤에도 저장한 영상이 맨 위에 남음을 검증"""
         self.view.proxy_model.sort(VideoTableModel.COL_NAME, Qt.SortOrder.DescendingOrder)

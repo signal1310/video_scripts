@@ -10,13 +10,15 @@ from unittest.mock import patch
 from PyQt6.QtWidgets import QApplication
 
 from src.classifier import VideoClassifier
+from src.core.settings.app_state import AppState, save_app_state
+from src.core.settings.ui_state import GROUP_BY_FOLDER, UiFilterState, UiState
 from src.gui.controllers.data_cleanup_controller import DataCleanupController
 from src.gui.main_window import MainWindow
 from src.service.analysis_probe import resolve_restore_keyframe_mode
 from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
 from src.service.analyzed_dirs import is_analyzed_dir, mark_analyzed_dir
 from src.service.cache import DEFAULT_CACHE_REGISTRY
-from tests._factories import make_video
+from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase, isolate_app_state
 from tests._sandbox import reset_sandbox_files
 
@@ -158,6 +160,44 @@ class TestStartupRestoreWindow(GuiTestCase):
         mw = MainWindow(classifier=clf)
         self.addCleanup(mw.close)
         return mw
+
+    def _save_group_state(self, labels: list[str]) -> None:
+        """저장 상태 파일에 폴더 묶기와 접힌 그룹 이름만 기록
+
+        - 테스트 격리가 설정 경로를 임시 폴더로 돌려 두므로 창이 읽는 파일에 바로 씀
+        """
+        save_app_state(
+            AppState(
+                ui=UiState(
+                    filters=UiFilterState(
+                        group_by=GROUP_BY_FOLDER,
+                        collapsed_groups={GROUP_BY_FOLDER: labels},
+                    )
+                )
+            )
+        )
+
+    def test_saved_collapsed_groups_apply_even_when_rows_arrive_in_parts(self) -> None:
+        """저장한 접힘이 행이 일부씩 도착하는 재구성을 거쳐도 모두 적용되는지 검증
+
+        - 시작 복원은 빈 표에서 저장한 접힘을 예약한 뒤 행을 나눠 받으므로, 먼저 온 그룹만
+          접히고 나머지 이름은 뒤이은 재구성에서 적용되어야 함
+        """
+        self._save_group_state(["a", "b", "(최상위)"])
+        with patch("src.gui.controllers.restore_resolver.RestoreModeResolver.start"):
+            mw = self._open_window()
+        evals = [
+            make_eval(video=make_video(filename="a/one.mp4")),
+            make_eval(video=make_video(filename="a/two.mp4")),
+            make_eval(video=make_video(filename="b/three.mp4")),
+            make_eval(video=make_video(filename="four.mkv")),
+        ]
+        mw.table_model.set_data_source(evals[:2], root_dir=self.work)
+        self.assertEqual(mw.table_view.group_model.group_count, 1)
+        self.assertEqual(mw.table_view.group_model.collapsed_labels, ["a"])
+        mw.table_model.set_data_source(evals, root_dir=self.work)
+        self.assertEqual(mw.table_view.group_model.group_count, 3)
+        self.assertEqual(mw.table_view.group_model.collapsed_labels, ["(최상위)", "a", "b"])
 
     def test_restore_progress_is_visible_before_resolution_finishes(self) -> None:
         """판정이 끝나기 전에도 하단 진행 막대가 보여 시작 직후부터 복원 진행이 드러나는지 검증"""

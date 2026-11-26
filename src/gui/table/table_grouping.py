@@ -189,16 +189,16 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         return sorted(self._collapsed)[:MAX_COLLAPSED_GROUP_LABELS]
 
     def set_collapsed_labels(self, labels: Sequence[str]) -> None:
-        """저장한 접힌 그룹 이름을 적용, 아직 그룹이 없으면 첫 그룹 구성 때 반영
+        """저장한 접힌 그룹 이름을 적용하고 아직 없는 이름은 다음 그룹 구성 때 반영
 
         - 사라진 그룹 이름은 무시해 폴더 내용이 바뀌어도 나머지 접힘은 유지
+        - 시작 복원 중에는 행이 일부만 도착하므로, 지금 없는 이름을 버리지 않고 예약으로 남겨
+          뒤이은 그룹 구성에서 적용(일부만 소비하면 나머지 접힘이 사라짐)
         """
         wanted = {label for label in labels if label}
         existing = {group.label for group in self._groups}
-        if not existing:
-            self._pending_collapsed = wanted
-            return
         target = wanted & existing
+        self._pending_collapsed = wanted - existing or None
         if target == self._collapsed:
             return
         self._collapsed = target
@@ -332,16 +332,20 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         self._reindex()
 
     def _apply_pending_collapsed(self) -> None:
-        """첫 그룹 구성 때 예약한 접힘 이름을 지금 있는 그룹에 맞춰 반영
+        """예약한 접힘 이름 중 지금 있는 그룹만 반영하고 남은 이름은 예약에 유지
 
-        - 행이 아직 없는 재구성에서는 예약을 남겨 두어 데이터가 늦게 도착해도 복원되게 함
+        - 시작 복원은 행이 일부만 도착한 재구성을 여러 번 거치므로, 첫 재구성에서 예약을 모두
+          버리면 뒤에 도착한 그룹의 접힘이 사라짐. 하나도 맞지 않으면 예약을 그대로 남겨 둠
         """
         pending = self._pending_collapsed
-        if pending is None or not self._groups:
+        if pending is None:
             return
-        self._pending_collapsed = None
         existing = {group.label for group in self._groups}
-        self._collapsed = pending & existing
+        matched = pending & existing
+        if not matched:
+            return
+        self._collapsed |= matched
+        self._pending_collapsed = pending - matched or None
 
     def _saved_mb(self, source_row: int) -> float:
         """소스 행 영상의 예상 절약 값, 평가가 없으면 0"""
@@ -526,6 +530,8 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         """그룹 머리글 행의 접힘 상태를 뒤집고 행 구성을 다시 만듦"""
         if not self.is_group_row(row):
             return
+        # - 사용자가 직접 접고 펴면 복원 예약은 끝난 것으로 보고 남은 이름을 버림
+        self._pending_collapsed = None
         label = self._groups[self._rows[row][1]].label
         if label in self._collapsed:
             self._collapsed.discard(label)
@@ -541,6 +547,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
 
     def expand_all_groups(self) -> None:
         """접힌 그룹을 모두 펼침"""
+        self._pending_collapsed = None
         if not self._collapsed:
             return
         self._collapsed.clear()
@@ -549,6 +556,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
 
     def collapse_all_groups(self) -> None:
         """모든 그룹을 접어 머리글 행만 남김"""
+        self._pending_collapsed = None
         if self._group_by == GROUP_BY_NONE:
             return
         labels = {group.label for group in self._groups}

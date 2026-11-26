@@ -1,10 +1,12 @@
 """합성 lavfi 영상으로 화질 분석 코어, 실행기, 서비스, SQLite 캐시 통합 검증
 
 - 실제 FFmpeg로 합성 영상 5종을 만들고 실제 `FrameAnalysisService`로 분석
-- 출력 폴더는 인자로 받고 기본은 시스템 임시 폴더 아래 새 폴더, 로컬 경로를 쓰지 않음
+- `--out-dir`은 산출물 폴더를 만들 상위 폴더이고 기본은 시스템 임시 폴더. 실행마다 그 아래에
+  접두사가 붙은 새 폴더를 만들어 산출물을 그 안에만 둠
+- `--cleanup`은 이번 실행이 만든 그 폴더만 지움. 상위 폴더와 기존 공유 폴더는 건드리지 않음
 - 사용 예(경로는 인자로 받음):
   python -I -X utf8 scripts/verify_frame_analysis_synthetic.py --cleanup
-  python -I -X utf8 scripts/verify_frame_analysis_synthetic.py --ffmpeg <FFmpeg 경로> --out-dir <출력 폴더>
+  python -I -X utf8 scripts/verify_frame_analysis_synthetic.py --ffmpeg <FFmpeg 경로> --out-dir <상위 폴더>
 """
 
 from __future__ import annotations
@@ -176,21 +178,22 @@ def _describe(case: SyntheticCase, result: FrameAnalysisResult, failures: Sequen
     )
 
 
-def _is_under_temp(path: Path) -> bool:
-    try:
-        path.resolve().relative_to(Path(tempfile.gettempdir()).resolve())
-    except ValueError:
-        return False
-    return True
+def cleanup_outputs(run_dir: Path) -> None:
+    """이번 실행이 산출물을 둔 폴더를 지움
 
-
-def cleanup_outputs(out_dir: Path) -> None:
-    """검증 산출물을 지움. 임시 폴더 밖 경로는 건드리지 않음"""
-    if not _is_under_temp(out_dir):
-        print(f"[verify] 임시 폴더 밖 경로라 정리하지 않습니다: {out_dir}")
+    - 넘어오는 경로는 같은 실행의 `create_run_dir`이 만든 전용 폴더라 상위 폴더나 다른 폴더와 겹치지 않음
+    - 링크는 지우면 원본을 따라갈 수 있으므로 건너뜀
+    """
+    if run_dir.is_symlink() or not run_dir.is_dir():
         return
-    shutil.rmtree(out_dir, ignore_errors=True)
-    print(f"[verify] 출력 폴더 정리: {out_dir}")
+    shutil.rmtree(run_dir, ignore_errors=True)
+    print(f"[verify] 실행 폴더 정리: {run_dir}")
+
+
+def create_run_dir(base_dir: Path) -> Path:
+    """상위 폴더 아래에 이번 실행 전용 폴더를 새로 만듦"""
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=OUT_DIR_PREFIX, dir=str(base_dir)))
 
 
 def run_verification(ffmpeg: str, out_dir: Path) -> int:
@@ -246,21 +249,29 @@ def run_verification(ffmpeg: str, out_dir: Path) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """인자 해석과 임시 폴더 준비, 검증 뒤 요청 시 정리"""
+    """인자 해석과 실행 폴더 준비, 검증 뒤 이번 실행 폴더만 요청 시 정리"""
     parser = argparse.ArgumentParser(description="합성 lavfi 영상으로 화질 분석 통합 검증을 수행합니다.")
     parser.add_argument("--ffmpeg", default="ffmpeg", help="FFmpeg 실행 파일 경로(기본: PATH의 ffmpeg)")
-    parser.add_argument("--out-dir", default="", help="출력 폴더(기본: 시스템 임시 폴더 아래 새 폴더)")
-    parser.add_argument("--cleanup", action="store_true", help="검증 뒤 임시 폴더 안의 출력 폴더 삭제")
+    parser.add_argument(
+        "--out-dir",
+        default="",
+        help="산출물 폴더를 만들 상위 폴더(기본: 시스템 임시 폴더)",
+    )
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="검증 뒤 이번 실행이 만든 산출물 폴더만 삭제",
+    )
     args = parser.parse_args(argv)
 
-    out_dir = Path(args.out_dir) if args.out_dir else Path(tempfile.mkdtemp(prefix=OUT_DIR_PREFIX))
-    out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[verify] 출력 폴더: {out_dir}")
+    base_dir = Path(args.out_dir) if args.out_dir else Path(tempfile.gettempdir())
+    run_dir = create_run_dir(base_dir)
+    print(f"[verify] 실행 폴더: {run_dir}")
     try:
-        return run_verification(args.ffmpeg, out_dir)
+        return run_verification(args.ffmpeg, run_dir)
     finally:
         if args.cleanup:
-            cleanup_outputs(out_dir)
+            cleanup_outputs(run_dir)
 
 
 if __name__ == "__main__":

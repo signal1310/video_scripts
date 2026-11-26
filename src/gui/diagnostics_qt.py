@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import os
 import subprocess
 from collections.abc import Callable
@@ -103,13 +104,23 @@ def beat_main_thread() -> None:
         _watchdog.beat()
 
 
+def running_developer_mode() -> bool:
+    """이번 실행을 시작할 때 정한 개발자 모드 여부 반환"""
+    return _developer_mode
+
+
 def stop_stall_watchdog() -> None:
-    """하트비트 타이머와 감시 스레드를 정리. 두 번 호출해도 안전"""
+    """하트비트 타이머와 감시 스레드를 정리. 두 번 호출해도 안전
+
+    - QApplication이 먼저 사라지면 파이썬만 들고 있던 QTimer의 C++ 객체도 함께 지워지므로
+      stop, deleteLater가 RuntimeError를 낼 수 있음. 종료 처리는 표식 기록까지 이어져야 하므로 무시
+    """
     global _watchdog, _heartbeat
     heartbeat, _heartbeat = _heartbeat, None
     if heartbeat is not None:
-        heartbeat.stop()
-        heartbeat.deleteLater()
+        with contextlib.suppress(RuntimeError):
+            heartbeat.stop()
+            heartbeat.deleteLater()
     watchdog, _watchdog = _watchdog, None
     if watchdog is not None:
         watchdog.stop()

@@ -19,11 +19,17 @@ def _default_clock() -> float:
     return time.perf_counter()
 
 
+def _always_enabled() -> bool:
+    """측정 기록을 항상 남기는 기본 조건"""
+    return True
+
+
 class StageClock:
     """단계 진입 시각을 잡아 두고 완료 때 걸린 시간을 DEBUG로 남기는 측정기
 
     - `observe`는 단계 이름이 바뀔 때만 이전 구간을 마감하고 새로 시작함
     - 측정기 하나는 스레드 하나에서만 씀(단계 진행 신호는 메인 스레드에서 옴)
+    - `enabled`가 거짓이면 시간만 돌려주고 기록하지 않아 평상시 로그를 채우지 않음
     """
 
     def __init__(
@@ -31,9 +37,11 @@ class StageClock:
         *,
         clock: Callable[[], float] = _default_clock,
         logger: logging.Logger | None = None,
+        enabled: Callable[[], bool] = _always_enabled,
     ) -> None:
         self._clock = clock
         self._logger = logger or logging.getLogger(APP_LOGGER_NAME)
+        self._enabled = enabled
         self._stage: str | None = None
         self._started: float = 0.0
 
@@ -71,5 +79,6 @@ class StageClock:
         if self._stage is None:
             return None
         elapsed = max(0.0, now - self._started)
-        self._logger.debug(TIMING_LOG_TEMPLATE.format(stage=self._stage, elapsed=elapsed))
+        if self._enabled():
+            self._logger.debug(TIMING_LOG_TEMPLATE.format(stage=self._stage, elapsed=elapsed))
         return elapsed

@@ -29,7 +29,7 @@ from src.core.config import (
     ThresholdsConfig,
     merge_tuner_criteria,
 )
-from src.core.diagnostics.settings import log_setting_changes, resolve_developer_mode
+from src.core.diagnostics.settings import log_setting_changes
 from src.core.settings.app_state import (
     AppState,
     load_app_state,
@@ -45,7 +45,11 @@ from src.core.workspace_paths import (
     primary_root_dir,
 )
 from src.gui.constants import browse_directory
-from src.gui.diagnostics_qt import create_diagnostic_report, open_diagnostics_folder
+from src.gui.diagnostics_qt import (
+    create_diagnostic_report,
+    open_diagnostics_folder,
+    running_developer_mode,
+)
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.settings.execution_sections import ExecutionTabPanel
@@ -889,10 +893,11 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.criteria_panel.set_config(new_config)
         self.execution_panel.set_baseline_cq(new_config.encode.baseline_cq)
         # - 개발자 모드에서는 어떤 값이 바뀌었는지 사후에 볼 수 있게 DEBUG로 남김(꺼져 있으면 아무 기록 없음)
+        # - 방금 저장한 값이 아니라 이번 실행이 시작한 모드로 판단해, 실행 중에 모드를 켜도 로그가 켜지지 않게 함
         log_setting_changes(
             self._last_logged_config,
             new_config,
-            developer_mode=resolve_developer_mode(new_config.diagnostics.developer_mode),
+            developer_mode=running_developer_mode(),
         )
         self._last_logged_config = new_config.copy()
         self._app_state.apply_classifier_config(new_config)

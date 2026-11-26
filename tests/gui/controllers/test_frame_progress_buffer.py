@@ -3,11 +3,13 @@
 import logging
 import os
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
+from src.gui import diagnostics_qt
 from src.gui.controllers.frame_progress_buffer import TIMINGS_LOGGER_NAME, FrameProgressBuffer, StageProgress
 
 _APP = QApplication.instance() or QApplication([])
@@ -68,15 +70,29 @@ class FrameProgressBufferTests(unittest.TestCase):
         buffer.flush()
         self.assertEqual([p.stage_done for p in received], [1, 2])
 
-    def test_stage_changes_and_drop_log_stage_timings_at_debug(self) -> None:
-        """단계가 바뀌거나 묶음을 버릴 때 이전 단계 소요가 개발 로그용 DEBUG로 남는지 검증"""
+    def test_stage_changes_and_drop_log_stage_timings_at_debug_in_developer_mode(self) -> None:
+        """개발자 모드에서 단계가 바뀌거나 묶음을 버릴 때 이전 단계 소요가 DEBUG로 남는지 검증"""
         buffer = FrameProgressBuffer(lambda _progress_value: None, 300)
-        with self.assertLogs(TIMINGS_LOGGER_NAME, level=logging.DEBUG) as captured:
+        with (
+            patch.object(diagnostics_qt, "_developer_mode", True),
+            self.assertLogs(TIMINGS_LOGGER_NAME, level=logging.DEBUG) as captured,
+        ):
             buffer.submit(StageProgress(0, 3, "a.mp4", "scan", 1, 9))
             buffer.submit(StageProgress(0, 3, "a.mp4", "vmaf", 1, 9))
             buffer.drop()
         self.assertEqual(len(captured.output), 2)
         self.assertTrue(all("단계 소요" in line for line in captured.output))
+
+    def test_stage_timings_are_silent_when_developer_mode_is_off(self) -> None:
+        """개발자 모드가 아니면 같은 단계 전환에서도 소요 기록을 남기지 않는지 검증"""
+        buffer = FrameProgressBuffer(lambda _progress_value: None, 300)
+        with (
+            patch.object(diagnostics_qt, "_developer_mode", False),
+            self.assertNoLogs(TIMINGS_LOGGER_NAME, level=logging.DEBUG),
+        ):
+            buffer.submit(StageProgress(0, 3, "a.mp4", "scan", 1, 9))
+            buffer.submit(StageProgress(0, 3, "a.mp4", "vmaf", 1, 9))
+            buffer.drop()
 
 
 if __name__ == "__main__":

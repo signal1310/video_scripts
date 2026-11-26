@@ -98,6 +98,17 @@ class StageClockTests(unittest.TestCase):
             self.assertEqual(stage_clock.finish(), 0.0)
         self.assertIn("0.000", "\n".join(logs.output))
 
+    def test_silent_when_disabled(self) -> None:
+        """기록 조건이 거짓이면 소요를 계산만 하고 DEBUG를 남기지 않는지 검증"""
+        stage_clock = StageClock(
+            clock=_FakeClock([1.0, 2.5]), logger=self.logger, enabled=lambda: False
+        )
+        stage_clock.observe("scan")
+        with self.assertNoLogs(self.logger, level="DEBUG"):
+            elapsed = stage_clock.observe("ssim")
+        self.assertAlmostEqual(elapsed or 0.0, 1.5)
+        self.assertEqual(stage_clock.current_stage, "ssim")
+
 
 if __name__ == "__main__":
     unittest.main()

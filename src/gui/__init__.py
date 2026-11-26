@@ -10,7 +10,11 @@ from src.core.logging_setup import ensure_console_logging, ensure_file_logging
 from src.core.settings.app_state import ensure_default_config_files, load_app_state
 from src.gui.constants import make_ui_font
 from src.gui.controllers.worker import ClassifierWorker
-from src.gui.diagnostics_qt import start_gui_diagnostics, start_stall_watchdog_when_ready
+from src.gui.diagnostics_qt import (
+    start_gui_diagnostics,
+    start_stall_watchdog_when_ready,
+    stop_stall_watchdog,
+)
 from src.gui.main_window import MainWindow
 from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
@@ -65,9 +69,13 @@ def run_gui(
     # - 이벤트 루프 직전에 켜야 창 구성에 걸린 시간을 화면 멈춤으로 잘못 세지 않음
     start_stall_watchdog_when_ready()
 
-    if owns_app:
-        return app.exec()
-    return 0
+    if not owns_app:
+        return 0
+    exit_code = app.exec()
+    # - QApplication이 사라지면 파이썬만 들고 있던 하트비트 QTimer의 C++ 객체도 지워져
+    #   atexit 정리가 첫 단계에서 끊기므로, 이벤트 루프가 끝난 뒤 바로 감시를 멈춤
+    stop_stall_watchdog()
+    return exit_code
 
 
 def bootstrap_diagnostics(*, developer_mode: bool | None = None) -> None:

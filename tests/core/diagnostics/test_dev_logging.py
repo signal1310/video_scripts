@@ -189,6 +189,26 @@ class InstallDevLogTests(unittest.TestCase):
                 remove_dev_log(first)
                 remove_dev_log(second)
 
+    def test_install_twice_mirrors_each_command_once(self) -> None:
+        """두 번 설치해도 명령 기록이 dev.log에 한 줄로만 남는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            first = install_dev_log(tmp)
+            second = install_dev_log(tmp)
+            try:
+                self.assertIsNotNone(first.listener)
+                self.assertIsNone(second.listener)
+                handle = record_start("화질 분석", ["ffmpeg", "-i", "clip.mp4"], target="clip.mp4")
+                record_finish(handle, 0, elapsed_sec=0.5)
+                flush_app_handlers()
+                with open(first.path, encoding="utf-8") as file_handle:
+                    text = file_handle.read()
+                # - 명령 하나는 시작과 종료 두 줄을 남기므로, 리스너가 둘이면 네 줄이 됨
+                self.assertEqual(text.count("FFmpeg 명령"), 2)
+            finally:
+                remove_dev_log(first)
+                remove_dev_log(second)
+                command_history.clear()
+
     def test_unwritable_directory_returns_session_without_handler(self) -> None:
         """폴더를 만들 수 없으면 핸들러 없이 세션만 돌려주고 예외를 내지 않는지 검증"""
         with tempfile.TemporaryDirectory() as tmp:

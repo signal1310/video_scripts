@@ -92,13 +92,19 @@ class DevLogSession:
     previous_level: int | None = None
 
 
+# - 지금 붙어 있는 미러: 리스너는 동등 비교가 안 되므로 설치 쪽에서 보관해 중복 설치를 막음
+_installed_mirror: CommandLogMirror | None = None
+
+
 def install_dev_log(directory: str | None = None) -> DevLogSession:
     """`src.*` DEBUG 기록을 `dev.log`에 남기는 순환 핸들러와 명령 기록 미러를 설치
 
     - 파일을 만들지 못하면 핸들러 없이 세션만 돌려주고 앱 시작을 막지 않음
-    - 이미 같은 이름의 핸들러가 있으면 중복해서 붙이지 않음
+    - 이미 같은 이름의 핸들러가 있으면 핸들러를, 미러가 붙어 있으면 리스너를 새로 붙이지 않음
+      (두 번 설치해도 명령 기록이 두 줄로 중복되지 않게 함)
     - 앱 루트 로거의 이전 레벨을 세션에 기억해 정리할 때 되돌림
     """
+    global _installed_mirror
     path = diagnostics_file(DEV_LOG_NAME, directory)
     handler = _create_handler(path)
     root = logging.getLogger(APP_LOGGER_NAME)
@@ -111,8 +117,11 @@ def install_dev_log(directory: str | None = None) -> DevLogSession:
         else:
             handler.close()
             handler = None
-    mirror = CommandLogMirror()
-    command_history.add_listener(mirror)
+    mirror: CommandLogMirror | None = None
+    if _installed_mirror is None:
+        mirror = CommandLogMirror()
+        command_history.add_listener(mirror)
+        _installed_mirror = mirror
     return DevLogSession(
         path=path,
         handler=handler,
@@ -143,10 +152,13 @@ def _create_handler(path: str) -> RotatingFileHandler | None:
 
 def remove_dev_log(session: DevLogSession | None) -> None:
     """설치한 개발 로그 핸들러와 명령 기록 리스너를 떼고 파일을 닫음. 중복 호출 안전"""
+    global _installed_mirror
     if session is None:
         return
     if session.listener is not None:
         command_history.remove_listener(session.listener)
+        if _installed_mirror is session.listener:
+            _installed_mirror = None
         session.listener = None
     if session.handler is not None:
         root = logging.getLogger(APP_LOGGER_NAME)

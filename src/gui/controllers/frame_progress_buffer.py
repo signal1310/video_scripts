@@ -2,7 +2,7 @@
 
 - 단계 이벤트는 영상 하나에 여러 번 도착하므로 매번 하단 위젯을 다시 배치하면 화면이 끊김
 - 묶는 동안에는 마지막 값만 남기고, 더 새로운 진행 값이나 종료가 오면 대기 값을 버려 낡은 표시가 남지 않게 함
-- 개발자 모드의 단계 소요 측정은 같은 단계 이벤트를 받아 쓰므로 여기서 함께 기록(DEBUG 로그는 개발자 모드에서만 파일에 남음)
+- 개발자 모드의 단계 소요 측정은 같은 단계 이벤트를 받아 쓰므로 여기서 함께 기록(개발자 모드가 아니면 남기지 않음)
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QTimer
 
 from src.core.diagnostics.timings import StageClock
+from src.gui.diagnostics_qt import running_developer_mode
 
 TIMINGS_LOGGER_NAME: str = "src.diagnostics.timings"
 
@@ -40,7 +41,9 @@ class FrameProgressBuffer:
         self._timer.setSingleShot(True)
         self._timer.setInterval(interval_ms)
         self._timer.timeout.connect(self.flush)
-        self._stage_clock = StageClock(logger=logging.getLogger(TIMINGS_LOGGER_NAME))
+        self._stage_clock = StageClock(
+            logger=logging.getLogger(TIMINGS_LOGGER_NAME), enabled=running_developer_mode
+        )
 
     @property
     def pending(self) -> StageProgress | None:

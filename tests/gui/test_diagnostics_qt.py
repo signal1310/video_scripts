@@ -7,9 +7,12 @@ import unittest
 from collections.abc import Callable
 from unittest.mock import patch
 
+from PyQt6 import sip
 from PyQt6.QtCore import QtMsgType
 from PyQt6.QtWidgets import QApplication
 
+from src.core.diagnostics.runtime import DiagnosticsRuntime
+from src.core.diagnostics.session import read_session, session_path
 from src.core.diagnostics.watchdog import MainThreadWatchdog, StallDetector
 from src.gui import diagnostics_qt
 
@@ -146,6 +149,17 @@ def _context() -> _FakeContext:
     return _FakeContext()
 
 
+def _start_in(directory: str, *, developer_mode: bool = False) -> DiagnosticsRuntime:
+    """임시 폴더를 진단 폴더로 삼아 GUI 진단을 시작"""
+    real_start = diagnostics_qt.start_diagnostics
+
+    def start(developer_mode: bool = False) -> DiagnosticsRuntime:
+        return real_start(directory=directory, developer_mode=developer_mode)
+
+    with patch.object(diagnostics_qt, "start_diagnostics", start):
+        return diagnostics_qt.start_gui_diagnostics(developer_mode=developer_mode)
+
+
 class TestFolderOpening(unittest.TestCase):
     """진단 폴더 열기가 실패를 예외 없이 알리는지 검증"""
 
@@ -185,10 +199,18 @@ class TestFolderOpening(unittest.TestCase):
         self.assertTrue(diagnostics_qt.diagnostics_folder().endswith("logs"))
 
     def test_open_diagnostics_folder_opens_the_runtime_directory(self) -> None:
-        """진단 폴더 열기가 현재 런타임 폴더를 열도록 넘기는지 검증"""
-        with patch("src.gui.diagnostics_qt.open_folder") as opened:
-            diagnostics_qt.open_diagnostics_folder()
-        self.assertEqual(opened.call_args.args[0], diagnostics_qt.diagnostics_folder())
+        """진단 폴더 열기가 이번 실행의 진단 폴더 경로를 실제로 넘기는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _start_in(tmp)
+            try:
+                self.assertEqual(os.path.normcase(diagnostics_qt.diagnostics_folder()), os.path.normcase(tmp))
+                with patch("src.gui.diagnostics_qt.open_folder") as opened:
+                    diagnostics_qt.open_diagnostics_folder()
+                self.assertEqual(
+                    os.path.normcase(opened.call_args.args[0]), os.path.normcase(tmp)
+                )
+            finally:
+                diagnostics_qt.stop_gui_diagnostics()
 
     def test_create_diagnostic_report_returns_the_archive_path(self) -> None:
         """진단 보고서 만들기가 진단 폴더 안 zip 경로를 돌려주는지 검증"""
@@ -258,6 +280,23 @@ class TestStallWatchdogWiring(unittest.TestCase):
         finally:
             diagnostics_qt.stop_gui_diagnostics()
         self.assertIsNone(diagnostics_qt._watchdog)
+        self.assertIsNone(diagnostics_qt._heartbeat)
+
+    def test_stop_closes_the_session_marker_after_the_timer_object_is_gone(self) -> None:
+        """앱 정리로 하트비트 타이머 C++ 객체가 먼저 지워져도 종료가 표식을 닫는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            _start_in(tmp, developer_mode=True)
+            watchdog = diagnostics_qt.start_stall_watchdog(heartbeat_ms=1)
+            heartbeat = diagnostics_qt._heartbeat
+            assert heartbeat is not None
+            # - QApplication이 사라지면 파이썬만 들고 있던 타이머도 함께 지워지므로 그 상태를 흉내 냄
+            sip.delete(heartbeat)
+            diagnostics_qt.stop_gui_diagnostics()
+            store = read_session(session_path(tmp))
+        self.assertIsNotNone(store)
+        assert store is not None
+        self.assertTrue(store.is_clean)
+        self.assertFalse(watchdog.is_running)
         self.assertIsNone(diagnostics_qt._heartbeat)
 
     def test_stop_clears_the_remembered_developer_mode(self) -> None:

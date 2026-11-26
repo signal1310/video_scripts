@@ -35,7 +35,6 @@ from src.core.config import (
     SavingsConfig,
     ThresholdsConfig,
 )
-from src.core.diagnostics.settings import DEV_MODE_ENV
 from src.core.paths import ROOTDIR_FILENAME, get_root_dir
 from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, AppState, load_app_state, save_app_state
 from src.core.settings.ui_state import UiFilterState, UiState
@@ -695,28 +694,6 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
             default_kbps,
         )
 
-
-    def test_autosave_logs_only_changed_keys_in_developer_mode(self) -> None:
-        """환경 변수로 켠 개발자 모드에서 자동 저장이 바뀐 키만 DEBUG로 남기는지 검증"""
-        dialog, _root, _state_path = self._isolated_dialog()
-        with (
-            patch.dict(os.environ, {DEV_MODE_ENV: "1"}, clear=False),
-            self.assertLogs("src.diagnostics", level="DEBUG") as logs,
-        ):
-            _set_row(dialog, "analysis.bitrate_model.base_target_kbps", 4100)
-        joined = "\n".join(logs.output)
-        self.assertIn("bitrate_model.base_target_kbps: 3000 -> 4100", joined)
-        self.assertNotIn("display.size_unit", joined)
-
-    def test_autosave_is_silent_when_developer_mode_is_off(self) -> None:
-        """개발자 모드가 꺼져 있으면 자동 저장이 설정 변경 기록을 남기지 않는지 검증"""
-        dialog, _root, _state_path = self._isolated_dialog()
-        without_dev = {key: value for key, value in os.environ.items() if key != DEV_MODE_ENV}
-        with (
-            patch.dict(os.environ, without_dev, clear=True),
-            self.assertNoLogs("src.diagnostics", level="DEBUG"),
-        ):
-            _set_row(dialog, "analysis.bitrate_model.base_target_kbps", 4300)
 
     def test_reset_defaults_persists_unified_state(self) -> None:
         """전체 초기화 확인 시 data/config.json, 테마, 위젯 값이 초기화되고 취소 시 유지됨을 검증"""

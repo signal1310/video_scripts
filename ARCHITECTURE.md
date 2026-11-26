@@ -88,7 +88,7 @@ flowchart TD
 | [messages.py](src/core/messages.py) | `LOG_TAG_*`, `MSG_*_CANCELLED`, `LABEL_*`, `format_analysis_summary`, `format_export_done`, `format_quality_zone_tooltip` | CUI/GUI 공용 로그 태그(DEBUG, INFO, WARN, ERROR 4종)와 로그 문장 생성, 상태 레이블, 동적 안내 문구 기준 정의 |
 | [exceptions.py](src/core/exceptions.py) | `ErrorCode`, `VideoScriptsError`, `Domain*Error`, `format_user_error` | 표준 예외 호환 도메인 예외 계층 및 해결 힌트 포맷터 |
 | [logging_setup.py](src/core/logging_setup.py) | `APP_LOGGER_NAME`, `UserLogFormatter`, `get_app_logger`, `ensure_console_logging`, `ensure_file_logging`, `default_log_file_path` | 패키지 루트(`src`) `logging` 포맷터, 동적 `sys.stdout` 핸들러, 데이터 폴더 아래 순환 파일 로그(`logs/app.log`, DEBUG 이상) |
-| [command_history.py](src/core/command_history.py) | `COMMAND_HISTORY_LIMIT`, `COMMAND_STAGES`, `STAGE_*`, `CommandRecord`, `CommandHandle`, `record_start`, `record_finish`, `command_scope`, `snapshot`, `clear`, `add_listener`, `remove_listener`, `format_command_line`, `target_name_of`, `input_path_of` | 실행한 FFmpeg, FFprobe 명령의 메모리 링 버퍼(최대 2000건, 저장하지 않음). 불변 기록 스냅샷, 진행 핸들, 어느 스레드에서든 부르는 변경 리스너, 표시용 명령줄 조립과 대상 파일 이름 추출 |
+| [command_history.py](src/core/command_history.py) | `COMMAND_HISTORY_LIMIT`, `COMMAND_STAGES`, `STAGE_*`, `CommandRecord`, `CommandHandle`, `record_start`, `record_finish`, `command_scope`, `snapshot`, `clear`, `add_listener`, `remove_listener`, `format_command_line`, `target_name_of`, `input_path_of` | 실행한 FFmpeg, FFprobe 명령의 메모리 링 버퍼(최대 2000건, 저장하지 않음). 불변 기록 스냅샷, 진행 핸들, 어느 스레드에서든 부르는 변경 리스너, 표시용 명령줄 조립과 대상 파일 이름 추출. 기록마다 명령이 다룬 원본 영상 경로를 메모리에만 함께 둠 |
 
 #### `src/core/diagnostics/`: 비정상 종료 기록, 세션 표식, 사고 보고서
 

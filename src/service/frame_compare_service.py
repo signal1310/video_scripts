@@ -164,16 +164,23 @@ def run_ffmpeg_frame(
     cancel_event: threading.Event,
     *,
     timeout_sec: float = FRAME_EXTRACT_TIMEOUT_SEC,
+    source_path: str = "",
 ) -> tuple[int, str]:
     """FFmpeg 프레임 추출을 취소 감시와 제한 시간 아래 실행하고 종료 코드와 표준 오류를 반환
 
     - 표준 오류는 임시 파일로 받아 파이프 교착 없이 읽음
     - 취소 신호를 받으면 실행 중 프로세스를 kill하고 `InterruptedError`를 냄
+    - `source_path`는 추출 대상 원본 영상의 경로이며, 주지 않으면 첫 입력 인자로 대신함
     """
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     deadline = time.monotonic() + timeout_sec
     with (
-        command_scope(STAGE_FRAME_COMPARE, args, target=input_path_of(args)) as handle,
+        command_scope(
+            STAGE_FRAME_COMPARE,
+            args,
+            target=input_path_of(args),
+            source_path=source_path,
+        ) as handle,
         tempfile.TemporaryFile() as stderr_file,
     ):
         proc = subprocess.Popen(
@@ -436,7 +443,7 @@ class FrameCompareService:
             frame_height=frame_height,
             algorithm=self._scale_algorithm,
         )
-        returncode, stderr = self._run(args, cancel_event)
+        returncode, stderr = self._run(args, cancel_event, source_path=source.path)
         self._ensure_output(returncode, stderr, original_output)
         self._ensure_output(returncode, stderr, compared_output)
         return ExtractedFrames(
@@ -509,16 +516,20 @@ class FrameCompareService:
             frame_height=frame_height,
             algorithm=self._scale_algorithm,
         )
-        returncode, stderr = self._run(args, cancel_event)
+        returncode, stderr = self._run(args, cancel_event, source_path=source.path)
         self._ensure_output(returncode, stderr, output_path)
         return Path(output_path).read_bytes()
 
-    def _run(self, args: list[str], cancel_event: threading.Event) -> tuple[int, str]:
+    def _run(
+        self, args: list[str], cancel_event: threading.Event, *, source_path: str = ""
+    ) -> tuple[int, str]:
         """주입된 실행기나 기본 FFmpeg 실행기로 명령을 실행"""
         runner = self._runner
         if runner is not None:
             return runner(args, cancel_event)
-        return run_ffmpeg_frame(args, cancel_event, timeout_sec=self._timeout_sec)
+        return run_ffmpeg_frame(
+            args, cancel_event, timeout_sec=self._timeout_sec, source_path=source_path
+        )
 
     def _ensure_output(self, returncode: int, stderr: str, output_path: str) -> None:
         """종료 코드와 출력 파일을 확인하고 실패 사유를 예외로 올림"""

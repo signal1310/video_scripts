@@ -1,6 +1,6 @@
 """FFmpeg, FFprobe 명령 실행 기록을 담는 스레드 안전 링 버퍼 모듈
 
-- 기록은 메모리에만 두며 저장하지 않음. 대상 파일은 이름만 남겨 사용자 폴더 경로를 보관하지 않음
+- 기록은 메모리에만 두며 저장하지 않음. 표시용 대상 이름은 이름만 남기고, 영상 열 툴팁에 쓸 원본 경로는 이 메모리 버퍼에만 둠
 - 변경 알림은 어느 스레드에서든 올 수 있으므로 GUI는 신호로 넘겨 받아 화면 스레드에서 반영
 - 소요 시간은 `time.perf_counter`로 재서 시간 함수를 패치하는 테스트와 간섭하지 않음
 - 표시용 명령줄 인용은 이 모듈의 지역 규칙을 쓰며, 계획 인자 빌더(`ffmpeg_command.py`)는 건드리지 않음
@@ -49,7 +49,10 @@ _LISTENERS: list[Callable[[], None]] = []
 
 @dataclass(frozen=True, slots=True)
 class CommandRecord:
-    """완료 또는 진행 중인 외부 명령 한 건의 기록. 진행 중이면 종료 코드가 None"""
+    """완료 또는 진행 중인 외부 명령 한 건의 기록. 진행 중이면 종료 코드가 None
+
+    - `source_path`는 명령이 다룬 원본 영상의 전체 경로이며, 영상이 없는 명령이면 빈 문자열
+    """
 
     seq: int
     timestamp: datetime
@@ -59,6 +62,7 @@ class CommandRecord:
     display: str
     elapsed_sec: float | None
     exit_code: int | None
+    source_path: str = ""
 
 
 @dataclass(slots=True)
@@ -74,6 +78,7 @@ class _Entry:
     started: float
     elapsed_sec: float | None = None
     exit_code: int | None = None
+    source_path: str = ""
 
     def to_record(self) -> CommandRecord:
         """현재 값을 불변 스냅샷으로 복사"""
@@ -86,6 +91,7 @@ class _Entry:
             display=self.display,
             elapsed_sec=self.elapsed_sec,
             exit_code=self.exit_code,
+            source_path=self.source_path,
         )
 
 @dataclass(slots=True)
@@ -114,6 +120,11 @@ class CommandHandle:
     def args(self) -> tuple[str, ...]:
         """전체 명령줄 인자"""
         return self.entry.args
+
+    @property
+    def source_path(self) -> str:
+        """명령이 다룬 원본 영상의 전체 경로"""
+        return self.entry.source_path
 
     def mark_started(self) -> None:
         """시작 시각을 지금으로 다시 잡음. 프로세스를 띄운 뒤부터 소요 시간을 재고 싶을 때 씀"""
@@ -180,8 +191,13 @@ def remove_listener(listener: Callable[[], None]) -> None:
             _LISTENERS.remove(listener)
 
 
-def record_start(stage: str, args: Sequence[str], *, target: str = "") -> CommandHandle:
-    """명령 실행 기록을 열고 진행 상태 핸들을 반환. 종료 코드는 아직 None"""
+def record_start(
+    stage: str, args: Sequence[str], *, target: str = "", source_path: str = ""
+) -> CommandHandle:
+    """명령 실행 기록을 열고 진행 상태 핸들을 반환. 종료 코드는 아직 None
+
+    - `source_path`는 명령이 다룬 원본 영상의 전체 경로이며, 영상과 무관한 명령은 비움
+    """
     arg_list = tuple(str(arg) for arg in args)
     with _LOCK:
         entry = _Entry(
@@ -192,6 +208,7 @@ def record_start(stage: str, args: Sequence[str], *, target: str = "") -> Comman
             args=arg_list,
             display=format_command_line(arg_list),
             started=time.perf_counter(),
+            source_path=source_path,
         )
         _ENTRIES.append(entry)
     _notify()
@@ -219,13 +236,16 @@ def clear() -> None:
 
 
 @contextmanager
-def command_scope(stage: str, args: Sequence[str], *, target: str = "") -> Generator[CommandHandle]:
+def command_scope(
+    stage: str, args: Sequence[str], *, target: str = "", source_path: str = ""
+) -> Generator[CommandHandle]:
     """명령 실행 구간을 감싸 시작과 종료를 한 곳에서 기록
 
     - 호출자는 핸들의 `exit_code`에 종료 코드를 채우고, 취소나 실패로 코드가 없으면 그대로 둠
     - 예외로 빠져나가도 종료 기록을 남기므로 실행 중 상태로 남지 않음
+    - `source_path`는 명령이 다룬 원본 영상의 전체 경로이며, 영상과 무관한 명령은 비움
     """
-    handle = record_start(stage, args, target=target)
+    handle = record_start(stage, args, target=target, source_path=source_path)
     try:
         yield handle
     finally:

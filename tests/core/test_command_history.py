@@ -46,6 +46,7 @@ class RecordLifecycleTests(CommandHistoryTestCase):
             STAGE_MAIN_ENCODE,
             ["ffmpeg", "-i", r"C:\clips\clip.mp4", "out.mp4.part"],
             target=r"C:\clips\clip.mp4",
+            source_path=r"C:\clips\clip.mp4",
         )
         running = snapshot()
         self.assertEqual(len(running), 1)
@@ -53,10 +54,12 @@ class RecordLifecycleTests(CommandHistoryTestCase):
         self.assertIsNone(running[0].elapsed_sec)
         self.assertEqual(running[0].stage, STAGE_MAIN_ENCODE)
         self.assertEqual(running[0].target_name, "clip.mp4")
+        self.assertEqual(running[0].source_path, r"C:\clips\clip.mp4")
         self.assertIsInstance(running[0].timestamp, datetime)
         self.assertEqual(handle.seq, running[0].seq)
         self.assertEqual(handle.stage, STAGE_MAIN_ENCODE)
         self.assertEqual(handle.target_name, "clip.mp4")
+        self.assertEqual(handle.source_path, r"C:\clips\clip.mp4")
         self.assertEqual(
             handle.args, ("ffmpeg", "-i", "C:\\clips\\clip.mp4", "out.mp4.part")
         )
@@ -64,7 +67,14 @@ class RecordLifecycleTests(CommandHistoryTestCase):
         record_finish(handle, 0, elapsed_sec=12.34)
         finished = snapshot()[0]
         self.assertEqual(finished.exit_code, 0)
+        self.assertEqual(finished.source_path, r"C:\clips\clip.mp4")
         self.assertAlmostEqual(finished.elapsed_sec or 0.0, 12.34, places=2)
+
+    def test_record_start_without_source_path_keeps_it_empty(self) -> None:
+        """원본 경로를 주지 않은 기록은 빈 문자열로 남는지 검증"""
+        handle = record_start(STAGE_CAPABILITY, ["ffmpeg", "-encoders"])
+        self.assertEqual(handle.source_path, "")
+        self.assertEqual(snapshot()[0].source_path, "")
 
     def test_record_finish_without_elapsed_uses_measured_time(self) -> None:
         """소요 시간을 주지 않으면 시작부터 잰 값을 0 이상으로 채우는지 검증"""
@@ -94,11 +104,14 @@ class CommandScopeTests(CommandHistoryTestCase):
     """구간 감싸기 헬퍼가 정상 종료와 예외 모두에서 종료 기록을 남기는지 검증"""
 
     def test_scope_records_exit_code_and_elapsed(self) -> None:
-        """핸들에 종료 코드를 채우면 종료 기록에 그 값과 소요가 남는지 검증"""
-        with command_scope(STAGE_VMAF, ["ffmpeg", "-i", "x.mp4"], target="x.mp4") as handle:
+        """핸들에 종료 코드를 채우면 종료 기록에 그 값과 소요, 원본 경로가 남는지 검증"""
+        with command_scope(
+            STAGE_VMAF, ["ffmpeg", "-i", "x.mp4"], target="x.mp4", source_path="C:/work/x.mp4"
+        ) as handle:
             handle.exit_code = 0
         record = snapshot()[0]
         self.assertEqual(record.exit_code, 0)
+        self.assertEqual(record.source_path, "C:/work/x.mp4")
         self.assertIsNotNone(record.elapsed_sec)
 
     def test_scope_finishes_when_cancelled_by_exception(self) -> None:

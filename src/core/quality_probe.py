@@ -262,7 +262,9 @@ def encode_sample_segments(
             quality=quality,
             ffmpeg_executable=ffmpeg_executable,
         )
-        with command_scope(STAGE_SAMPLE_ENCODE, args, target=plan.source_path) as handle:
+        with command_scope(
+            STAGE_SAMPLE_ENCODE, args, target=plan.source_path, source_path=plan.source_path
+        ) as handle:
             returncode = runner(args, work_dir)
             handle.exit_code = returncode
         if returncode != 0 or not os.path.exists(part_path):
@@ -296,7 +298,9 @@ def measure_metric(
         log_name=log_name,
     )
     stage = STAGE_VMAF if metric == METRIC_VMAF else STAGE_FRAME_ANALYSIS
-    with command_scope(stage, args, target=distorted_path) as handle:
+    with command_scope(
+        stage, args, target=distorted_path, source_path=reference_path
+    ) as handle:
         returncode = runner(args, work_dir)
         handle.exit_code = returncode
     if returncode != 0 or not log_path.exists():

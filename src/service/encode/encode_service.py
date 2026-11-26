@@ -428,7 +428,9 @@ class EncodeRunner:
         except (OSError, psutil.Error) as error:
             logger.warning("인코딩 프로세스 우선순위를 바꾸지 못했습니다: %s", error)
         try:
-            with command_scope(STAGE_MAIN_ENCODE, args, target=key) as handle:
+            with command_scope(
+                STAGE_MAIN_ENCODE, args, target=key, source_path=key
+            ) as handle:
                 outcome = process.wait()
                 handle.exit_code = None if outcome.cancelled else outcome.returncode
             return outcome

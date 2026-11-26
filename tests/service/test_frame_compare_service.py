@@ -14,6 +14,7 @@ from typing import cast
 from unittest import mock
 
 from src.core.analysis.frame_compare import FrameSource
+from src.core.command_history import STAGE_FRAME_COMPARE, clear, snapshot
 from src.core.encode.encode_state import EncodeState
 from src.core.models import ActiveFrame, VideoProps
 from src.service import frame_compare_service as module
@@ -352,6 +353,19 @@ class RunnerTests(_Base):
         self.assertEqual(returncode, 2)
         self.assertEqual(stderr, "boom")
 
+    def test_recorded_entry_carries_source_video_path(self) -> None:
+        """프레임 추출 실행이 기록에 원본 영상 경로를 남기는지 검증"""
+        clear()
+        self.addCleanup(clear)
+        run_ffmpeg_frame(
+            self._write_command("out.png"),
+            threading.Event(),
+            source_path="C:/work/clip.mp4",
+        )
+        record = snapshot()[0]
+        self.assertEqual(record.stage, STAGE_FRAME_COMPARE)
+        self.assertEqual(record.source_path, "C:/work/clip.mp4")
+
 
 class _FakeDecoder:
     """호출과 닫힘을 기록하고 정해진 프레임이나 오류를 돌려주는 가짜 디코더"""
@@ -553,9 +567,13 @@ class DecoderPathTests(_Base):
         """디코더가 실패하면 닫고 FFmpeg 경로로 다시 추출하는지 검증"""
 
         def fake_run(
-            args: list[str], _cancel: threading.Event, *, timeout_sec: float = 60.0
+            args: list[str],
+            _cancel: threading.Event,
+            *,
+            timeout_sec: float = 60.0,
+            source_path: str = "",
         ) -> tuple[int, str]:
-            del timeout_sec
+            del timeout_sec, source_path
             for arg in args:
                 if arg.endswith(".bmp"):
                     with open(arg, "wb") as handle:

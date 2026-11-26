@@ -67,6 +67,7 @@ class ProberRecordingTests(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0].stage, STAGE_PROBING)
         self.assertEqual(records[0].target_name, "clip.mp4")
+        self.assertEqual(records[0].source_path, "C:/work/clip.mp4")
         self.assertEqual(records[0].exit_code, 0)
         self.assertEqual(records[0].args[0], "ffprobe")
         self.assertIsNotNone(records[0].elapsed_sec)
@@ -163,6 +164,7 @@ class SampleEngineRecordingTests(unittest.TestCase):
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0].stage, STAGE_SAMPLE_ENCODE)
         self.assertEqual(records[0].target_name, "in.mp4")
+        self.assertEqual(records[0].source_path, os.path.join(tmp, "in.mp4"))
         self.assertEqual(records[0].exit_code, 0)
 
     def test_failed_segment_records_failure_exit_code(self) -> None:
@@ -210,7 +212,7 @@ class QualityProbeRecordingTests(unittest.TestCase):
         self.assertEqual(record.target_name, "in.mp4")
 
     def test_metric_measurement_records_vmaf_stage(self) -> None:
-        """VMAF 측정 명령이 VMAF 측정 단계와 종료 코드로 기록되는지 검증"""
+        """VMAF 측정 명령이 VMAF 측정 단계와 종료 코드, 참조 영상 경로로 기록되는지 검증"""
         with tempfile.TemporaryDirectory() as tmp:
             measure_metric(
                 distorted_path=os.path.join(tmp, "out.mp4"),
@@ -223,6 +225,7 @@ class QualityProbeRecordingTests(unittest.TestCase):
         self.assertEqual(record.stage, STAGE_VMAF)
         self.assertEqual(record.exit_code, 1)
         self.assertEqual(record.target_name, "out.mp4")
+        self.assertEqual(record.source_path, os.path.join(tmp, "in.mp4"))
 
 
 class FrameScanRecordingTests(unittest.TestCase):
@@ -253,6 +256,7 @@ class FrameScanRecordingTests(unittest.TestCase):
             self.assertEqual(record.stage, STAGE_FRAME_ANALYSIS)
             self.assertEqual(record.exit_code, 1)
             self.assertEqual(record.target_name, "clip.mp4")
+            self.assertEqual(record.source_path, os.path.join(tmp, "clip.mp4"))
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 - 기록은 코어의 메모리 링 버퍼에서 읽고, 워커 스레드의 변경 알림은 신호로 넘겨 받아 짧은 타이머로 묶어 반영
 - 표를 다시 그릴 때마다 표시 행을 새로 만들며, 기록 수는 링 버퍼 상한을 넘지 않음
+- 영상 열은 명령이 다룬 원본 영상의 이름만 보이고, 전체 경로는 그 칸의 툴팁에 둠
 """
 
 from __future__ import annotations
@@ -25,23 +26,27 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.analysis.file_manager import is_video_file
 from src.core.command_history import (
     COMMAND_HISTORY_LIMIT,
     COMMAND_STAGES,
     CommandRecord,
     add_listener,
     clear,
+    input_path_of,
     remove_listener,
     snapshot,
+    target_name_of,
 )
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.table_column_resize import make_columns_resizable
 
-COLUMN_HEADERS: tuple[str, ...] = ("시각", "단계", "대상 파일", "소요", "종료 코드", "명령줄")
-COLUMN_WIDTHS_PX: tuple[int, ...] = (72, 100, 200, 70, 80, 420)
-COMMAND_COLUMN: int = 5
-TARGET_COLUMN: int = 2
+COLUMN_HEADERS: tuple[str, ...] = ("시각", "단계", "영상", "대상 파일", "소요", "종료 코드", "명령줄")
+COLUMN_WIDTHS_PX: tuple[int, ...] = (72, 100, 160, 200, 70, 80, 420)
+COMMAND_COLUMN: int = 6
+TARGET_COLUMN: int = 3
+VIDEO_COLUMN: int = 2
 FILTER_ALL_LABEL: str = "전체"
 SEARCH_PLACEHOLDER: str = "대상 파일이나 명령줄 검색"
 COPY_ACCESSIBLE_NAME: str = "명령 복사"
@@ -51,11 +56,37 @@ CLEAR_TOOLTIP: str = "이번 실행에서 기록한 FFmpeg 명령을 모두 지�
 EMPTY_RECORDS_TEXT: str = "아직 실행한 FFmpeg 명령이 없습니다."
 EMPTY_FILTERED_TEXT: str = "검색과 단계 조건에 맞는 명령이 없습니다."
 RUNNING_TEXT: str = "실행 중"
+NO_VIDEO_TEXT: str = "-"
+VIDEO_TOOLTIP_TEMPLATE: str = "이 명령이 다룬 영상 파일입니다. 전체 경로: {path}"
+NO_VIDEO_TOOLTIP: str = "이 명령에서 영상 파일을 찾지 못했습니다. 영상과 무관한 명령입니다."
 TIME_FORMAT: str = "%H:%M:%S"
 ACTION_BUTTON_SIZE: int = 34
 ICON_SIZE_PX: int = 15
 REFRESH_INTERVAL_MS: int = 200
 ELAPSED_DECIMALS: int = 1
+
+
+def video_path_of(record: CommandRecord) -> str:
+    """기록이 다룬 영상 파일의 전체 경로. 알 수 없으면 빈 문자열
+
+    - 기록할 때 남긴 원본 경로를 먼저 쓰고, 없으면 명령 인자의 첫 입력 경로가 영상 확장자일 때만 씀
+    """
+    if record.source_path:
+        return record.source_path
+    candidate = input_path_of(record.args)
+    return candidate if is_video_file(candidate) else ""
+
+
+def video_text_of(record: CommandRecord) -> str:
+    """영상 열 표시. 영상을 알 수 없으면 하이픈"""
+    name = target_name_of(video_path_of(record))
+    return name or NO_VIDEO_TEXT
+
+
+def video_tooltip_of(record: CommandRecord) -> str:
+    """영상 열 툴팁. 칸이 무엇인지와 전체 경로를 알려 줌"""
+    path = video_path_of(record)
+    return VIDEO_TOOLTIP_TEMPLATE.format(path=path) if path else NO_VIDEO_TOOLTIP
 
 
 def elapsed_text(seconds: float | None) -> str:
@@ -126,11 +157,14 @@ class CommandHistoryPanel(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setWordWrap(False)
+        # - 처음에는 기록 순서를 유지하고, 열 머리글을 누르면 그 열 기준으로 정렬
+        self.table.setSortingEnabled(True)
         vertical_header = self.table.verticalHeader()
         if vertical_header is not None:
             vertical_header.setVisible(False)
         header = self.table.horizontalHeader()
         if header is not None:
+            header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
             make_columns_resizable(header, COLUMN_WIDTHS_PX)
         self.table.itemDoubleClicked.connect(lambda _item: self._copy_selected())
         layout.addWidget(self.table, stretch=1)
@@ -236,24 +270,35 @@ class CommandHistoryPanel(QWidget):
         self.lbl_empty.setVisible(shown == 0)
 
     def _fill_table(self, records: Sequence[CommandRecord]) -> None:
-        """기록 행을 다시 채움. 명령줄과 대상 파일은 전체 값을 툴팁으로 보여 줌"""
-        self.table.setRowCount(len(records))
-        for row, record in enumerate(records):
-            values = (
-                record.timestamp.strftime(TIME_FORMAT),
-                record.stage,
-                record.target_name,
-                elapsed_text(record.elapsed_sec),
-                exit_code_text(record.exit_code),
-                record.display,
-            )
-            for column, text in enumerate(values):
-                item = QTableWidgetItem(text)
-                if column == COMMAND_COLUMN:
-                    item.setToolTip(record.display)
-                elif column == TARGET_COLUMN and record.target_name:
-                    item.setToolTip(record.target_name)
-                self.table.setItem(row, column, item)
+        """기록 행을 다시 채움. 영상, 명령줄, 대상 파일은 전체 값을 툴팁으로 보여 줌
+
+        - 채우는 동안 정렬을 끄지 않으면 셀을 넣을 때마다 행이 움직여 값이 다른 행에 섞임
+        """
+        sorting = self.table.isSortingEnabled()
+        self.table.setSortingEnabled(False)
+        try:
+            self.table.setRowCount(len(records))
+            for row, record in enumerate(records):
+                values = (
+                    record.timestamp.strftime(TIME_FORMAT),
+                    record.stage,
+                    video_text_of(record),
+                    record.target_name,
+                    elapsed_text(record.elapsed_sec),
+                    exit_code_text(record.exit_code),
+                    record.display,
+                )
+                for column, text in enumerate(values):
+                    item = QTableWidgetItem(text)
+                    if column == COMMAND_COLUMN:
+                        item.setToolTip(record.display)
+                    elif column == VIDEO_COLUMN:
+                        item.setToolTip(video_tooltip_of(record))
+                    elif column == TARGET_COLUMN and record.target_name:
+                        item.setToolTip(record.target_name)
+                    self.table.setItem(row, column, item)
+        finally:
+            self.table.setSortingEnabled(sorting)
 
     def selected_command_lines(self) -> list[str]:
         """선택한 행의 전체 명령줄. 행 번호 순서로 돌려줌"""

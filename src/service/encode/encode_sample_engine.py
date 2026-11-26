@@ -214,7 +214,9 @@ def _run_segments(
         if not group.register(proc):
             return True, False, 0
         try:
-            with command_scope(STAGE_SAMPLE_ENCODE, args, target=source_path) as handle:
+            with command_scope(
+                STAGE_SAMPLE_ENCODE, args, target=source_path, source_path=source_path
+            ) as handle:
                 proc.start()
                 outcome = proc.wait()
                 handle.exit_code = None if outcome.cancelled else outcome.returncode

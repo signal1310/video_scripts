@@ -124,7 +124,7 @@ def run_ffprobe(
     """ffprobe 서브프로세스를 타임아웃 및 워커 중단 신호 감시 하에 실행하고 JSON 출력을 파싱하여 반환"""
     cmd: list[str] = [ffprobe, "-v", "error", "-of", "json", *extra_args, filepath]
     creationflags: int = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    with command_scope(STAGE_PROBING, cmd, target=filepath) as handle:
+    with command_scope(STAGE_PROBING, cmd, target=filepath, source_path=filepath) as handle:
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.DEVNULL,

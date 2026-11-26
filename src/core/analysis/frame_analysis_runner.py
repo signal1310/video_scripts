@@ -217,7 +217,9 @@ def _measure_ssim_point(
         fast_keyframe_seek=fast_keyframe_seek,
         algorithm=algorithm,
     )
-    with command_scope(STAGE_FRAME_ANALYSIS, args, target=source_path) as handle:
+    with command_scope(
+        STAGE_FRAME_ANALYSIS, args, target=source_path, source_path=source_path
+    ) as handle:
         returncode, _stderr = runner(args, work_dir)
         handle.exit_code = returncode
     if returncode != 0:
@@ -261,7 +263,9 @@ def _measure_vmaf_point(
         n_subsample=VMAF_SUBSAMPLE,
         algorithm=algorithm,
     )
-    with command_scope(COMMAND_STAGE_VMAF, args, target=source_path) as handle:
+    with command_scope(
+        COMMAND_STAGE_VMAF, args, target=source_path, source_path=source_path
+    ) as handle:
         returncode, _stderr = runner(args, work_dir)
         handle.exit_code = returncode
     if returncode != 0:

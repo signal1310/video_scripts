@@ -13,6 +13,21 @@ from src.core.encode.encode_process import EncodeProcess, resolve_priority_value
 
 _PRINT_SCRIPT = "print('frame=1'); print('progress=continue'); print('frame=2'); print('progress=end')"
 _SLEEP_SCRIPT = "import time; time.sleep(60)"
+_STATE_WAIT_TIMEOUT_SEC = 5.0
+_STATE_POLL_INTERVAL_SEC = 0.05
+
+
+def _wait_for_status(child: psutil.Process, expected: str) -> str:
+    """상태가 기대 값이 될 때까지 제한 시간 동안 기다린 뒤 마지막 상태를 돌려줌
+
+    - Windows의 psutil 상태 조회는 suspend/resume 직후 잠깐 이전 상태를 돌려줄 수 있어 한 번 읽고 단언하지 않음
+    """
+    deadline = time.monotonic() + _STATE_WAIT_TIMEOUT_SEC
+    status = child.status()
+    while status != expected and time.monotonic() < deadline:
+        time.sleep(_STATE_POLL_INTERVAL_SEC)
+        status = child.status()
+    return status
 
 
 class TestProcessOutput(unittest.TestCase):
@@ -47,12 +62,9 @@ class TestProcessControl(unittest.TestCase):
         try:
             child = psutil.Process(process.pid)
             process.pause()
-            self.assertEqual(child.status(), psutil.STATUS_STOPPED)
+            self.assertEqual(_wait_for_status(child, psutil.STATUS_STOPPED), psutil.STATUS_STOPPED)
             process.resume()
-            deadline = time.monotonic() + 5.0
-            while child.status() == psutil.STATUS_STOPPED and time.monotonic() < deadline:
-                time.sleep(0.05)
-            self.assertNotEqual(child.status(), psutil.STATUS_STOPPED)
+            self.assertNotEqual(_wait_for_status(child, psutil.STATUS_RUNNING), psutil.STATUS_STOPPED)
         finally:
             process.cancel()
             process.wait(timeout=30.0)

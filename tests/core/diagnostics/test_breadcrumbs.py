@@ -9,6 +9,7 @@ from datetime import datetime
 from src.core.diagnostics.breadcrumbs import (
     BREADCRUMB_BUFFER_SIZE,
     MIRROR_HANDLER_NAME,
+    MIRRORED_LOGGER_NAMES,
     TRIM_CHECK_INTERVAL,
     BreadcrumbTrail,
     LogBreadcrumbHandler,
@@ -107,12 +108,24 @@ class TestLogMirror(unittest.TestCase):
 
     def test_should_mirror_filters_by_logger_and_level(self) -> None:
         """목록 모듈은 INFO 이상, 그 밖의 모듈은 WARNING 이상만 통과하는지 검증"""
-        mirrored = "src.gui.controllers.task_runner"
+        mirrored = "src.gui.controllers.session_controller"
         other = "src.gui.table.table_model"
         self.assertTrue(LogBreadcrumbHandler._should_mirror(_record(mirrored, logging.INFO)))
         self.assertFalse(LogBreadcrumbHandler._should_mirror(_record(mirrored, logging.DEBUG)))
         self.assertFalse(LogBreadcrumbHandler._should_mirror(_record(other, logging.INFO)))
         self.assertTrue(LogBreadcrumbHandler._should_mirror(_record(other, logging.WARNING)))
+
+    def test_row_level_analysis_and_encode_loggers_are_not_mirrored(self) -> None:
+        """행 단위 줄을 찍는 분석, 인코딩, 미리 보기 로거는 미러 목록에 없어 중복을 만들지 않는지 검증"""
+        for name in (
+            "src.gui.controllers.task_runner",
+            "src.gui.controllers.encode_coordinator",
+            "src.gui.controllers.dialog_coordinator",
+            "src.gui.preview.preview_controller",
+        ):
+            with self.subTest(logger=name):
+                self.assertNotIn(name, MIRRORED_LOGGER_NAMES)
+                self.assertFalse(LogBreadcrumbHandler._should_mirror(_record(name, logging.INFO)))
 
     def test_handler_appends_formatted_message(self) -> None:
         """핸들러가 로거 이름 꼬리를 분류로 쓰고 메시지만 남기는지 검증"""
@@ -120,11 +133,11 @@ class TestLogMirror(unittest.TestCase):
             trail = BreadcrumbTrail(breadcrumbs_path(tmp))
             handler = LogBreadcrumbHandler(trail)
             self.addCleanup(handler.close)
-            record = _record("src.gui.controllers.task_runner", logging.INFO, "정밀 분석 시작")
+            record = _record("src.gui.controllers.session_controller", logging.INFO, "정밀 분석 시작")
             handler.emit(record)
             events = trail.events()
         self.assertEqual(len(events), 1)
-        self.assertIn("[task runner] 정밀 분석 시작", events[0])
+        self.assertIn("[session controller] 정밀 분석 시작", events[0])
 
     def test_attach_and_detach_log_mirror(self) -> None:
         """로그 미러를 앱 루트 로거에 중복 없이 붙이고 떼는지 검증"""

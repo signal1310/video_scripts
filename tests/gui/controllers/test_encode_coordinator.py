@@ -252,6 +252,22 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertTrue(window.isVisible())
         self.assertEqual(self.changed_count, 2)
 
+    def test_start_and_finish_note_the_encode_batch_in_breadcrumbs(self) -> None:
+        """인코딩 배치 시작과 종료가 인코딩 분류로 기록되는지 검증"""
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
+        with (
+            mock.patch.object(EncodeController, "start", return_value=1),
+            mock.patch.object(coordinator_module, "note_event") as noted,
+        ):
+            window._start_new_batch()
+            self.coordinator._on_batch_finished(None)
+        self.assertEqual(
+            [call.args for call in noted.call_args_list],
+            [("인코딩", "인코딩 배치 시작"), ("인코딩", "인코딩 배치 완료")],
+        )
+
     def test_start_button_excludes_unchecked_targets(self) -> None:
         """시작 전 대기열에서 체크를 해제한 영상은 배치 대상에서 빠지는지 검증"""
         path = resolve_source_filepath(self.root, "a.mp4")

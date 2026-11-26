@@ -7,6 +7,13 @@ from typing import Protocol
 from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from src.core.analysis.reanalysis_notice import build_reanalysis_notice_plan, count_keyframe_missing
+from src.core.diagnostics.events import (
+    ACTION_START,
+    CATEGORY_ANALYSIS,
+    CATEGORY_ERROR,
+    describe_error,
+    describe_task,
+)
 from src.core.eta import ProgressEstimate, ProgressEstimator, format_rate, format_remaining
 from src.core.formatting import format_duration_hms
 from src.core.messages import (
@@ -19,6 +26,7 @@ from src.core.models import PERCENT_MULTIPLIER, SummaryReport
 from src.gui.constants import WORKER_CANCEL_WAIT_MS, WORKER_TERMINATE_WAIT_MS
 from src.gui.controllers.frame_analysis_controller import FrameAnalysisController
 from src.gui.controllers.worker import ClassifierWorker
+from src.gui.diagnostics_qt import note_event
 from src.service.analysis_probe import StoredRows
 from src.service.analysis_timing import (
     MODE_FAST,
@@ -189,6 +197,7 @@ class TaskRunner:
             if enabled
         ]
         logger.info("%s", format_task_start(label, options))
+        note_event(CATEGORY_ANALYSIS, describe_task(label, ACTION_START))
         self._host.set_progress_pending()
         self._host.set_busy_state(True, f"{label} 진행 중...")
         worker = ClassifierWorker(
@@ -288,6 +297,8 @@ class TaskRunner:
         else:
             logger.info("%s", status_text)
 
+        note_event(CATEGORY_ANALYSIS, status_text)
+
         if analyze_mode == MODE_FAST and report is not None:
             keyframe_missing = count_keyframe_missing(report.evaluations)
             if keyframe_missing > 0:
@@ -322,6 +333,7 @@ class TaskRunner:
         summary = next((line.strip() for line in error_msg.splitlines() if line.strip()), error_msg)
         self._host.set_busy_state(False, f"오류 발생: {summary}")
         logger.error("%s", error_msg)
+        note_event(CATEGORY_ERROR, describe_error(error_msg))
         QMessageBox.critical(
             self._host.as_widget(),
             "작업 오류",

@@ -138,6 +138,27 @@ class TestStartupAndShutdown(unittest.TestCase):
         record_breadcrumb(runtime, "분석", "무시")
         shutdown_diagnostics(runtime)
 
+    def test_developer_mode_installs_and_removes_the_dev_log(self) -> None:
+        """개발자 모드 시작이 dev.log를 만들고 종료가 핸들러를 떼는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = start_diagnostics(directory=tmp, developer_mode=True, now=_WHEN)
+            try:
+                self.assertIsNotNone(runtime.dev_log)
+                assert runtime.dev_log is not None
+                self.assertTrue(os.path.isfile(runtime.dev_log.path))
+            finally:
+                shutdown_diagnostics(runtime, now=_WHEN)
+            self.assertIsNone(runtime.dev_log)
+
+    def test_default_start_leaves_the_dev_log_off(self) -> None:
+        """개발자 모드가 아니면 dev.log를 만들지 않는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = start_diagnostics(directory=tmp, now=_WHEN)
+            try:
+                self.assertIsNone(runtime.dev_log)
+            finally:
+                shutdown_diagnostics(runtime, now=_WHEN)
+
     def test_start_survives_unwritable_diagnostics_path(self) -> None:
         """진단 폴더 상위가 파일이어도 시작이 예외 없이 런타임을 돌려주는지 검증"""
         with tempfile.TemporaryDirectory() as tmp:

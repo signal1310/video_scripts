@@ -79,6 +79,36 @@ class MainWindowActionTests(GuiTestCase):
         clear.assert_called_once()
         restore.assert_called_once()
 
+    def test_add_working_directory_notes_the_folder_change(self) -> None:
+        """폴더 추가가 성공하면 폴더 분류로 변경 기록을 남기는지 검증"""
+        with (
+            mock.patch.object(self.window._session, "add_directory", return_value=True),
+            mock.patch.object(self.window, "_clear_analysis_view"),
+            mock.patch.object(self.window._restore_flow, "start"),
+            mock.patch.object(self.window, "_current_root_dir", return_value="C:/media/movies"),
+            mock.patch("src.gui.main_window.note_event") as noted,
+        ):
+            self.window.add_working_directory("D:/extra")
+        self.assertEqual(noted.call_args.args, ("작업 폴더", "변경: movies"))
+
+    def test_set_working_directory_notes_the_change_only_when_the_folder_changed(self) -> None:
+        """작업 폴더 전환이 실제로 바뀐 경우에만 폴더 변경을 남기는지 검증"""
+        with (
+            mock.patch.object(self.window._session, "switch_directory", return_value=False),
+            mock.patch("src.gui.main_window.note_event") as unchanged,
+        ):
+            self.window.set_working_directory("C:/media")
+        unchanged.assert_not_called()
+        with (
+            mock.patch.object(self.window._session, "switch_directory", return_value=True),
+            mock.patch.object(self.window, "_clear_analysis_view"),
+            mock.patch.object(self.window._restore_flow, "start"),
+            mock.patch.object(self.window, "_current_root_dir", return_value="D:/clips"),
+            mock.patch("src.gui.main_window.note_event") as changed,
+        ):
+            self.window.set_working_directory("D:/clips")
+        self.assertEqual(changed.call_args.args, ("작업 폴더", "변경: clips"))
+
     def test_recursive_toggle_resets_view_only_when_scan_changed(self) -> None:
         """하위 폴더 포함 전환이 스캔 설정을 바꿨을 때만 분석 뷰를 초기화하는지 검증"""
         with (

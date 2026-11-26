@@ -184,6 +184,25 @@ class TestConfigModule(unittest.TestCase):
         self.assertEqual(reloaded.bitrate_model.base_target_kbps, 2000)
         self.assertAlmostEqual(reloaded.thresholds.over_bitrate_ratio, 1.35)
 
+    def test_diagnostics_developer_mode_roundtrip_and_tolerant_decode(self) -> None:
+        """개발자 모드 설정이 사전 왕복에서 유지되고, 옛 설정과 깨진 값은 기본값으로 해석되는지 검증"""
+        cfg = ClassifierConfig()
+        self.assertFalse(cfg.diagnostics.developer_mode)
+        cfg.diagnostics.developer_mode = True
+        payload = cfg.to_dict()
+        self.assertTrue(payload["diagnostics"]["developer_mode"])
+        self.assertTrue(ClassifierConfig.from_dict(payload).diagnostics.developer_mode)
+        # - 옛 설정 파일에는 diagnostics 섹션이 없으므로 기본값(꺼짐)으로 채워야 함
+        self.assertIn(
+            "diagnostics",
+            ClassifierConfig.from_dict({"analysis": {}, "display": {}, "cui": {}}).to_dict(),
+        )
+        self.assertFalse(ClassifierConfig.from_dict({"analysis": {}}).diagnostics.developer_mode)
+        for raw in ({"developer_mode": "yes"}, {"developer_mode": "off"}, {"developer_mode": 1}):
+            with self.subTest(raw=raw):
+                parsed = ClassifierConfig.from_dict({"diagnostics": raw}).diagnostics.developer_mode
+                self.assertIsInstance(parsed, bool)
+
     def test_ensure_default_rootdir_file_creates_missing_and_preserves_existing(self) -> None:
         """data/rootdir.txt 미존재 시 CUI 안내 주석 템플릿으로 자동 생성하고 기존 파일은 보존함을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -210,7 +229,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 63)
+        self.assertEqual(CORE_SETTING_COUNT, 64)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertEqual(DEFAULT_PATHS.recent_dirs, [])
         self.assertIn("over_bitrate_ratio", bounds)

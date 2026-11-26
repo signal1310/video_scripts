@@ -14,6 +14,7 @@ from src.core.config import (
     ClassifierConfig,
     CodecWeightsConfig,
     CuiConfig,
+    DiagnosticsConfig,
     DisplayConfig,
     EncodeConfig,
     ExecutionConfig,
@@ -40,6 +41,7 @@ SETTING_SECTION_TYPES: dict[str, type[Any]] = {
     "display": DisplayConfig,
     "cui": CuiConfig,
     "execution": ExecutionConfig,
+    "diagnostics": DiagnosticsConfig,
 }
 
 # - 설정 데이터클래스 필드가 아닌, 화면에서만 다루는 행 키

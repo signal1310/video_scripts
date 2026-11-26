@@ -23,6 +23,7 @@ from src.core.resolution_tiers import RESOLUTION_TIERS
 from src.core.settings.ui_state import DEFAULT_THEME_MODE
 from src.gui.constants import make_path_font
 from src.gui.settings.collapsible_section import CollapsibleSection
+from src.gui.settings.diagnostics_card import build_diagnostics_card
 from src.gui.settings.setting_controls import (
     RESET_BUTTON_SIZE,
     ScrollSafeComboBox,
@@ -139,8 +140,10 @@ def build_general_page(
     body_layout: QVBoxLayout,
     advanced: CollapsibleSection,
     on_browse_root: Callable[[], None],
+    on_open_diagnostics: Callable[[], None],
+    on_create_report: Callable[[], None],
 ) -> SettingsPageForm:
-    """일반 범주 페이지(기본 환경, 표시, 고급 표 서식과 콘솔 출력) 조립"""
+    """일반 범주 페이지(기본 환경, 표시, 고급 표 서식과 콘솔 출력, 진단 카드) 조립"""
     rows: dict[str, SettingRow] = {}
     cards: list[SettingsGroupCard] = []
 
@@ -187,6 +190,9 @@ def build_general_page(
     card_console = build_console_card(rows)
     cards.append(card_console)
     advanced.add_widget(card_console)
+    card_diagnostics = build_diagnostics_card(rows, on_open_diagnostics, on_create_report)
+    cards.append(card_diagnostics)
+    advanced.add_widget(card_diagnostics)
     return SettingsPageForm(
         rows=rows,
         cards=cards,

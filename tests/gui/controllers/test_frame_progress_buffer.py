@@ -1,5 +1,6 @@
 """단계 진행 묶음 타이머 보조 검증"""
 
+import logging
 import os
 import unittest
 
@@ -7,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
-from src.gui.controllers.frame_progress_buffer import FrameProgressBuffer, StageProgress
+from src.gui.controllers.frame_progress_buffer import TIMINGS_LOGGER_NAME, FrameProgressBuffer, StageProgress
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -66,6 +67,16 @@ class FrameProgressBufferTests(unittest.TestCase):
         self.assertTrue(buffer.is_bundling())
         buffer.flush()
         self.assertEqual([p.stage_done for p in received], [1, 2])
+
+    def test_stage_changes_and_drop_log_stage_timings_at_debug(self) -> None:
+        """단계가 바뀌거나 묶음을 버릴 때 이전 단계 소요가 개발 로그용 DEBUG로 남는지 검증"""
+        buffer = FrameProgressBuffer(lambda _progress_value: None, 300)
+        with self.assertLogs(TIMINGS_LOGGER_NAME, level=logging.DEBUG) as captured:
+            buffer.submit(StageProgress(0, 3, "a.mp4", "scan", 1, 9))
+            buffer.submit(StageProgress(0, 3, "a.mp4", "vmaf", 1, 9))
+            buffer.drop()
+        self.assertEqual(len(captured.output), 2)
+        self.assertTrue(all("단계 소요" in line for line in captured.output))
 
 
 if __name__ == "__main__":

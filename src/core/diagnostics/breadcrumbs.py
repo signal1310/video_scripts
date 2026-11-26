@@ -108,14 +108,11 @@ def format_list_event(action: str, count: int) -> str:
 
 
 # - 이미 남기는 업무 로그를 그대로 브레드크럼으로 옮길 로거(모듈) 목록. 같은 메시지를 두 번 쓰지 않으려고 화이트리스트로 제한
+# - 화면 동작(분석, 인코딩, 미리 보기, 설정)은 GUI가 note_event로 직접 한 줄씩 남기므로, 행 단위 줄을 찍는 그 모듈은 넣지 않음
 MIRRORED_LOGGER_NAMES: frozenset[str] = frozenset(
     {
-        "src.gui.controllers.task_runner",
-        "src.gui.controllers.encode_coordinator",
         "src.gui.controllers.session_controller",
         "src.gui.controllers.restore_flow",
-        "src.gui.controllers.dialog_coordinator",
-        "src.gui.preview.preview_controller",
         "src.core.analysis.prober",
         "src.core.encode.encode_process",
     }

@@ -391,6 +391,18 @@ class CuiConfig:
     )
 
 
+@dataclass(slots=True)
+class DiagnosticsConfig:
+    """진단 로그와 개발자 모드 설정"""
+
+    developer_mode: bool = field(
+        default=False,
+        metadata=setting_meta(
+            "개발자 모드: 상세 로그와 화면 멈춤 감시를 켜고 진단 파일을 data/logs에 남김"
+        ),
+    )
+
+
 
 RESULT_POLICY_ARCHIVE: str = "archive_original"
 RESULT_POLICY_SEPARATE: str = "separate_output"
@@ -506,8 +518,9 @@ DEFAULT_CODEC_WEIGHTS_CONFIG = CodecWeightsConfig()
 DEFAULT_BITRATE_MODEL = BitrateModelConfig()
 DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
+DEFAULT_DIAGNOSTICS = DiagnosticsConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (analysis 38 + display 10 + cui 1 + execution 16)
+# 분류기 핵심 세부 설정 항목 총 개수 (analysis 38 + display 10 + cui 1 + execution 16 + diagnostics 1)
 CORE_SETTING_COUNT: int = (
     len(fields(ThresholdsConfig))
     + len(fields(SavingsConfig))
@@ -517,6 +530,7 @@ CORE_SETTING_COUNT: int = (
     + len(fields(DisplayConfig))
     + len(fields(CuiConfig))
     + len(fields(ExecutionConfig))
+    + len(fields(DiagnosticsConfig))
 )
 
 _SETTING_BOUND_CLASSES: tuple[type[Any], ...] = (
@@ -662,6 +676,7 @@ class ClassifierConfig:
     display: DisplayConfig = field(default_factory=DisplayConfig)
     cui: CuiConfig = field(default_factory=CuiConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
 
     def get_codec_weight(self, codec: str) -> float:
         """코덱 명칭을 정규화해 H.264 대비 상대 비트레이트 가중치 반환"""
@@ -678,10 +693,11 @@ class ClassifierConfig:
             display=replace(self.display),
             cui=replace(self.cui),
             execution=replace(self.execution),
+            diagnostics=replace(self.diagnostics),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """통합 JSON 스키마(analysis, display, cui)와 동일한 계층 사전으로 변환"""
+        """통합 JSON 스키마(analysis, display, cui, execution, diagnostics)와 동일한 계층 사전으로 변환"""
         return {
             "analysis": {
                 "thresholds": asdict(self.thresholds),
@@ -693,6 +709,7 @@ class ClassifierConfig:
             "display": asdict(self.display),
             "cui": asdict(self.cui),
             "execution": asdict(self.execution),
+            "diagnostics": asdict(self.diagnostics),
         }
 
     @classmethod
@@ -702,6 +719,7 @@ class ClassifierConfig:
         display_raw = values.get("display")
         cui_raw = values.get("cui")
         execution_raw = values.get("execution")
+        diagnostics_raw = values.get("diagnostics")
 
         analysis = analysis_raw if isinstance(analysis_raw, Mapping) else {}
         display_map = display_raw if isinstance(display_raw, Mapping) else {}
@@ -745,6 +763,11 @@ class ClassifierConfig:
             cui=parse_typed_section(cui_map, DEFAULT_CUI, CuiConfig),
             execution=_parse_execution_section(
                 execution_raw if isinstance(execution_raw, Mapping) else {}
+            ),
+            diagnostics=parse_typed_section(
+                diagnostics_raw if isinstance(diagnostics_raw, Mapping) else {},
+                DEFAULT_DIAGNOSTICS,
+                DiagnosticsConfig,
             ),
         )
 

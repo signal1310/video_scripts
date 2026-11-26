@@ -28,12 +28,14 @@ from src.core.config import (
     BitrateModelConfig,
     ClassifierConfig,
     CodecWeightsConfig,
+    DiagnosticsConfig,
     DisplayConfig,
     ExecutionConfig,
     PathsConfig,
     SavingsConfig,
     ThresholdsConfig,
 )
+from src.core.diagnostics.settings import DEV_MODE_ENV
 from src.core.paths import ROOTDIR_FILENAME, get_root_dir
 from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, AppState, load_app_state, save_app_state
 from src.core.settings.ui_state import UiFilterState, UiState
@@ -61,6 +63,7 @@ def _general_keys() -> set[str]:
         "root_dir",
         *(f"display.{f.name}" for f in fields(DisplayConfig)),
         "cui.filename_maxlen",
+        *(f"diagnostics.{f.name}" for f in fields(DiagnosticsConfig)),
     }
 
 
@@ -154,7 +157,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
     """설정 대화상자의 배치, 바인딩, 검색, 저장과 초기화 검증"""
 
     def test_rows_cover_every_setting_by_category(self) -> None:
-        """범주별 행이 65개 설정(코어 63 + GUI 2)을 빠짐없이 덮는지 검증"""
+        """범주별 행이 66개 설정(코어 64 + GUI 2)을 빠짐없이 덮는지 검증"""
         dialog, _root, _path = self._isolated_dialog()
 
         expected = {
@@ -163,7 +166,7 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
             SettingsDialog.TAB_CRITERIA: _criteria_keys(),
             SettingsDialog.TAB_EXECUTION: _execution_keys(),
         }
-        self.assertEqual(len(dialog._rows), 65)
+        self.assertEqual(len(dialog._rows), 66)
         for page, keys in expected.items():
             with self.subTest(page=page):
                 actual = {key for key, row_page in dialog._row_pages.items() if row_page == page}
@@ -452,6 +455,27 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         dialog.btn_pin.click()
         self.assertIsNone(dialog.parentWidget())
 
+    def test_create_report_button_path_emits_name_and_opens_the_folder_only_on_success(self) -> None:
+        """진단 보고서 만들기가 성공하면 파일 이름을 알리고 폴더를 열며, 실패하면 빈 이름만 알리고 열지 않는지 검증"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        opened: list[bool] = []
+        archives = [os.path.join(tmp.name, "diag.zip"), ""]
+        dialog = SettingsDialog(
+            current_root_dir=tmp.name,
+            on_open_diagnostics=lambda: opened.append(True),
+            on_create_report=lambda: archives.pop(0),
+        )
+        self.addCleanup(dialog.close)
+        names: list[str] = []
+        dialog.diagnostics_report_created.connect(names.append)
+
+        dialog._on_create_report()
+        dialog._on_create_report()
+
+        self.assertEqual(names, ["diag.zip", ""])
+        self.assertEqual(opened, [True])
+
     def test_resolution_page_has_no_empty_header_row(self) -> None:
         """복원 버튼 문구가 빈 페이지는 상단 빈 줄 없이 스크롤 본문이 바로 시작하는지 검증"""
         dialog, _root, _path = self._isolated_dialog()
@@ -671,6 +695,28 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
             default_kbps,
         )
 
+
+    def test_autosave_logs_only_changed_keys_in_developer_mode(self) -> None:
+        """환경 변수로 켠 개발자 모드에서 자동 저장이 바뀐 키만 DEBUG로 남기는지 검증"""
+        dialog, _root, _state_path = self._isolated_dialog()
+        with (
+            patch.dict(os.environ, {DEV_MODE_ENV: "1"}, clear=False),
+            self.assertLogs("src.diagnostics", level="DEBUG") as logs,
+        ):
+            _set_row(dialog, "analysis.bitrate_model.base_target_kbps", 4100)
+        joined = "\n".join(logs.output)
+        self.assertIn("bitrate_model.base_target_kbps: 3000 -> 4100", joined)
+        self.assertNotIn("display.size_unit", joined)
+
+    def test_autosave_is_silent_when_developer_mode_is_off(self) -> None:
+        """개발자 모드가 꺼져 있으면 자동 저장이 설정 변경 기록을 남기지 않는지 검증"""
+        dialog, _root, _state_path = self._isolated_dialog()
+        without_dev = {key: value for key, value in os.environ.items() if key != DEV_MODE_ENV}
+        with (
+            patch.dict(os.environ, without_dev, clear=True),
+            self.assertNoLogs("src.diagnostics", level="DEBUG"),
+        ):
+            _set_row(dialog, "analysis.bitrate_model.base_target_kbps", 4300)
 
     def test_reset_defaults_persists_unified_state(self) -> None:
         """전체 초기화 확인 시 data/config.json, 테마, 위젯 값이 초기화되고 취소 시 유지됨을 검증"""

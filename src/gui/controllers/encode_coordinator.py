@@ -16,6 +16,12 @@ from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QWidget
 
 from src.core.config import RESULT_POLICY_REPLACE
+from src.core.diagnostics.events import (
+    ACTION_FINISH,
+    ACTION_START,
+    CATEGORY_ENCODE,
+    describe_task,
+)
 from src.core.encode.encode_batch_book import (
     ACTIVE_CHIP_STATES,
     EncodeBatchBook,
@@ -39,6 +45,7 @@ from src.gui.controllers.encode_item_actions import EncodeItemActions, notify_te
 from src.gui.controllers.encode_result_feed import SHOWN_STATES, ResultFeed
 from src.gui.controllers.encode_worker import BatchFinished
 from src.gui.controllers.session_controller import SessionCoordinator
+from src.gui.diagnostics_qt import note_event
 from src.gui.dialogs.encode_confirm_dialogs import ask_close
 from src.gui.dialogs.encode_progress_card import LONG_PAUSE_CAUSE
 from src.gui.dialogs.encode_progress_window import BatchInfo, EncodeProgressWindow
@@ -64,6 +71,8 @@ logger = logging.getLogger(__name__)
 
 RESUME_RETRY_MS: int = 1000
 LONG_PAUSE_MINUTES: int = int(LONG_RUN_NOTICE_SEC // 60)
+# - 사용자 동작 기록에 남길 배치 작업 이름. 시작과 종료가 같은 이름을 씀
+ENCODE_LABEL: str = "인코딩 배치"
 LONG_PAUSE_LOG_TEMPLATE: str = (
     "인코딩 장시간 일시중지: {name}, {minutes}분을 넘게 멈춰 있습니다. " + LONG_PAUSE_CAUSE + " 오래 멈출 때는 현재 영상 후 중지를 권장합니다."
 )
@@ -309,6 +318,7 @@ class EncodeCoordinator:
         self._book.start(resolve_source_filepath(report.root_dir, ev.video.filename) for ev in targets)
         batch_id = self._controller.start(config, targets, report.root_dir, report.root_dir)
         logger.info("인코딩 배치 시작: 대상 %d개", self._book.total())
+        note_event(CATEGORY_ENCODE, describe_task(ENCODE_LABEL, ACTION_START))
         if batch_id is not None:
             self._batch_id = batch_id
             self._batch_settings = settings
@@ -523,6 +533,7 @@ class EncodeCoordinator:
     def _on_batch_finished(self, finished: object) -> None:
         self._book.set_paused(False)
         logger.info("인코딩 배치 종료: %d/%d개 처리", self._book.processed(), self._book.total())
+        note_event(CATEGORY_ENCODE, describe_task(ENCODE_LABEL, ACTION_FINISH))
         self._notify_changed()
         self._notify_book_changed()
         if self._progress_window is not None:

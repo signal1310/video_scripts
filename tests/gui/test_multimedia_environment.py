@@ -78,7 +78,7 @@ class BootstrapDiagnosticsTests(unittest.TestCase):
             seen.append(FILE_HANDLER_NAME in names)
 
         with mock.patch("src.gui.start_gui_diagnostics", side_effect=probe):
-            bootstrap_diagnostics()
+            bootstrap_diagnostics(developer_mode=False)
         self.assertEqual(seen, [True])
 
     def test_message_after_start_reaches_app_log_file(self) -> None:
@@ -91,7 +91,7 @@ class BootstrapDiagnosticsTests(unittest.TestCase):
             ),
             mock.patch.object(diagnostics_qt, "install_qt_message_handler"),
         ):
-            bootstrap_diagnostics()
+            bootstrap_diagnostics(developer_mode=False)
         logging.getLogger("src.diagnostics").warning("시작 직후 기록 확인")
         for handler in logging.getLogger("src").handlers:
             handler.flush()

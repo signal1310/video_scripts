@@ -6,11 +6,14 @@ from collections.abc import Mapping
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from unittest import mock
+
 from PyQt6.QtGui import QStandardItemModel
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.settings.app_state import AppState
+from src.gui.controllers import dialog_coordinator
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.dialogs.log_dialog import LogTab
 from tests._gui_helpers import GuiTestCase
@@ -31,6 +34,12 @@ class DialogReuseTests(GuiTestCase):
         )
         self.addCleanup(self.coordinator.close_all)
         self.export_model = QStandardItemModel(self.parent)
+
+    def test_settings_open_is_noted_as_a_settings_event(self) -> None:
+        """환경 설정 열기가 설정 분류로 열기 기록을 남기는지 검증"""
+        with mock.patch.object(dialog_coordinator, "note_event") as noted:
+            self.coordinator.open_settings(ClassifierConfig(), "", app_state=AppState())
+        self.assertEqual(noted.call_args.args, ("설정", "환경 설정 열기"))
 
     def test_settings_dialog_is_reused_after_close(self) -> None:
         state = AppState()
@@ -91,6 +100,31 @@ class DialogReuseTests(GuiTestCase):
         active, disabled = second.get_tokens()
         self.assertEqual(sorted(active), ["new_a", "new_b"])
         self.assertEqual(disabled, ["off_c"])
+
+    def test_settings_dialog_receives_diagnostics_callbacks(self) -> None:
+        """설정 창이 진단 폴더 열기와 진단 보고서 만들기 콜백을 받는지 검증"""
+        dialog = self.coordinator.open_settings(ClassifierConfig(), "", app_state=AppState())
+        self.assertIs(dialog._open_diagnostics, dialog_coordinator.open_diagnostics_folder)
+        self.assertIs(dialog._create_report, dialog_coordinator.create_diagnostic_report)
+
+    def test_diagnostics_report_result_is_reported_on_the_status_line(self) -> None:
+        """진단 보고서 생성 결과가 상태 줄 문구로 전달되는지 검증"""
+        messages: list[str] = []
+        coordinator = DialogCoordinator(
+            parent=self.parent,
+            on_status=messages.append,
+            on_settings_applied=lambda _cfg, _root: None,
+        )
+        self.addCleanup(coordinator.close_all)
+        coordinator._on_diagnostics_report_created("diagnostic_20260607-080910.zip")
+        coordinator._on_diagnostics_report_created("")
+        self.assertEqual(
+            messages,
+            [
+                "진단 보고서를 만들었습니다: diagnostic_20260607-080910.zip",
+                "진단 보고서를 만들지 못했습니다.",
+            ],
+        )
 
 
 if __name__ == "__main__":

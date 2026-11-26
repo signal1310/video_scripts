@@ -11,6 +11,7 @@ from src.core.config import (
     AnalysisConfig,
     ClassifierConfig,
     CuiConfig,
+    DiagnosticsConfig,
     DisplayConfig,
     ExecutionConfig,
     PathsConfig,
@@ -94,9 +95,13 @@ class AppState:
         default_factory=ExecutionConfig,
         metadata={"banner": "// 5. 인코딩 실행 (FFmpeg 경로, 결과 파일 처리, 동시성, 절전, 완료 후 동작)"},
     )
+    diagnostics: DiagnosticsConfig = field(
+        default_factory=DiagnosticsConfig,
+        metadata={"banner": "// 6. 진단 및 개발자 모드 (상세 로그, 화면 멈춤 감시)"},
+    )
     ui: UiState = field(
         default_factory=UiState,
-        metadata={"banner": "// 6. GUI 화면, 필터, 예외 상태 (앱 사용 시 자동 저장)"},
+        metadata={"banner": "// 7. GUI 화면, 필터, 예외 상태 (앱 사용 시 자동 저장)"},
     )
 
     def copy(self) -> AppState:
@@ -107,6 +112,7 @@ class AppState:
             display=replace(self.display),
             cui=replace(self.cui),
             execution=replace(self.execution),
+            diagnostics=replace(self.diagnostics),
             ui=self.ui.copy(),
         )
 
@@ -122,6 +128,7 @@ class AppState:
             display=replace(self.display),
             cui=replace(self.cui),
             execution=replace(self.execution),
+            diagnostics=replace(self.diagnostics),
         )
 
     def apply_classifier_config(self, cfg: ClassifierConfig) -> None:
@@ -136,6 +143,7 @@ class AppState:
         self.display = replace(cfg.display)
         self.cui = replace(cfg.cui)
         self.execution = replace(cfg.execution)
+        self.diagnostics = replace(cfg.diagnostics)
 
     def to_dict(self) -> dict[str, Any]:
         """계층화된 2~3단계 통합 설정 스키마 사전 표현으로 변환"""
@@ -152,6 +160,7 @@ class AppState:
             "display": cfg_dict["display"],
             "cui": cfg_dict["cui"],
             "execution": cfg_dict["execution"],
+            "diagnostics": cfg_dict["diagnostics"],
             "ui": {
                 "theme_mode": ui.theme_mode,
                 "analyze_mode": ui.analyze_mode,

@@ -2,7 +2,7 @@
 
 import logging
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -29,6 +29,7 @@ from src.core.config import (
     ThresholdsConfig,
     merge_tuner_criteria,
 )
+from src.core.diagnostics.settings import log_setting_changes, resolve_developer_mode
 from src.core.settings.app_state import (
     AppState,
     load_app_state,
@@ -44,6 +45,7 @@ from src.core.workspace_paths import (
     primary_root_dir,
 )
 from src.gui.constants import browse_directory
+from src.gui.diagnostics_qt import create_diagnostic_report, open_diagnostics_folder
 from src.gui.settings.collapsible_section import CollapsibleSection
 from src.gui.settings.criteria_tuner_panel import CriteriaTunerPanel
 from src.gui.settings.execution_sections import ExecutionTabPanel
@@ -140,6 +142,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
     undo_requested = pyqtSignal()
     redo_requested = pyqtSignal()
     help_requested = pyqtSignal(object, str)
+    diagnostics_report_created = pyqtSignal(str)
 
     def __init__(
         self,
@@ -150,6 +153,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         active_tab: int | None = None,
         busy: bool = False,
         parent: QWidget | None = None,
+        on_open_diagnostics: Callable[[], None] | None = None,
+        on_create_report: Callable[[], str] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("SettingsDialog")
@@ -170,6 +175,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._app_state = base_state
         self._app_state.apply_classifier_config(self._cfg)
         self._last_saved_root_dir: str = self._initial_root_dir
+        self._last_logged_config: ClassifierConfig = self._cfg.copy()
 
         self._rows: dict[str, SettingRow | TunerSliderRow] = {}
         self._form_rows: dict[str, SettingRow | TunerSliderRow] = {}
@@ -180,6 +186,10 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._page_scrolls: dict[int, QScrollArea] = {}
         self._entries: list[SearchEntry] = []
         self._last_category: int = 0
+        self._open_diagnostics: Callable[[], None] = (
+            on_open_diagnostics or open_diagnostics_folder
+        )
+        self._create_report: Callable[[], str] = on_create_report or create_diagnostic_report
         self.results_view = SearchResultsView(self)
 
         main_layout = QVBoxLayout(self)
@@ -348,7 +358,13 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         general_advanced = CollapsibleSection(
             title="고급 설정", subtitle="(표 서식, 콘솔 출력)", is_expanded=False
         )
-        general_form = build_general_page(body, general_advanced, self._on_browse_root_dir)
+        general_form = build_general_page(
+            body,
+            general_advanced,
+            self._on_browse_root_dir,
+            self._open_diagnostics,
+            self._on_create_report,
+        )
         body.addWidget(general_advanced)
         body.addStretch(1)
         self._add_internal_reference(general_advanced)
@@ -599,6 +615,18 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self.setGeometry(geometry)
         self.raise_()
 
+    def _on_create_report(self) -> None:
+        """진단 보고서 zip을 만들고 폴더를 열어 사용자가 바로 확인하게 함
+
+        - 만들지 못하면 상태 줄에만 알리고 폴더는 열지 않음(설정 저장 흐름을 막지 않음)
+        """
+        archive = self._create_report()
+        if not archive:
+            self.diagnostics_report_created.emit("")
+            return
+        self.diagnostics_report_created.emit(os.path.basename(archive))
+        self._open_diagnostics()
+
     def _request_help(self, anchor: str) -> None:
         """사용 가이드 열기 요청을 현재 설정과 앵커와 함께 알림"""
         self.help_requested.emit(self._cfg.copy(), anchor)
@@ -751,6 +779,8 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._is_loading = True
         try:
             self._cfg = cfg.copy()
+            # - 되돌리기 같은 외부 변경은 사용자 입력이 아니므로 비교 기준만 새 값으로 옮김
+            self._last_logged_config = cfg.copy()
             self._load_values()
         finally:
             self._is_loading = prev_loading
@@ -819,6 +849,7 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
             if ThemeManager().mode != fresh.ui.theme_mode:
                 ThemeManager().set_mode(fresh.ui.theme_mode)
             self._cfg = fresh.to_classifier_config()
+            self._last_logged_config = self._cfg.copy()
             self._app_state = fresh.copy()
             self._initial_root_dir = resolve_effective_root_dir() or self._last_saved_root_dir
             self._last_saved_root_dir = self._initial_root_dir
@@ -857,6 +888,13 @@ class SettingsDialog(QDialog, ThemeAwareMixin):
         self._cfg = new_config
         self.criteria_panel.set_config(new_config)
         self.execution_panel.set_baseline_cq(new_config.encode.baseline_cq)
+        # - 개발자 모드에서는 어떤 값이 바뀌었는지 사후에 볼 수 있게 DEBUG로 남김(꺼져 있으면 아무 기록 없음)
+        log_setting_changes(
+            self._last_logged_config,
+            new_config,
+            developer_mode=resolve_developer_mode(new_config.diagnostics.developer_mode),
+        )
+        self._last_logged_config = new_config.copy()
         self._app_state.apply_classifier_config(new_config)
         self._app_state.ui.theme_mode = ThemeManager().mode
         self._persist(root_dir=root_dir_val if root_dir_changed else None)

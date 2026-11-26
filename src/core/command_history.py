@@ -228,6 +228,17 @@ def snapshot() -> tuple[CommandRecord, ...]:
         return tuple(entry.to_record() for entry in _ENTRIES)
 
 
+def latest() -> CommandRecord | None:
+    """가장 마지막 기록 하나의 불변 복사본. 기록이 없으면 None
+
+    - 변경 알림 리스너는 매번 불리므로 전체 복사 없이 O(1)로 최신 한 건만 읽음
+    """
+    with _LOCK:
+        if not _ENTRIES:
+            return None
+        return _ENTRIES[-1].to_record()
+
+
 def clear() -> None:
     """보관한 기록을 모두 지움"""
     with _LOCK:

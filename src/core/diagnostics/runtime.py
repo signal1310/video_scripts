@@ -22,6 +22,7 @@ from src.core.diagnostics.breadcrumbs import (
     detach_log_mirror,
     read_breadcrumb_lines,
 )
+from src.core.diagnostics.dev_logging import DevLogSession, install_dev_log, remove_dev_log
 from src.core.diagnostics.hooks import HookBundle, install_exception_hooks, restore_exception_hooks
 from src.core.diagnostics.native_log import NativeLogSession
 from src.core.diagnostics.paths import (
@@ -50,6 +51,7 @@ class DiagnosticsRuntime:
     log_mirror: LogBreadcrumbHandler | None = None
     session_info: SessionInfo | None = None
     pending_report: CrashReport | None = None
+    dev_log: DevLogSession | None = None
 
 
 def start_diagnostics(
@@ -61,6 +63,7 @@ def start_diagnostics(
     """로그 상한 정리, 네이티브 로그 연결, 예외 훅 설치, 표식 기록을 차례로 수행
 
     - 이전 실행이 비정상 종료였다면 사고 보고서를 먼저 조립해 두고 알림은 GUI가 띄움
+    - 개발자 모드면 `dev.log` 상세 로그와 명령 기록 미러를 함께 연결
     - 어떤 단계가 실패해도 앱 시작을 막지 않음
     """
     target = _guard(lambda: ensure_diagnostics_dir(directory), "진단 폴더 준비", directory or "")
@@ -76,6 +79,8 @@ def start_diagnostics(
     trail = BreadcrumbTrail(trail_path)
     runtime.trail = trail
     runtime.log_mirror = _guard(lambda: attach_log_mirror(trail), "로그 미러 연결", None)
+    if developer_mode:
+        runtime.dev_log = _guard(lambda: install_dev_log(target), "개발 로그 설치", None)
     runtime.native_session = _guard(
         lambda: native_log.open_native_log(
             diagnostics_file(NATIVE_LOG_NAME, target),
@@ -154,6 +159,8 @@ def shutdown_diagnostics(
     restore_exception_hooks(runtime.hooks)
     detach_log_mirror(runtime.log_mirror)
     runtime.log_mirror = None
+    remove_dev_log(runtime.dev_log)
+    runtime.dev_log = None
     if runtime.native_session is not None:
         runtime.native_session.close()
 

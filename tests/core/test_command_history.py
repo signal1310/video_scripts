@@ -19,6 +19,7 @@ from src.core.command_history import (
     command_scope,
     format_command_line,
     input_path_of,
+    latest,
     record_finish,
     record_start,
     remove_listener,
@@ -147,6 +148,16 @@ class SnapshotAndClearTests(CommandHistoryTestCase):
         record_finish(record_start(STAGE_PROBING, ["ffprobe", "a.mp4"], target="a.mp4"), 0)
         clear()
         self.assertEqual(snapshot(), ())
+
+    def test_latest_returns_only_the_newest_record(self) -> None:
+        """최신 조회가 마지막 한 건만 돌려주고, 비어 있으면 None인지 검증"""
+        self.assertIsNone(latest())
+        record_finish(record_start(STAGE_PROBING, ["ffprobe", "a.mp4"], target="a.mp4"), 0)
+        second = record_start(STAGE_VMAF, ["ffmpeg", "-i", "b.mp4"], target="b.mp4")
+        newest = latest()
+        assert newest is not None
+        self.assertEqual(newest.seq, second.seq)
+        self.assertEqual(newest.target_name, "b.mp4")
 
 
 class ListenerTests(CommandHistoryTestCase):

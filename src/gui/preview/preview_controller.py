@@ -8,8 +8,15 @@ from PyQt6.QtCore import QEvent, QObject, QPoint, Qt
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.config import ClassifierConfig
+from src.core.diagnostics.events import (
+    ACTION_START,
+    ACTION_STOP,
+    CATEGORY_PREVIEW,
+    describe_file,
+)
 from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.settings.ui_state import UiState
+from src.gui.diagnostics_qt import note_event
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_worker import FrameExtractor
 from src.gui.preview.preview_info_items import PreviewVideoInfo
@@ -315,6 +322,7 @@ class PreviewController(QObject):
 
         - 메인 창이 활성이면 소유 창을 올리지 않아, 진행 창이 메인 창 위로 떠오르지 않게 함
         """
+        note_event(CATEGORY_PREVIEW, describe_file(ACTION_STOP, window.current_path))
         if self._parent.isActiveWindow():
             window.hide_without_owner_raise()
         else:
@@ -326,6 +334,7 @@ class PreviewController(QObject):
         - owner는 미리 보기를 요청한 창. 넘기지 않으면 메인 창을 소유자로 되돌림
         """
         self._set_owner_window(owner)
+        note_event(CATEGORY_PREVIEW, describe_file(ACTION_START, path))
         self._preview_builtin(path)
 
     def close_windows(self) -> None:

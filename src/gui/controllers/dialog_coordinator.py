@@ -6,9 +6,11 @@ from PyQt6.QtCore import QAbstractItemModel, Qt
 from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
+from src.core.diagnostics.events import ACTION_OPEN, CATEGORY_SETTINGS, describe_task
 from src.core.settings.app_state import AppState
 from src.core.settings.ui_state import UiState
 from src.gui.constants import MAX_LOG_HISTORY
+from src.gui.diagnostics_qt import create_diagnostic_report, note_event, open_diagnostics_folder
 from src.gui.dialogs.exception_rules_dialog import ExceptionRulesDialog
 from src.gui.dialogs.log_dialog import LogDialog, LogTab
 from src.gui.help.help_dialog import HelpDialog
@@ -112,6 +114,7 @@ class DialogCoordinator:
         busy: bool = False,
     ) -> SettingsDialog:
         """통합 설정 대화상자를 지정 탭(미지정 시 마지막 탭)으로 열거나 활성화, 숨겨 둔 창은 재사용"""
+        note_event(CATEGORY_SETTINGS, describe_task("환경 설정", ACTION_OPEN))
         if self._settings_dialog is not None:
             self._settings_dialog.reload_state(
                 current_config,
@@ -164,10 +167,13 @@ class DialogCoordinator:
             active_tab=active_tab,
             busy=busy,
             parent=None,
+            on_open_diagnostics=open_diagnostics_folder,
+            on_create_report=create_diagnostic_report,
         )
         dlg.set_owner(self._parent)
         dlg.help_requested.connect(self._open_settings_help)
         dlg.settings_applied.connect(self._on_settings_applied)
+        dlg.diagnostics_report_created.connect(self._on_diagnostics_report_created)
         if self._on_settings_reset_confirmed is not None:
             dlg.settings_reset_confirmed.connect(self._on_settings_reset_confirmed)
         if self._on_settings_reset is not None:
@@ -337,6 +343,13 @@ class DialogCoordinator:
     ) -> None:
         if self._on_exceptions_applied is not None:
             self._on_exceptions_applied(active_tokens, disabled_tokens)
+
+    def _on_diagnostics_report_created(self, archive_name: str) -> None:
+        """진단 보고서 생성 결과를 상태 줄로 알림. 실패하면 실패 문구"""
+        if archive_name:
+            self._on_status(f"진단 보고서를 만들었습니다: {archive_name}")
+            return
+        self._on_status("진단 보고서를 만들지 못했습니다.")
 
     def show_help_dialog(
         self,

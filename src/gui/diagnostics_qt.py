@@ -2,6 +2,8 @@
 
 - Qt에 의존하는 부분만 이 모듈에 두고, 파일과 표식 처리는 core의 진단 모듈에 맡김
 - Qt 메시지 핸들러는 진단 로거로 보낸 뒤 기존 핸들러(기본 stderr)로 그대로 넘겨 출력을 잃지 않음
+- 화면 멈춤 감시의 하트비트 타이머는 QApplication이 생기기 전에 만들면 영영 울리지 않으므로
+  앱이 준비된 뒤 `start_stall_watchdog_when_ready`로 켬
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ import subprocess
 from collections.abc import Callable
 from typing import Any
 
-from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
+from PyQt6.QtCore import QCoreApplication, QTimer, QtMsgType, qInstallMessageHandler
 
 from src.core.diagnostics.breadcrumbs import BreadcrumbTrail
 from src.core.diagnostics.hooks import build_qt_message_context, log_qt_message
@@ -22,6 +24,9 @@ from src.core.diagnostics.runtime import (
     shutdown_diagnostics,
     start_diagnostics,
 )
+from src.core.diagnostics.watchdog import MainThreadWatchdog, StallDetector
+
+WATCHDOG_HEARTBEAT_MS: int = 100
 
 QT_MSG_LEVELS: dict[QtMsgType, int] = {
     QtMsgType.QtDebugMsg: 0,
@@ -34,6 +39,9 @@ QT_MSG_LEVELS: dict[QtMsgType, int] = {
 _runtime: DiagnosticsRuntime | None = None
 _previous_handler: Callable[..., Any] | None = None
 _handler_installed: bool = False
+_watchdog: MainThreadWatchdog | None = None
+_heartbeat: QTimer | None = None
+_developer_mode: bool = False
 # - atexit 등록 상태: 중복 등록을 막고 stop이 스스로 해제할 수 있게 함
 _atexit_registered: bool = False
 
@@ -42,18 +50,69 @@ def start_gui_diagnostics(*, developer_mode: bool = False) -> DiagnosticsRuntime
     """진단 런타임을 시작하고 Qt 메시지 핸들러와 종료 훅을 설치
 
     - 이미 시작한 경우 같은 런타임을 돌려줘 재진입해도 표식을 덮어쓰지 않음
+    - 개발자 모드 여부는 기억만 하고, 멈춤 감시는 앱이 준비된 뒤 따로 켬
+      (QApplication 전에 만든 QTimer는 한 번도 울리지 않아 첫 멈춤을 잘못 보고함)
     - 정상 종료 처리는 atexit에 맡겨, Qt 창 정리 중 발생하는 네이티브 크래시도
       faulthandler가 여전히 켜진 상태로 잡히게 함
     """
-    global _runtime, _atexit_registered
+    global _runtime, _developer_mode, _atexit_registered
     if _runtime is not None:
         return _runtime
+    _developer_mode = developer_mode
     _runtime = start_diagnostics(developer_mode=developer_mode)
     install_qt_message_handler()
     if not _atexit_registered:
         atexit.register(stop_gui_diagnostics)
         _atexit_registered = True
     return _runtime
+
+
+def start_stall_watchdog_when_ready(heartbeat_ms: int = WATCHDOG_HEARTBEAT_MS) -> MainThreadWatchdog | None:
+    """개발자 모드이고 QApplication이 있으면 멈춤 감시를 켜고, 아니면 None
+
+    - 앱 시작 경로에서 QApplication을 만든 직후 부름
+    """
+    if not _developer_mode or QCoreApplication.instance() is None:
+        return None
+    return start_stall_watchdog(heartbeat_ms)
+
+
+def start_stall_watchdog(heartbeat_ms: int = WATCHDOG_HEARTBEAT_MS) -> MainThreadWatchdog:
+    """메인 스레드 하트비트 타이머와 감시 스레드를 시작. 이미 있으면 그대로 씀
+
+    - QTimer는 메인 스레드에서 돌고, 감시 스레드는 Qt에 접근하지 않음
+    - 감시기는 첫 하트비트 전에는 시간을 세지 않으므로 타이머를 걸고 바로 한 번 울림
+    """
+    global _watchdog, _heartbeat
+    if _watchdog is None:
+        _watchdog = MainThreadWatchdog(StallDetector())
+        _watchdog.start()
+    if _heartbeat is None:
+        timer = QTimer()
+        timer.setInterval(max(1, heartbeat_ms))
+        timer.timeout.connect(beat_main_thread)
+        timer.start()
+        _heartbeat = timer
+        beat_main_thread()
+    return _watchdog
+
+
+def beat_main_thread() -> None:
+    """메인 스레드가 살아 있음을 감시자에게 알림(감시자가 없으면 무시)"""
+    if _watchdog is not None:
+        _watchdog.beat()
+
+
+def stop_stall_watchdog() -> None:
+    """하트비트 타이머와 감시 스레드를 정리. 두 번 호출해도 안전"""
+    global _watchdog, _heartbeat
+    heartbeat, _heartbeat = _heartbeat, None
+    if heartbeat is not None:
+        heartbeat.stop()
+        heartbeat.deleteLater()
+    watchdog, _watchdog = _watchdog, None
+    if watchdog is not None:
+        watchdog.stop()
 
 
 def current_runtime() -> DiagnosticsRuntime | None:
@@ -101,11 +160,13 @@ def stop_gui_diagnostics() -> None:
 
     - atexit 등록도 함께 해제해, 테스트나 재시작 뒤 남은 훅이 다시 실행되지 않게 함
     """
-    global _runtime, _atexit_registered
+    global _runtime, _developer_mode, _atexit_registered
     if _atexit_registered:
         atexit.unregister(stop_gui_diagnostics)
         _atexit_registered = False
+    stop_stall_watchdog()
     runtime, _runtime = _runtime, None
+    _developer_mode = False
     shutdown_diagnostics(runtime)
 
 
@@ -144,3 +205,23 @@ def diagnostics_folder() -> str:
 def open_crash_report_folder(report_directory: str) -> bool:
     """사고 보고서 폴더를 열고 실패하면 진단 폴더로 대체"""
     return open_folder(report_directory) or open_folder(diagnostics_folder())
+
+
+def open_diagnostics_folder() -> None:
+    """진단 로그 폴더를 열고 결과는 무시"""
+    open_folder(diagnostics_folder())
+
+
+def create_diagnostic_report() -> str:
+    """지금까지의 로그를 진단 보고서 zip으로 묶고 만든 zip 경로 반환
+
+    - 만들지 못하면 빈 문자열을 돌려주고 예외를 내보내지 않음
+    """
+    from src.core.diagnostics.dev_report import create_diagnostic_report as build_report
+
+    target = diagnostics_folder()
+    try:
+        report = build_report(target)
+    except OSError:
+        return ""
+    return report.archive

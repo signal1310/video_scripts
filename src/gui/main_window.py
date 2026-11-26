@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.config import ClassifierConfig, SavingsConfig, ThresholdsConfig
+from src.core.diagnostics.events import CATEGORY_FOLDER, describe_folder_change
 from src.core.models import SummaryReport
 from src.core.settings.app_state import AppState
 from src.core.settings.shortcuts import resolve_shortcuts
@@ -49,6 +50,7 @@ from src.gui.controllers.shortcuts_controller import (
 )
 from src.gui.controllers.task_runner import TaskRunner
 from src.gui.controllers.worker import ClassifierWorker
+from src.gui.diagnostics_qt import note_event
 from src.gui.dialogs.log_dialog import LogTab
 from src.gui.footer_summary import build_footer_summary_spec, summarize_rows
 from src.gui.help.help_dialog import HelpDialog
@@ -639,6 +641,7 @@ class MainWindow(QMainWindow):
         if self._session.add_directory(
             directory, self.header_bar, self.filter_bar, self.table_model, self.menu
         ):
+            note_event(CATEGORY_FOLDER, describe_folder_change(self._current_root_dir()))
             self.dialogs.sync_root_dir(self._current_root_dir())
             self._clear_analysis_view()
             self._restore_flow.start()
@@ -669,6 +672,7 @@ class MainWindow(QMainWindow):
         )
         self.dialogs.sync_root_dir(self._current_root_dir())
         if dir_changed:
+            note_event(CATEGORY_FOLDER, describe_folder_change(self._current_root_dir()))
             self._clear_analysis_view()
             self._restore_flow.start()
 

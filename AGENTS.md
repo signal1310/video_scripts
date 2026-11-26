@@ -6,6 +6,8 @@
 - `TERMINOLOGY.md`: 사용자 노출 용어의 표준어(3절)
 - `TODO.md`: 남은 과제와 보류 사유
 - `IMPLEMENTATION_PLAN.md`: 직접 인코딩 계획의 결정, 현재 단계, 단계별 구현 규칙(재인코딩 작업을 할 때 읽음)
+- `IMPLEMENTATION_HISTORY.md`: 완료한 단계의 구현 명세, 구현 완료 결정의 원문, 용어 승인 기록(과거 경위와 승인 근거가 필요할 때 읽음)
+- `IMPLEMENTATION_MEASUREMENTS.md`: 12절 실측 기록(상수와 임계값의 근거를 확인하거나 실측을 다시 할 때 읽음)
 - `REVIEW.md`: 구현과 검토를 나눠 맡는 작업의 역할 분담과 검토 규칙
 - 운영 모드(사람 확인 스위치): **현재 `자동`**
   - `확인`: 사람 확인 게이트(`REVIEW.md` 7절)와 이 문서의 "사용자 승인으로만", "승인받은 뒤" 항목에서 멈추고, 사용자의 사전 결정 뒤 진행
@@ -63,6 +65,11 @@
 - Git 안전: `git push --force`, 히스토리 덮어쓰기, `--no-verify` 금지
 - 링크 폴더 삭제: 정션, 심볼릭 링크가 든 폴더(임시 `git worktree`에 연결한 `.venv` 등)는 링크를 먼저 `rmdir`로 끊고 원본이 그대로인지 확인한 뒤 지움. 링크가 남은 폴더에 `git worktree remove --force`, `rm -rf`, `Remove-Item -Recurse`를 쓰지 않음(링크를 따라가 원본 `.venv`, `data/`를 지울 수 있음)
 - 검증: 코드, 설정, 테스트 변경은 중간에 수정, 추가한 테스트 모듈만 명시해 `unittest -b`로 실행(GUI 테스트는 `QT_QPA_PLATFORM=offscreen` 설정)하고, `unittest discover -s tests/gui`처럼 디렉터리 전체를 단일 프로세스로 순차 실행하지 않음(광역 확인과 최종 검증은 병렬 샤드로 도는 `check.ps1`을 완료, 커밋 전 1회 실행: Ruff, BasedPyright, `verify_hygiene.py`, 병렬 `unittest`와 커버리지, 테스트 대응과 함수 실행 검사). 오류, 경고, 스킵 없이 통과하면 검증 결과 블록은 생략하고, 실패, 경고, 스킵, 미실행이 있을 때만 상세 보고하며, 완료 보고에는 출력된 트리 해시를 적음
+- 셸 명령(모든 에이전트 공통)
+  - 페이저나 입력을 기다리는 명령은 출력 없이 멈추므로 쓰지 않음: `git log`, `git diff`, `git show`는 `git --no-pager`로 실행하고, `more`, `less`, `git add -p`, `-m` 없는 `git commit`, `git rebase -i`는 금지
+  - Windows PowerShell 5.1은 네이티브 프로그램의 stderr 줄을 `NativeCommandError`로 바꿔 성공해도 실패로 보고하고, `unittest`는 진행과 결과를 stderr에 씀. 테스트는 `cmd /c "python -m unittest -b <모듈> 2>&1"`로 돌려 마지막 `OK`/`FAILED` 줄과 종료 코드로 판단함
+  - `Start-Process`, `cmd /c start`는 사용자 화면에 새 창을 띄우므로 쓰지 않고, 오래 걸리는 명령도 자기 셸에서 바로 실행함
+  - 환경 변수는 PowerShell `$env:NAME='값'`으로 지정하고 cmd `set NAME=값 && ...`는 쓰지 않음(`&&` 앞 공백이 값에 들어가 `QT_QPA_PLATFORM`이 깨지면 사용자 화면에 Qt 오류창이 뜸)
 - 검증 기록: 같은 작업 트리 상태로 `check.ps1`을 다시 실행하면 "이미 검증됨"으로 곧바로 끝나므로 검토, 분할 커밋 중에도 그대로 실행하고, 간헐 실패 조사나 반복 측정에만 `-Force`를 씀. `check.ps1`이 Ruff 안전 수정을 먼저 적용하므로 따로 `ruff check --fix`를 실행하지 않고, `Ruff 자동 수정:` 줄의 파일은 다시 읽은 뒤 편집해 커밋에 포함
 - 문서, 스킬만 변경: `verify_hygiene.py`와 `tests.tools.test_metadata_sync` 통과 또는 `pre-commit` 훅으로 갈음
 - 스킬: 원본은 `.agents/skills/<name>/SKILL.md`이며 `.claude/skills/`는 사본이므로 직접 수정하지 않고 `python scripts/sync_skills.py --write`로 재생성. 스킬을 추가, 삭제, 개명하면 `README.md` 스킬 표와 `ARCHITECTURE.md` 스킬 목록도 갱신

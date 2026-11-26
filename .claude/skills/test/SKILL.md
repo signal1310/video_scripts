@@ -23,9 +23,9 @@ description: >-
 4. 실행: 대상 테스트를 먼저 돌리고 완료 전 `check.ps1`을 1회 실행
 
 ```powershell
+$env:QT_QPA_PLATFORM = "offscreen"   # GUI 테스트 모듈이면 먼저 지정
 .venv\Scripts\python.exe -m unittest tests.<폴더>.test_<대상> -b   # 예: tests.core.encode.test_encode_gate
 
-# GUI 스위트 전체
-$env:QT_QPA_PLATFORM = "offscreen"
-.venv\Scripts\python.exe -m unittest discover -s tests/gui -t . -b
+# 스위트 전체는 병렬 샤드로 도는 check.ps1(`unittest discover`는 훅이 차단)
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\check.ps1
 ```

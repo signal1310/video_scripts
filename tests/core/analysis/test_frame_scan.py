@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, ClassVar, cast
 from unittest import mock
 
-from src.core.analysis.frame_analysis import CropBox, merge_crop_union
+from src.core.analysis.frame_analysis import ActiveRegion, CropBox, EdgeDarkness, merge_crop_union
 from src.core.analysis.frame_scan import (
     BLACK_FRAME_PIXEL_RATIO,
     KeyframeScanResult,
@@ -24,6 +24,7 @@ from src.core.analysis.frame_scan import (
     scan_keyframe_points,
     scan_with_cli,
     transpose_crop_box,
+    transpose_edge_darkness,
 )
 from tests._frame_analysis_fakes import FakeStderrRunner
 
@@ -59,41 +60,41 @@ class TestLumaStats(unittest.TestCase):
     """Y 평면 검은 픽셀 비율과 검은 여백 상자 계산 검증"""
 
     def test_black_frame_returns_no_box(self) -> None:
-        box, ratio = luma_frame_stats(bytes([16] * 64), 8, 8, 8)
+        box, ratio, _edges = luma_frame_stats(bytes([16] * 64), 8, 8, 8)
         self.assertIsNone(box)
         self.assertEqual(ratio, 1.0)
 
     def test_letterbox_rows_are_cropped(self) -> None:
         rows = [[16] * 8, [16] * 8] + [[100] * 8 for _ in range(4)] + [[16] * 8, [16] * 8]
-        box, ratio = luma_frame_stats(_plane(rows), 8, 8, 8)
+        box, ratio, _edges = luma_frame_stats(_plane(rows), 8, 8, 8)
         self.assertEqual(box, CropBox(8, 4, 0, 2))
         self.assertEqual(ratio, 0.5)
 
     def test_pillar_columns_are_cropped(self) -> None:
         rows = [[16, 16, 100, 100, 100, 100, 16, 16] for _ in range(8)]
-        box, _ratio = luma_frame_stats(_plane(rows), 8, 8, 8)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 8, 8, 8)
         self.assertEqual(box, CropBox(4, 8, 2, 0))
 
     def test_full_content_keeps_full_frame(self) -> None:
         rows = [[30] * 8 for _ in range(8)]
-        box, _ratio = luma_frame_stats(_plane(rows), 8, 8, 8)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 8, 8, 8)
         self.assertEqual(box, CropBox(8, 8, 0, 0))
 
     def test_dark_edge_without_step_is_picture(self) -> None:
         """그림과 밝기 차가 계단 기준 미만인 어두운 가장자리는 여백이 아님"""
         rows = [[120] * 8 for _ in range(4)] + [[40] * 8, [32] * 8, [26] * 8, [22] * 8, [20] * 8, [18] * 8]
-        box, _ratio = luma_frame_stats(_plane(rows), 8, 8, 10)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 8, 8, 10)
         self.assertEqual(box, CropBox(8, 10, 0, 0))
 
     def test_padded_rows_and_invalid_sizes(self) -> None:
         rows = [[16] * 8, [100] * 8, [100] * 8, [16] * 8]
-        box, _ratio = luma_frame_stats(_plane(rows, line_size=10), 10, 8, 4)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows, line_size=10), 10, 8, 4)
         self.assertEqual(box, CropBox(8, 2, 0, 1))
-        self.assertEqual(luma_frame_stats(b"", 0, 0, 0), (None, 1.0))
-        self.assertEqual(luma_frame_stats(b"\x00", 4, 8, 8), (None, 1.0))
+        self.assertEqual(luma_frame_stats(b"", 0, 0, 0), (None, 1.0, EdgeDarkness(0, 0, 0, 0)))
+        self.assertEqual(luma_frame_stats(b"\x00", 4, 8, 8), (None, 1.0, EdgeDarkness(0, 0, 0, 0)))
 
     def test_dark_edges_covering_everything_returns_no_box(self) -> None:
-        box, _ratio = luma_frame_stats(bytes([25] * 64), 8, 8, 8)
+        box, _ratio, _edges = luma_frame_stats(bytes([25] * 64), 8, 8, 8)
         self.assertIsNone(box)
 
 
@@ -105,25 +106,25 @@ class TestBarEdgeRules(unittest.TestCase):
         rows = [[16] * 32 for _ in range(3)]
         rows += [[16] * 4 + [120] * 26 + [16] * 2 for _ in range(16)]
         rows += [[16] * 32 for _ in range(5)]
-        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, len(rows))
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 32, 32, len(rows))
         self.assertEqual(box, CropBox(26, 16, 4, 3))
 
     def test_asymmetric_side_bars_are_cropped(self) -> None:
         """한쪽에만 있는 띠도 그 두께만큼 자름"""
         rows = [[16] * 6 + [120] * 26 for _ in range(24)]
-        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, 24)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 32, 32, 24)
         self.assertEqual(box, CropBox(26, 24, 6, 0))
 
     def test_noisy_bars_are_cropped(self) -> None:
         """띠 위 +-2 노이즈는 평탄도 기준 안이라 띠로 인정"""
         rows = [_noisy_row(32, 8) for _ in range(4)] + [[120] * 32 for _ in range(20)]
-        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, 24)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 32, 32, 24)
         self.assertEqual(box, CropBox(32, 20, 0, 4))
 
     def test_limited_range_bar_is_cropped(self) -> None:
         """제한 범위 검은색 16에 노이즈가 있는 아래 띠도 자름"""
         rows = [[120] * 32 for _ in range(18)] + [_noisy_row(32, 16) for _ in range(6)]
-        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, 24)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 32, 32, 24)
         self.assertEqual(box, CropBox(32, 18, 0, 0))
 
     def test_vignette_gradient_is_not_a_bar(self) -> None:
@@ -133,7 +134,7 @@ class TestBarEdgeRules(unittest.TestCase):
         for step in range(ramp):
             ratio = step / (ramp - 1)
             rows.append(_gradient_row(width, 27 - 22 * ratio, 15 - 13 * ratio))
-        box, _ratio = luma_frame_stats(_plane(rows), width, width, len(rows))
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), width, width, len(rows))
         self.assertEqual(box, CropBox(width, len(rows), 0, 0))
 
     def test_text_island_inside_top_bar_crops_below_text(self) -> None:
@@ -142,7 +143,7 @@ class TestBarEdgeRules(unittest.TestCase):
         rows += [_gradient_row(200, 150, 40) for _ in range(12)]
         rows += [[16] * 200 for _ in range(30)]
         rows += [[130] * 200 for _ in range(158)]
-        box, _ratio = luma_frame_stats(_plane(rows), 200, 200, len(rows))
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 200, 200, len(rows))
         self.assertEqual(box, CropBox(200, 158, 0, 82))
 
     def test_text_attached_to_picture_is_not_skipped(self) -> None:
@@ -150,7 +151,7 @@ class TestBarEdgeRules(unittest.TestCase):
         rows = [[16] * 32 for _ in range(4)]
         rows += [_gradient_row(32, 150, 40) for _ in range(3)]
         rows += [[130] * 32 for _ in range(17)]
-        box, _ratio = luma_frame_stats(_plane(rows), 32, 32, len(rows))
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 32, 32, len(rows))
         self.assertEqual(box, CropBox(32, 20, 0, 4))
 
     def test_thick_text_block_is_not_skipped(self) -> None:
@@ -159,13 +160,13 @@ class TestBarEdgeRules(unittest.TestCase):
         rows += [[120] * 200 for _ in range(8)]
         rows += [[16] * 200 for _ in range(6)]
         rows += [[120] * 200 for _ in range(40)]
-        box, _ratio = luma_frame_stats(_plane(rows), 200, 200, len(rows))
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 200, 200, len(rows))
         self.assertEqual(box, CropBox(200, 54, 0, 6))
 
     def test_dark_scene_without_black_ratio_has_no_bars(self) -> None:
         """검은 화면 기준에 못 미치는 어두운 장면은 띠 없이 전체 프레임"""
         rows = [[20 + step] * 32 for step in range(21)]
-        box, ratio = luma_frame_stats(_plane(rows), 32, 32, 21)
+        box, ratio, _edges = luma_frame_stats(_plane(rows), 32, 32, 21)
         self.assertLess(ratio, BLACK_FRAME_PIXEL_RATIO)
         self.assertEqual(box, CropBox(32, 21, 0, 0))
 
@@ -176,7 +177,7 @@ class TestBarEdgeRules(unittest.TestCase):
             [16] * 20 + [110 if row_index % 2 == 0 else 190] * 8 + [16] * 10 + [130] * 162
             for row_index in range(height)
         ]
-        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), width, width, height)
         self.assertEqual(box, CropBox(162, 60, 38, 0))
 
     def test_text_island_inside_right_pillar_crops_left_of_text(self) -> None:
@@ -186,7 +187,7 @@ class TestBarEdgeRules(unittest.TestCase):
             [130] * 162 + [16] * 10 + [110 if row_index % 2 == 0 else 190] * 8 + [16] * 20
             for row_index in range(height)
         ]
-        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), width, width, height)
         self.assertEqual(box, CropBox(162, 60, 0, 0))
 
     def test_horizontal_vignette_is_not_a_column_bar(self) -> None:
@@ -201,7 +202,7 @@ class TestBarEdgeRules(unittest.TestCase):
                 deviation = 2 + 13 * ratio
                 values.append(round(mean + (deviation if row_index % 2 == 0 else -deviation)))
             rows.append(values + [120] * picture)
-        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), width, width, height)
         self.assertEqual(box, CropBox(width, height, 0, 0))
 
     def test_union_keeps_the_thickest_bar_of_each_side(self) -> None:
@@ -216,11 +217,21 @@ class TestBarEdgeRules(unittest.TestCase):
         self.assertEqual((region.width, region.height, region.x, region.y), (32, 78, 0, 10))
 
     def test_union_prefers_the_thickness_most_points_agree_on(self) -> None:
-        """한 지점만 띠를 못 찾아도 대부분 지점이 같은 두께면 그 두께로 확정"""
+        """어두운 근거가 없으면 다수 두께를 채택하지 않고 바깥 좌표를 씀(그림 보호)"""
         boxes = [CropBox(242, 180, 39, 30)] * 5 + [CropBox(242, 210, 39, 0)]
         region = merge_crop_union(boxes, 320, 240)
+        self.assertEqual((region.width, region.height, region.x, region.y), (242, 210, 38, 0))
+        self.assertTrue(region.has_black_bars)
+        self.assertFalse(region.dark_outliers_ignored)
+
+    def test_union_ignores_outlier_with_dark_evidence(self) -> None:
+        """바깥 지점이 더하는 띠가 어둡다는 근거가 있으면 다수 두께를 채택하고 안내 플래그를 세움"""
+        boxes = [CropBox(242, 180, 39, 30)] * 5 + [CropBox(242, 240, 39, 0)]
+        darkness = [EdgeDarkness(30, 30, 39, 39)] * 5 + [EdgeDarkness(30, 40, 39, 39)]
+        region = merge_crop_union(boxes, 320, 240, darkness=darkness)
         self.assertEqual((region.width, region.height, region.x, region.y), (242, 180, 38, 30))
         self.assertTrue(region.has_black_bars)
+        self.assertTrue(region.dark_outliers_ignored)
 
     def test_union_keeps_outer_union_without_enough_agreement(self) -> None:
         """두께가 반씩 갈리면 다수 두께가 없어 전체 바깥 좌표를 씀"""
@@ -252,7 +263,7 @@ class TestWeakStepAndResidualBars(unittest.TestCase):
         rows += [[16 + index // 4] * width for index in range(7)]
         for row_index in range(210):
             rows.append([40 if (column + row_index) % 2 == 0 else 4 for column in range(width)])
-        box, _ratio = luma_frame_stats(_plane(rows), width, width, len(rows))
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), width, width, len(rows))
         self.assertEqual(box, CropBox(width, 210, 0, 30))
 
     def test_frame_margin_crops_every_side_independently(self) -> None:
@@ -262,7 +273,7 @@ class TestWeakStepAndResidualBars(unittest.TestCase):
         for _ in range(72):
             rows.append([16] * 10 + [110] * 108 + [16] * 10)
         rows += [[16] * width for _ in range(12)]
-        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), width, width, height)
         self.assertEqual(box, CropBox(108, 72, 10, 12))
 
     def test_thin_residual_margin_after_bar_is_removed(self) -> None:
@@ -271,8 +282,139 @@ class TestWeakStepAndResidualBars(unittest.TestCase):
         rows = [[16] * width for _ in range(20)]
         rows += [[27] * width, [31] * width]
         rows += [[120] * width for _ in range(height - 22)]
-        box, _ratio = luma_frame_stats(_plane(rows), width, width, height)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), width, width, height)
         self.assertEqual(box, CropBox(width, height - 22, 0, 22))
+
+
+class TestCropConsensusDarkEvidence(unittest.TestCase):
+    """합집합이 띠 근거로만 다수 두께를 채택하고, 무시한 지점을 안내 플래그로 남기는지 검증"""
+
+    width: int = 32
+    height: int = 240
+    bar: int = 120
+
+    def _stats(
+        self,
+        *,
+        top_bar: int,
+        left_bar: int = 0,
+        noisy_top: bool = False,
+        dim_top: bool = False,
+    ) -> tuple[CropBox, EdgeDarkness]:
+        """상단 띠 두께와 왼쪽 기둥 두께를 지정한 합성 프레임의 상자와 어두운 면 두께
+
+        - `noisy_top`은 위쪽이 어둡지만 편차가 커서 띠로도 근거로도 인정되지 않는 지점
+        - `dim_top`은 위쪽이 어둡고 평탄하지만 그림과의 계단이 약해 띠로는 인정되지 않고 근거만 남는 지점
+        """
+        picture = 28 if dim_top else 120
+        rows: list[list[int]] = []
+        for row_index in range(self.height):
+            if row_index < top_bar:
+                if noisy_top:
+                    rows.append(_noisy_row(self.width, 23, 17))
+                elif dim_top:
+                    rows.append(_noisy_row(self.width, 23, 5))
+                else:
+                    rows.append([16] * self.width)
+            else:
+                rows.append([16] * left_bar + [picture] * (self.width - left_bar))
+        box, _ratio, edges = luma_frame_stats(_plane(rows), self.width, self.width, self.height)
+        self.assertIsNotNone(box)
+        assert box is not None
+        return box, edges
+
+    def _merge(self, points: list[tuple[CropBox, EdgeDarkness]]) -> ActiveRegion:
+        return merge_crop_union(
+            [box for box, _edges in points],
+            self.width,
+            self.height,
+            darkness=[edges for _box, edges in points],
+        )
+
+    def test_picture_points_at_the_frame_edge_are_not_cut(self) -> None:
+        """7지점은 띠, 2지점은 프레임 끝까지 그림이면 그 면을 자르지 않음"""
+        points = [self._stats(top_bar=self.bar) for _ in range(7)]
+        points += [self._stats(top_bar=0) for _ in range(2)]
+        region = self._merge(points)
+        self.assertEqual((region.width, region.height, region.x, region.y), (self.width, self.height, 0, 0))
+        self.assertFalse(region.has_black_bars)
+        self.assertFalse(region.dark_outliers_ignored)
+
+    def test_dark_but_noisy_points_are_not_evidence_and_keep_the_full_frame(self) -> None:
+        """평균은 어둡고 편차만 큰 2지점은 띠 근거가 아니므로 다수 두께를 채택하지 않음"""
+        points = [self._stats(top_bar=self.bar) for _ in range(7)]
+        points += [self._stats(top_bar=self.bar, noisy_top=True) for _ in range(2)]
+        region = self._merge(points)
+        self.assertEqual((region.width, region.height, region.x, region.y), (self.width, self.height, 0, 0))
+        self.assertFalse(region.has_black_bars)
+        self.assertFalse(region.dark_outliers_ignored)
+
+    def test_flat_dark_evidence_keeps_the_crop_and_flags_review(self) -> None:
+        """경계 계단이 약해 띠로 인정되지 않아도 위쪽이 어둡고 평탄하면 근거로 무시해 자름"""
+        points = [self._stats(top_bar=self.bar) for _ in range(7)]
+        points += [self._stats(top_bar=self.bar, dim_top=True) for _ in range(2)]
+        region = self._merge(points)
+        self.assertEqual((region.width, region.height, region.x, region.y), (self.width, self.bar, 0, self.bar))
+        self.assertTrue(region.has_black_bars)
+        self.assertTrue(region.dark_outliers_ignored)
+
+    def test_full_agreement_keeps_the_crop_without_review_flag(self) -> None:
+        """모든 지점이 같은 두께면 무시한 지점이 없어 안내 플래그를 세우지 않음"""
+        region = self._merge([self._stats(top_bar=self.bar) for _ in range(9)])
+        self.assertEqual((region.width, region.height, region.x, region.y), (self.width, self.bar, 0, self.bar))
+        self.assertTrue(region.has_black_bars)
+        self.assertFalse(region.dark_outliers_ignored)
+
+    def test_each_edge_uses_its_own_dark_evidence(self) -> None:
+        """위쪽은 평탄한 근거로 무시해 자르고, 왼쪽은 근거가 없어 프레임 끝까지 남김"""
+        points = [self._stats(top_bar=self.bar, left_bar=8) for _ in range(7)]
+        points += [self._stats(top_bar=self.bar, dim_top=True) for _ in range(2)]
+        region = self._merge(points)
+        self.assertEqual((region.width, region.height, region.x, region.y), (self.width, self.bar, 0, self.bar))
+        self.assertTrue(region.dark_outliers_ignored)
+
+
+class TestEdgeDarkness(unittest.TestCase):
+    """지점별 어두운 면 두께 계산과 표시 회전 전치 검증"""
+
+    def test_bar_thickness_is_reported_per_side(self) -> None:
+        """어둡고 평탄한 위 4줄, 아래 6줄 검은 띠는 그 두께를 어두운 구간으로 남김"""
+        rows = [_noisy_row(32, 23, 5) for _ in range(4)]
+        rows += [[120] * 32 for _ in range(14)]
+        rows += [[16] * 32 for _ in range(6)]
+        _box, _ratio, edges = luma_frame_stats(_plane(rows), 32, 32, len(rows))
+        self.assertEqual((edges.top, edges.bottom), (4, 6))
+
+    def test_dark_textured_picture_is_not_band_evidence(self) -> None:
+        """평균은 어둡지만 편차가 큰 그림 구간은 띠 근거로 쓰지 않음
+
+        - 줄마다 30/10으로 번갈아 평균 20이 되는 위 200줄과, 줄 안에서 30/10으로 번갈아 편차가 큰 위 200줄 모두
+          띠 판정을 통과하지 못하므로 근거 두께가 0
+        """
+        width, dark_rows = 320, 200
+        alternating_rows = [[30 if row_index % 2 == 0 else 10] * width for row_index in range(dark_rows)]
+        alternating_pixels = [
+            [30 if column % 2 == 0 else 10 for column in range(width)] for _ in range(dark_rows)
+        ]
+        for dark in (alternating_rows, alternating_pixels):
+            rows = dark + [[120] * width for _ in range(40)]
+            box, _ratio, edges = luma_frame_stats(_plane(rows), width, width, len(rows))
+            self.assertEqual(box, CropBox(width, 240, 0, 0))
+            self.assertEqual(edges.top, 0)
+
+    def test_picture_edges_have_no_dark_band(self) -> None:
+        """프레임 끝까지 밝은 그림이면 어두운 구간 두께는 0"""
+        _box, _ratio, edges = luma_frame_stats(_plane([[120] * 32 for _ in range(24)]), 32, 32, 24)
+        self.assertEqual(edges, EdgeDarkness(0, 0, 0, 0))
+
+    def test_transpose_follows_the_crop_box_rotation(self) -> None:
+        """면별 두께를 상자 전치와 같은 면 대응으로 회전"""
+        edges = EdgeDarkness(top=1, bottom=2, left=3, right=4)
+        self.assertEqual(transpose_edge_darkness(edges, 0), edges)
+        self.assertEqual(transpose_edge_darkness(edges, 180), EdgeDarkness(2, 1, 4, 3))
+        self.assertEqual(transpose_edge_darkness(edges, 90), EdgeDarkness(3, 4, 2, 1))
+        self.assertEqual(transpose_edge_darkness(edges, 270), EdgeDarkness(4, 3, 1, 2))
+
 
 class TestScanCommandAndGrayFrame(unittest.TestCase):
     """CLI 스캔 명령과 회색조 PGM 해석 검증"""
@@ -470,6 +612,7 @@ class TestScanWithCli(unittest.TestCase):
         )
         self.assertEqual(result.boxes, (CropBox(720, 1080, 600, 0),) * 3)
         self.assertEqual(result.black_points, frozenset())
+        self.assertEqual(result.darkness, (EdgeDarkness(0, 0, 600, 600),) * 3)
         self.assertEqual(seen, [(1, 3), (2, 3), (3, 3)])
 
     def test_cli_scan_uses_one_process_per_point_and_leaves_no_file(self) -> None:
@@ -557,6 +700,12 @@ class TestScanWithCli(unittest.TestCase):
         result = KeyframeScanResult([CropBox(1, 1, 0, 0), CropBox(2, 2, 0, 0)], [1, 1, 2])
         self.assertEqual(len(result.boxes), 2)
         self.assertEqual(result.black_points, frozenset({1, 2}))
+        self.assertEqual(result.darkness, (None, None))
+
+    def test_scan_result_keeps_parallel_darkness(self) -> None:
+        edges = EdgeDarkness(1, 2, 3, 4)
+        result = KeyframeScanResult([CropBox(1, 1, 0, 0)], [], [edges])
+        self.assertEqual(result.darkness, (edges,))
 
 
 if __name__ == "__main__":

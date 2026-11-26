@@ -474,7 +474,14 @@ def analyze_frames(
         on_point=_on_scan_point,
         prefer_pyav=use_pyav,
     )
-    active_region = merge_crop_union(list(scan.boxes), width, height, is_vr=vr_protected, thresholds=thresholds)
+    active_region = merge_crop_union(
+        list(scan.boxes),
+        width,
+        height,
+        is_vr=vr_protected,
+        thresholds=thresholds,
+        darkness=list(scan.darkness),
+    )
     valid_points = {index for index in range(len(segments)) if index not in scan.black_points}
     if crop_only:
         return FrameAnalysisResult(

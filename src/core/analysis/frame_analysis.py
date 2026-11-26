@@ -7,7 +7,7 @@
 
 import json
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -96,26 +96,27 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
         mode=FRAME_ANALYSIS_MODE_FAST,
         segment_duration_sec=0.5,
         fast_keyframe_seek=True,
-        analysis_version=225,
+        analysis_version=229,
     ),
     FRAME_ANALYSIS_MODE_BALANCED: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_BALANCED,
         segment_duration_sec=1.0,
         fast_keyframe_seek=True,
-        analysis_version=226,
+        analysis_version=230,
     ),
     FRAME_ANALYSIS_MODE_PRECISE: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_PRECISE,
         segment_duration_sec=2.0,
         fast_keyframe_seek=False,
-        analysis_version=227,
+        analysis_version=231,
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
 # - 보간 방식별 캐시 버전 간격. 방식 이름 순서로 10씩 떨어뜨려 방식, 화질 분석 방식 조합마다 다른 버전을 씀
 SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
-CROP_SCAN_VERSION: int = 224
+# - 화질 분석 방식 버전(229-231)과 번호가 겹치면 전용 행이 그 방식의 결과로 오인되므로 그 뒤 번호를 씀
+CROP_SCAN_VERSION: int = 228
 METRIC_CROP_ONLY: str = ""
 
 
@@ -175,8 +176,22 @@ class CropBox:
 
 
 @dataclass(frozen=True, slots=True)
+class EdgeDarkness:
+    """한 지점에서 프레임 네 면 안쪽으로 이어진 어두운 줄, 열 두께(px)
+
+    - 면마다 프레임 끝에서 안쪽으로 검은 띠 줄 조건(어둡고 평탄)을 만족하는 구간의 두께
+    - 합집합에서 다수 두께를 채택할 때 그 지점이 더하는 띠에 그림이 있는지 판정하는 근거
+    """
+
+    top: int
+    bottom: int
+    left: int
+    right: int
+
+
+@dataclass(frozen=True, slots=True)
 class ActiveRegion:
-    """검은 띠를 뺀 활성 화면 영역과 검은 띠 존재 여부, 구간별 여백 차이 여부"""
+    """검은 띠를 뺀 활성 화면 영역과 검은 띠 존재 여부, 구간별 여백 차이 여부, 어두운 근거로 지점을 무시했는지"""
 
     width: int
     height: int
@@ -185,6 +200,8 @@ class ActiveRegion:
     has_black_bars: bool
     # - 구간마다 여백이 달라 합집합으로만 잡을 수 있었는지. 잘라내기 판정에는 쓰지 않고 안내에만 씀
     margins_vary: bool = False
+    # - 어두운 근거로 지점을 무시해 안쪽 경계를 채택했는지. 전체 프레임이면 참이 될 수 없고, 잘라내기 판정에는 쓰지 않고 안내에만 씀
+    dark_outliers_ignored: bool = False
 
     def to_active_frame(self) -> ActiveFrame:
         """판정, 인코딩 입력용 활성 화면 크기와 시작 좌표 반환"""
@@ -382,14 +399,24 @@ def margins_vary(boxes: Sequence[CropBox], frame_width: int, frame_height: int) 
     return any(_edge_margins_vary(values, axis_length) for values, axis_length in edge_values)
 
 
-def _agreed_edge(values: Sequence[int], axis_length: int, *, outermost: Callable[[Sequence[int]], int]) -> int:
+def _agreed_edge(
+    values: Sequence[int],
+    axis_length: int,
+    *,
+    from_low: bool,
+    dark_depths: Sequence[int | None] | None = None,
+) -> tuple[int, bool]:
     """한 면 좌표 목록에서 대부분 지점이 같은 두께를 보이면 그 두께의 바깥 좌표를 씀
 
     - 어두운 장면처럼 일부 지점에서 띠가 검출되지 않아 합집합이 프레임 끝으로 벌어지는 것을 막음
     - 같은 두께로 볼 지점이 3/4 이상일 때만 채택하고, 모자라면 전체 바깥 좌표를 씀(구간별 두께 변동 보존)
+    - 바깥으로 벌어지는 지점은 그 지점의 어두운 구간이 채택 경계까지 닿을 때만 무시함. 근거가 없거나
+      모자라면 그 구간에 그림이 있을 수 있으므로 전체 바깥 좌표로 넓혀 자르지 않음(열린 매트 보호)
+    - 반환하는 두 번째 값은 어두운 근거로 무시한 지점이 있었는지(안내용)
     """
+    outer = _outmost_low if from_low else _outmost_high
     if not values:
-        return outermost(values)
+        return (outer(values), False)
     tolerance = max(EDGE_SNAP_MIN_PX, round(axis_length * EDGE_SNAP_RATIO))
     required = -(-len(values) * MARGIN_AGREE_NUMERATOR // MARGIN_AGREE_DENOMINATOR)
     best: list[int] = []
@@ -398,8 +425,19 @@ def _agreed_edge(values: Sequence[int], axis_length: int, *, outermost: Callable
         if len(cluster) > len(best):
             best = cluster
     if len(best) < required:
-        return outermost(values)
-    return outermost(best)
+        return (outer(values), False)
+    edge = outer(best)
+    depths: Sequence[int | None] = dark_depths if dark_depths is not None else (None,) * len(values)
+    ignored = False
+    for value, depth in zip(values, depths, strict=True):
+        inside = value >= edge if from_low else value <= edge
+        if inside:
+            continue
+        reaches_edge = depth is not None and depth >= (edge if from_low else axis_length - edge)
+        if not reaches_edge:
+            return (outer(values), False)
+        ignored = True
+    return (edge, ignored)
 
 
 def _outmost_low(values: Sequence[int]) -> int:
@@ -419,6 +457,7 @@ def merge_crop_union(
     *,
     is_vr: bool = False,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+    darkness: Sequence[EdgeDarkness | None] | None = None,
 ) -> ActiveRegion:
     """검출 사각형 전체를 포함하는 합집합 영역을 활성 화면으로 확정
 
@@ -427,20 +466,49 @@ def merge_crop_union(
     - 면별 여백이 노이즈 기준 미만이면 프레임 끝으로 스냅하고, 시작 좌표와 크기를 짝수로 정렬
     - 합집합 면적이 기준 면적 비율을 넘거나 원본 전체 크기와 같으면 검은 띠 없음 처리
     - 합집합으로 확정한 영역에는 구간별 여백 차이 여부를 함께 기록(판정은 바꾸지 않음)
+    - `darkness`는 `boxes`와 같은 순서의 지점별 어두운 면 두께. 다수 두께와 어긋나는 지점을 무시하려면
+      그 지점의 어두운 구간이 채택 경계까지 이어져야 함
+    - 어두운 근거로 지점을 무시한 사실은 채택한 영역의 `dark_outliers_ignored`에만 남기고 판정에는 쓰지 않음.
+      전체 프레임으로 되돌리면 안쪽 경계를 채택하지 않았으므로 세우지 않음
     """
-    full_frame = ActiveRegion(frame_width, frame_height, 0, 0, False)
     if is_vr or not boxes or frame_width <= 0 or frame_height <= 0:
-        return full_frame
+        return ActiveRegion(frame_width, frame_height, 0, 0, False)
     vary = margins_vary(boxes, frame_width, frame_height)
-    # - 구간별 여백이 달라 합집합도 전체 프레임이 되는 경우에도 안내할 수 있게 플래그를 함께 넘김
-    full_frame = ActiveRegion(frame_width, frame_height, 0, 0, False, margins_vary=vary)
-    left = _agreed_edge([max(0, box.x) for box in boxes], frame_width, outermost=_outmost_low)
-    top = _agreed_edge([max(0, box.y) for box in boxes], frame_height, outermost=_outmost_low)
-    right = _agreed_edge(
-        [min(frame_width, box.x + box.width) for box in boxes], frame_width, outermost=_outmost_high
+    evidence: Sequence[EdgeDarkness | None] = (
+        darkness if darkness is not None and len(darkness) == len(boxes) else (None,) * len(boxes)
     )
-    bottom = _agreed_edge(
-        [min(frame_height, box.y + box.height) for box in boxes], frame_height, outermost=_outmost_high
+    left, left_ignored = _agreed_edge(
+        [max(0, box.x) for box in boxes],
+        frame_width,
+        from_low=True,
+        dark_depths=[None if edge is None else edge.left for edge in evidence],
+    )
+    top, top_ignored = _agreed_edge(
+        [max(0, box.y) for box in boxes],
+        frame_height,
+        from_low=True,
+        dark_depths=[None if edge is None else edge.top for edge in evidence],
+    )
+    right, right_ignored = _agreed_edge(
+        [min(frame_width, box.x + box.width) for box in boxes],
+        frame_width,
+        from_low=False,
+        dark_depths=[None if edge is None else edge.right for edge in evidence],
+    )
+    bottom, bottom_ignored = _agreed_edge(
+        [min(frame_height, box.y + box.height) for box in boxes],
+        frame_height,
+        from_low=False,
+        dark_depths=[None if edge is None else edge.bottom for edge in evidence],
+    )
+    ignored = left_ignored or top_ignored or right_ignored or bottom_ignored
+    full_frame = ActiveRegion(
+        frame_width,
+        frame_height,
+        0,
+        0,
+        False,
+        margins_vary=vary,
     )
     if _edge_is_noise(left, frame_width):
         left = 0
@@ -460,7 +528,15 @@ def merge_crop_union(
         return full_frame
     if width * height > frame_width * frame_height * thresholds.active_area_no_bars_ratio:
         return full_frame
-    return ActiveRegion(width, height, left, top, True, margins_vary=vary)
+    return ActiveRegion(
+        width,
+        height,
+        left,
+        top,
+        True,
+        margins_vary=vary,
+        dark_outliers_ignored=ignored,
+    )
 
 
 def candidate_tiers_for(width: int, height: int) -> tuple[ResolutionTier, ...]:

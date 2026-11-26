@@ -15,7 +15,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, cast
 
-from src.core.analysis.frame_analysis import CropBox
+from src.core.analysis.frame_analysis import CropBox, EdgeDarkness
 from src.core.command_history import STAGE_FRAME_ANALYSIS, command_scope
 from src.core.file_sharing import open_shared_binary
 
@@ -81,13 +81,21 @@ class ScanDecodeError(RuntimeError):
 
 
 class KeyframeScanResult:
-    """9지점 스캔에서 찾은 검은 여백 상자와 검은 화면 지점"""
+    """9지점 스캔에서 찾은 검은 여백 상자와 검은 화면 지점, 지점별 어두운 면 두께"""
 
-    __slots__ = ("black_points", "boxes")
+    __slots__ = ("black_points", "boxes", "darkness")
 
-    def __init__(self, boxes: Sequence[CropBox], black_points: Sequence[int]) -> None:
+    def __init__(
+        self,
+        boxes: Sequence[CropBox],
+        black_points: Sequence[int],
+        darkness: Sequence[EdgeDarkness | None] | None = None,
+    ) -> None:
         self.boxes: tuple[CropBox, ...] = tuple(boxes)
         self.black_points: frozenset[int] = frozenset(black_points)
+        self.darkness: tuple[EdgeDarkness | None, ...] = (
+            tuple(darkness) if darkness is not None else (None,) * len(self.boxes)
+        )
 
 
 def build_scan_command(
@@ -331,53 +339,61 @@ def _text_island_end(
     return gap_end if _has_edge_step(probe, line_index, gap_end) else None
 
 
-def _bar_line_count(
+def _bar_scan(
     axis_length: int,
     probe: LineProbe,
     *,
     from_end: bool,
     island_max_lines: int,
-) -> int:
-    """축 한 끝에서 안쪽으로 이어진 검은 띠 줄 수
+) -> tuple[int, int]:
+    """축 한 끝에서 안쪽으로 이어진 검은 띠 줄 수와 그 근거 구간 두께
 
     - 띠는 어둡고 평탄한 줄이며, 그림 첫 줄과의 평균 차가 계단 기준 이상일 때만 인정(완만한 그라데이션 배제)
     - 계단이 약해도 편차가 0에 가까운 긴 평탄 구간이면 띠로 보고 경사까지 붙여 경계를 정함
     - 띠 안의 얇은 비-띠 구간은 자막으로 보고 지나쳐 띠 경계를 더 안쪽으로 옮김
     - 경계 뒤 남은 얇은 잔여 여백 줄도 함께 자름
+    - 두 번째 값은 띠 판정과 같은 평탄 조건으로 잰 어두운 구간 두께라, 띠로 인정되지 않은 어두운 그림 구간은
+      들어가지 않음. 합집합이 다수 두께를 채택할 때 그 지점이 더하는 구간에 그림이 있는지 판정하는 근거가 되며,
+      띠 판정이 이미 계산한 구간을 그대로 내보내 화소를 다시 훑지 않음
     """
 
     def line_index(offset: int) -> int:
         return axis_length - 1 - offset if from_end else offset
 
-    bar_count = _dark_flat_run(axis_length, probe, line_index)
-    if bar_count >= axis_length:
-        return bar_count
-    if not _has_edge_step(probe, line_index, bar_count):
+    dark_run = _dark_flat_run(axis_length, probe, line_index)
+    if dark_run >= axis_length:
+        return (dark_run, dark_run)
+    if not _has_edge_step(probe, line_index, dark_run):
         flat_end = _flat_bar_end(axis_length, probe, line_index)
         if flat_end is None:
-            return 0
+            return (0, dark_run)
         bar_count = flat_end
+    else:
+        bar_count = dark_run
     offset = _residual_margin_end(bar_count, axis_length, probe, line_index)
     while True:
         island_end = _text_island_end(offset, axis_length, probe, line_index, island_max_lines)
         if island_end is None:
-            return offset
+            return (offset, dark_run)
         offset = _residual_margin_end(island_end, axis_length, probe, line_index)
 
 
-def luma_frame_stats(data: bytes, line_size: int, width: int, height: int) -> tuple[CropBox | None, float]:
-    """Y 평면 한 장에서 검은 픽셀 비율과 검은 여백 상자 계산
+def luma_frame_stats(
+    data: bytes, line_size: int, width: int, height: int
+) -> tuple[CropBox | None, float, EdgeDarkness]:
+    """Y 평면 한 장에서 검은 픽셀 비율, 검은 여백 상자, 면별 어두운 구간 두께 계산
 
     - 검은 픽셀 비율이 기준 이상이면 검은 화면으로 보고 상자를 내지 않음
     - 상/하 줄과 좌/우 열이 어둡고 평탄하며 그림과의 경계가 계단일 때만 여백으로 봄
     - 어두운 장면의 완만한 비네트는 줄 안 편차가 크고 경계 계단이 없어 여백으로 보지 않음
     - 띠 안에 박힌 자막 줄은 얇은 섬으로 보고 건너뛰어, 자막 아래의 띠 경계를 씀
+    - 면별 어두운 두께는 띠 줄 조건(어둡고 평탄)으로 잰 구간이라, 띠로 인정되지 않은 어두운 그림 구간은 근거가 되지 않음
     """
     if width <= 0 or height <= 0 or line_size < width:
-        return (None, 1.0)
+        return (None, 1.0, EdgeDarkness(0, 0, 0, 0))
     plane = bytes(data)
     if len(plane) < line_size * height:
-        return (None, 1.0)
+        return (None, 1.0, EdgeDarkness(0, 0, 0, 0))
     translated = plane.translate(_BLACK_LUMA_TABLE)
     black_view = memoryview(translated)
     view = memoryview(plane)
@@ -387,28 +403,32 @@ def luma_frame_stats(data: bytes, line_size: int, width: int, height: int) -> tu
         black_pixels += sum(black_view[offset : offset + width])
     black_ratio = black_pixels / (width * height)
     if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
-        return (None, black_ratio)
+        return (None, black_ratio, EdgeDarkness(0, 0, 0, 0))
 
     def row_probe(index: int) -> LineStats:
         return _row_stats(view, index * line_size, width)
 
     row_island_lines = _island_max_lines(height)
-    top = _bar_line_count(height, row_probe, from_end=False, island_max_lines=row_island_lines)
-    bottom_count = _bar_line_count(height, row_probe, from_end=True, island_max_lines=row_island_lines)
+    top, top_dark = _bar_scan(height, row_probe, from_end=False, island_max_lines=row_island_lines)
+    bottom_count, bottom_dark = _bar_scan(height, row_probe, from_end=True, island_max_lines=row_island_lines)
     if top + bottom_count >= height:
-        return (None, black_ratio)
+        return (None, black_ratio, EdgeDarkness(0, 0, 0, 0))
     bottom = height - bottom_count
 
     def column_probe(index: int) -> LineStats:
         return _column_stats(plane, index, top, bottom, line_size)
 
     column_island_lines = _island_max_lines(width)
-    left = _bar_line_count(width, column_probe, from_end=False, island_max_lines=column_island_lines)
-    right_count = _bar_line_count(width, column_probe, from_end=True, island_max_lines=column_island_lines)
+    left, left_dark = _bar_scan(width, column_probe, from_end=False, island_max_lines=column_island_lines)
+    right_count, right_dark = _bar_scan(
+        width, column_probe, from_end=True, island_max_lines=column_island_lines
+    )
     if left + right_count >= width:
-        return (None, black_ratio)
+        return (None, black_ratio, EdgeDarkness(0, 0, 0, 0))
     right = width - right_count
-    return (CropBox(width=right - left, height=bottom - top, x=left, y=top), black_ratio)
+    darkness = EdgeDarkness(top=top_dark, bottom=bottom_dark, left=left_dark, right=right_dark)
+    box = CropBox(width=right - left, height=bottom - top, x=left, y=top)
+    return (box, black_ratio, darkness)
 
 
 def _declared_rotation(stream: VideoStream) -> int:
@@ -465,6 +485,21 @@ def transpose_crop_box(box: CropBox, coded_width: int, coded_height: int, rotati
     )
 
 
+def transpose_edge_darkness(edges: EdgeDarkness, rotation: int) -> EdgeDarkness:
+    """면별 어두운 두께를 표시 회전이 적용된 방향으로 전치
+
+    - 상자를 전치한 `transpose_crop_box`와 같은 면 대응을 씀
+    """
+    turn = rotation % FULL_TURN_DEGREES
+    if turn == HALF_TURN_DEGREES:
+        return EdgeDarkness(top=edges.bottom, bottom=edges.top, left=edges.right, right=edges.left)
+    if turn % HALF_TURN_DEGREES == 0:
+        return edges
+    if turn == QUARTER_TURN_DEGREES:
+        return EdgeDarkness(top=edges.left, bottom=edges.right, left=edges.bottom, right=edges.top)
+    return EdgeDarkness(top=edges.right, bottom=edges.left, left=edges.top, right=edges.bottom)
+
+
 def _luma_bytes(frame: VideoFrame) -> tuple[bytes, int, int, int]:
     """프레임의 8-bit Y 평면 바이트, 행 바이트 수, 너비, 높이. 10-bit 등은 8-bit 회색조로 변환"""
     target = frame if frame.format.name in _EIGHT_BIT_LUMA_FORMATS else frame.reformat(format="gray")
@@ -493,6 +528,7 @@ def _scan_with_pyav(
         time_base = stream.time_base
         seconds_per_tick = FALLBACK_TIME_BASE_SEC if time_base is None else float(time_base)
         boxes: list[CropBox] = []
+        darkness: list[EdgeDarkness] = []
         black_points: list[int] = []
         total = len(points)
         for index, start_sec in enumerate(points):
@@ -505,14 +541,16 @@ def _scan_with_pyav(
             except StopIteration as error:
                 raise ScanDecodeError("요청한 시점의 키프레임이 없습니다.") from error
             data, line_size, width, height = _luma_bytes(frame)
-            box, black_ratio = luma_frame_stats(data, line_size, width, height)
+            box, black_ratio, edges = luma_frame_stats(data, line_size, width, height)
             if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
                 black_points.append(index)
             elif box is not None:
-                boxes.append(transpose_crop_box(box, width, height, _frame_rotation(frame, stream)))
+                rotation = _frame_rotation(frame, stream)
+                boxes.append(transpose_crop_box(box, width, height, rotation))
+                darkness.append(transpose_edge_darkness(edges, rotation))
             if on_point is not None:
                 on_point(index + 1, total)
-        return KeyframeScanResult(boxes, black_points)
+        return KeyframeScanResult(boxes, black_points, darkness)
     finally:
         if container is not None:
             container.close()
@@ -573,6 +611,7 @@ def scan_with_cli(
     - FFmpeg가 회전 메타데이터를 반영해 픽셀을 내주므로 표시 방향 전치가 필요 없음
     """
     boxes: list[CropBox] = []
+    darkness: list[EdgeDarkness] = []
     black_points: list[int] = []
     total = len(points)
     for index, start_sec in enumerate(points):
@@ -590,14 +629,15 @@ def scan_with_cli(
             black_points.append(index)
         else:
             data, width, height = frame
-            box, black_ratio = luma_frame_stats(data, width, width, height)
+            box, black_ratio, edges = luma_frame_stats(data, width, width, height)
             if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
                 black_points.append(index)
             elif box is not None:
                 boxes.append(box)
+                darkness.append(edges)
         if on_point is not None:
             on_point(index + 1, total)
-    return KeyframeScanResult(boxes, black_points)
+    return KeyframeScanResult(boxes, black_points, darkness)
 
 
 def scan_keyframe_points(

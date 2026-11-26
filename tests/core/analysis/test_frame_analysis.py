@@ -26,6 +26,7 @@ from src.core.analysis.frame_analysis import (
     VR_MIN_LONG_SIDE,
     ActiveRegion,
     CropBox,
+    EdgeDarkness,
     FrameAnalysisThresholds,
     TierScore,
     analysis_version_for_mode,
@@ -70,11 +71,11 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(EDGE_SNAP_RATIO, 0.02)
         self.assertEqual(EDGE_SNAP_MIN_PX, 8)
         self.assertEqual(MANUAL_FRAME_MIN_SIZE_PX, 32)
-        self.assertEqual(FRAME_ANALYSIS_VERSION, 226)
-        self.assertEqual(analysis_version_for_mode("fast"), 225)
-        self.assertEqual(analysis_version_for_mode("balanced"), 226)
-        self.assertEqual(analysis_version_for_mode("precise"), 227)
-        self.assertEqual(analysis_version_for_mode("unknown"), 226)
+        self.assertEqual(FRAME_ANALYSIS_VERSION, 230)
+        self.assertEqual(analysis_version_for_mode("fast"), 229)
+        self.assertEqual(analysis_version_for_mode("balanced"), 230)
+        self.assertEqual(analysis_version_for_mode("precise"), 231)
+        self.assertEqual(analysis_version_for_mode("unknown"), 230)
         self.assertEqual(SSIM_CONFIRMED_PASS_SCORE, 0.998)
         self.assertEqual(SSIM_CONFIRMED_FAIL_SCORE, 0.995)
         self.assertEqual(VMAF_CONFIRMED_PASS_SCORE, 99.5)
@@ -96,6 +97,7 @@ class TestActiveRegion(unittest.TestCase):
         """새 필드는 기본값을 가져 기존 생성자 호출이 그대로 유효함"""
         region = ActiveRegion(720, 1080, 600, 0, True)
         self.assertFalse(region.margins_vary)
+        self.assertFalse(region.dark_outliers_ignored)
         self.assertEqual(region.to_active_frame(), ActiveFrame(width=720, height=1080, x=600, y=0))
 
     def test_vr_protected_by_metadata_or_manual_flag(self) -> None:
@@ -146,6 +148,15 @@ class TestCropDetection(unittest.TestCase):
         self.assertEqual(
             merge_crop_union([CropBox(0, 0, 0, 0)], 200, 200), ActiveRegion(200, 200, 0, 0, False)
         )
+
+
+    def test_full_frame_fallback_does_not_flag_ignored_outliers(self) -> None:
+        """어두운 근거로 지점을 무시했더라도 전체 프레임으로 되돌리면 안내 플래그를 세우지 않음"""
+        boxes = [CropBox(320, 228, 0, 12)] * 7 + [CropBox(320, 240, 0, 0)] * 2
+        darkness = [EdgeDarkness(12, 12, 0, 0)] * 7 + [EdgeDarkness(240, 0, 0, 0)] * 2
+        region = merge_crop_union(boxes, 320, 240, darkness=darkness)
+        self.assertEqual(region, ActiveRegion(320, 240, 0, 0, False))
+        self.assertFalse(region.dark_outliers_ignored)
 
 
 class TestCropUnionEdges(unittest.TestCase):
@@ -530,16 +541,16 @@ class CropScanVersionTests(unittest.TestCase):
     """검은 여백 감지 전용 버전과 캐시 유효성 기준 검증"""
 
     def test_crop_only_result_is_recognized_by_its_version(self) -> None:
-        self.assertEqual(CROP_SCAN_VERSION, 224)
+        self.assertEqual(CROP_SCAN_VERSION, 228)
         self.assertEqual(METRIC_CROP_ONLY, "")
         self.assertTrue(is_crop_only_result(_Versioned(CROP_SCAN_VERSION)))
         self.assertFalse(is_crop_only_result(_Versioned(FRAME_ANALYSIS_VERSION)))
 
     def test_crop_version_stays_usable_across_quality_modes(self) -> None:
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 225))
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 227))
-        self.assertTrue(is_usable_analysis_version(226, 226))
-        self.assertFalse(is_usable_analysis_version(225, 226))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 229))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 231))
+        self.assertTrue(is_usable_analysis_version(230, 230))
+        self.assertFalse(is_usable_analysis_version(225, 230))
 
 
 class FrameAnalysisThresholdTests(unittest.TestCase):

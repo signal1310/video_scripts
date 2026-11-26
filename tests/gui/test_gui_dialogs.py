@@ -104,7 +104,7 @@ class TestHelpDialogLiveSync(GuiTestCase):
         self.assertEqual(mw.menu.act_undo.shortcut().toString(), "Ctrl+U")
 
     def test_help_dialog_opens_the_requested_anchor_of_concepts_tab(self) -> None:
-        """앵커를 지정해 열면 판정 원리 탭으로 전환하고 대기 앵커를 기억하는지 검증"""
+        """앵커를 지정해 열면 판정 원리 탭으로 전환하고, 창을 표시한 뒤 그 절로 이동하는지 검증"""
         dlg = HelpDialog(shortcuts=DEFAULT_SHORTCUTS)
         self.addCleanup(dlg.close)
         self.assertEqual(dlg.tab_widget.currentIndex(), HelpDialog.TAB_GUIDE)
@@ -114,6 +114,15 @@ class TestHelpDialogLiveSync(GuiTestCase):
 
         self.assertEqual(dlg.tab_widget.currentIndex(), HelpDialog.TAB_CONCEPTS)
         self.assertIn("내부 고정 기준값 안내", dlg.browser_concepts.toPlainText())
+        # - 숨긴 창은 본문 배치가 없어 스크롤할 수 없으므로 이동 요청을 표시할 때까지 남겨 둠
+        self.assertEqual(dlg.current_anchor(), "internal-thresholds")
+
+        dlg.show()
+        for _ in range(3):
+            _APP.processEvents()
+        scroll_bar = dlg.browser_concepts.verticalScrollBar()
+        assert scroll_bar is not None
+        self.assertGreater(scroll_bar.value(), 0)
         self.assertEqual(dlg.current_anchor(), "")
 
     def test_settings_help_button_opens_concepts_tab(self) -> None:

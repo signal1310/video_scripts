@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -37,6 +38,8 @@ _DIALOG_MIN_WIDTH: int = 560
 _DIALOG_MIN_HEIGHT: int = 440
 _DIALOG_MARGINS: tuple[int, int, int, int] = (14, 12, 14, 14)
 _DIALOG_SPACING: int = 10
+# - 본문 배치가 끝난 뒤 앵커 이동을 적용하려고 이벤트 처리 한 번만큼 미룸
+_ANCHOR_APPLY_INTERVAL_MS: int = 0
 _GLOSSARY_INTRO: str = (
     "<p>화면과 가이드에 나오는 낱말을 쉬운 말로 풀이합니다. 위 검색창에 용어나 비슷한 말을 입력하거나 "
     "용어 범주를 골라 범위를 좁혀 보세요. 판별 기준 값은 현재 설정을 반영합니다.</p>"
@@ -67,6 +70,10 @@ class HelpDialog(QDialog, ThemeAwareMixin):
         self.setMinimumSize(_DIALOG_MIN_WIDTH, _DIALOG_MIN_HEIGHT)
         self._is_loading: bool = True
         self._pending_anchor: str = ""
+        self._anchor_apply_timer = QTimer(self)
+        self._anchor_apply_timer.setSingleShot(True)
+        self._anchor_apply_timer.setInterval(_ANCHOR_APPLY_INTERVAL_MS)
+        self._anchor_apply_timer.timeout.connect(self._apply_pending_anchor)
 
         self._config: ClassifierConfig = (
             config.copy() if config is not None else ClassifierConfig()
@@ -162,20 +169,45 @@ class HelpDialog(QDialog, ThemeAwareMixin):
             self._is_loading = prev
 
     def open_anchor(self, anchor: str) -> None:
-        """판정 원리 탭의 지정한 절로 즉시 이동(설정 화면의 수식, 내부 기준값 안내 연동)"""
+        """판정 원리 탭의 지정한 절로 이동(설정 화면의 수식, 내부 기준값 안내 연동)
+
+        - 문서 배치 전에는 스크롤할 수 없으므로 이동 요청을 남기고 배치가 끝난 뒤 적용
+        """
         self._pending_anchor = anchor
         self._render_contents(ThemeManager().current_palette)
         self.set_active_tab(self.TAB_CONCEPTS)
-        if anchor:
-            QTimer.singleShot(0, self._scroll_to_pending_anchor)
+        self._schedule_anchor_apply()
 
-    def _scroll_to_pending_anchor(self) -> None:
-        """대기 중인 앵커 위치로 본문을 스크롤"""
+    def _schedule_anchor_apply(self) -> None:
+        """남은 앵커 이동을 다음 이벤트 처리로 미룸
+
+        - 본문을 다시 그리는 동안에는 스크롤 범위가 여러 번 바뀌어 중간 값으로 이동하면 위치가 어긋남
+        - 한 번의 이벤트 처리로 묶어 마지막 배치가 끝난 뒤에 적용
+        """
+        if self._pending_anchor and not self._anchor_apply_timer.isActive():
+            self._anchor_apply_timer.start()
+
+    def _apply_pending_anchor(self) -> None:
+        """대기 중인 앵커 위치로 본문을 스크롤
+
+        - 창을 숨긴 동안에는 본문 배치가 없어 스크롤 범위가 0이므로 요청을 남겨 두고 표시한 뒤에 적용
+        - 표시한 뒤에도 배치가 끝나기 전이면 스크롤 범위가 없으므로 다음 이벤트 처리로 다시 미룸
+        """
         anchor = self._pending_anchor
-        if not anchor:
+        if not anchor or not self.isVisible():
             return
-        self.browser_concepts.scrollToAnchor(anchor)
+        browser = self.browser_concepts
+        scroll_bar = browser.verticalScrollBar()
+        if scroll_bar is None or scroll_bar.maximum() <= 0:
+            self._anchor_apply_timer.start()
+            return
+        browser.scrollToAnchor(anchor)
         self._pending_anchor = ""
+
+    def showEvent(self, event: QShowEvent | None) -> None:
+        """창을 표시한 뒤 남은 앵커 이동을 적용. 숨긴 상태에서는 문서 배치가 없어 이동할 수 없음"""
+        super().showEvent(event)
+        self._schedule_anchor_apply()
 
     def current_anchor(self) -> str:
         """마지막으로 이동을 요청한 앵커 이름(테스트와 상태 확인용)"""

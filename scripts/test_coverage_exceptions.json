@@ -20,7 +20,6 @@
     "src/gui/dialogs/export_panel.py",
     "src/gui/dialogs/log_dialog.py",
     "src/gui/help/help_blocks.py",
-    "src/gui/help/help_dialog.py",
     "src/gui/log_file.py",
     "src/gui/logging_bridge.py",
     "src/gui/menus/dynamic_menus.py",

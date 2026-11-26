@@ -849,13 +849,12 @@ class FrameAnalysisController:
     def _load_manual_frames(
         self, evals: Sequence[VideoEvaluation], root_dir: str
     ) -> dict[str, ActiveFrame]:
-        """사용자 지정 활성 화면을 경로로 조회해 파일명 기준 맵으로 바꿈"""
-        paths = {
-            resolve_source_filepath(root_dir, ev.video.filename): ev.video.filename
-            for ev in evals
-        }
-        frames = self._store.load_manual_active_frames(list(paths))
-        return {paths[path]: frame for path, frame in frames.items() if path in paths}
+        """사용자 지정 활성 화면을 지금 프레임 크기와 함께 조회해 파일명 기준 맵으로 바꿈"""
+        pairs = [(resolve_source_filepath(root_dir, ev.video.filename), ev.video) for ev in evals]
+        frames = self._store.load_manual_active_frames(
+            {path: (video.width, video.height) for path, video in pairs}
+        )
+        return {video.filename: frames[path] for path, video in pairs if path in frames}
 
     def _apply_manual_frames(self, frames: dict[str, ActiveFrame]) -> None:
         """사용자 지정 활성 화면을 표에 반영해 활성 화면 열 문구와 툴팁을 맞춤"""

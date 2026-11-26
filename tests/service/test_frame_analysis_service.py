@@ -4,7 +4,9 @@ import os
 import sqlite3
 import tempfile
 import threading
+import time
 import unittest
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from unittest.mock import patch
 
@@ -24,12 +26,17 @@ from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore
 from src.service.frame_analysis_service import (
     INNER_ROUND_WORKERS_FEW,
     INNER_ROUND_WORKERS_SINGLE,
+    SQLITE_BUSY_TIMEOUT_SEC,
     FrameAnalysisRecord,
     FrameAnalysisRequest,
     FrameAnalysisService,
     FrameAnalysisStore,
     _inner_round_workers,
     _is_locked_error,
+)
+from src.service.frame_override_rows import (
+    validated_crop_exclusion_rows,
+    validated_manual_rows,
 )
 from tests._frame_analysis_fakes import FakeStderrRunner
 
@@ -214,7 +221,7 @@ class TestFrameAnalysisStore(_ServiceTestCase):
         conn.commit()
         conn.close()
         self.assertEqual(self.store.count(), 1)
-        self.assertEqual(self.store.load_manual_active_frames(["C:/work/clip.mp4"]), {})
+        self.assertEqual(self.store.load_manual_active_frames({"C:/work/clip.mp4": (1920, 1080)}), {})
         self.store.set_manual_active_frame(
             "C:/work/clip.mp4",
             ActiveFrame(1600, 1000, 260, 40),
@@ -222,7 +229,7 @@ class TestFrameAnalysisStore(_ServiceTestCase):
             frame_height=1080,
         )
         self.assertEqual(
-            self.store.load_manual_active_frames(["C:/work/clip.mp4"]),
+            self.store.load_manual_active_frames({"C:/work/clip.mp4": (1920, 1080)}),
             {"C:/work/clip.mp4": ActiveFrame(1600, 1000, 260, 40)},
         )
 
@@ -255,6 +262,378 @@ class TestFrameAnalysisStore(_ServiceTestCase):
         record = replace(_record("clip.mp4"), margins_vary=True)
         self.store.save(record)
         self.assertTrue(self.store.load_many([record.key])[record.key].margins_vary)
+
+
+class TestFrameStoreChangedFileIdentity(_ServiceTestCase):
+    """원본 파일이 바뀐 뒤 남은 사용자 지정 활성 화면과 잘라내기 제외를 버리는지"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.clip = os.path.join(self.tmp_dir, "clip.mp4")
+        with open(self.clip, "wb") as handle:
+            handle.write(b"v" * 4096)
+
+    def _replace_clip(self) -> None:
+        """같은 경로의 영상을 다른 내용으로 바꿔 크기와 수정 시각을 모두 바꿈"""
+        with open(self.clip, "wb") as handle:
+            handle.write(b"w" * 1024)
+
+    def test_manual_frame_survives_unchanged_file(self) -> None:
+        """저장 뒤 파일이 그대로면 같은 활성 화면을 다시 읽음"""
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.store.set_manual_active_frame(
+            self.clip, manual, frame_width=1920, frame_height=1080
+        )
+        self.assertEqual(
+            self.store.load_manual_active_frames({self.clip: (1920, 1080)}),
+            {self.clip: manual},
+        )
+
+    def test_manual_frame_is_ignored_when_the_file_changes(self) -> None:
+        """같은 경로의 영상이 바뀌면 저장된 활성 화면을 쓰지 않되 행은 지우지 않음
+
+        - 원본 교체 인코딩 뒤에는 경로의 파일이 결과이고 보관 원본을 띄우는 비교가 이 행을 씀
+        - 남은 행은 적용되지 않다가 그 영상에 다시 지정하면 덮임
+        """
+        self.store.set_manual_active_frame(
+            self.clip, ActiveFrame(1600, 1000, 260, 40), frame_width=1920, frame_height=1080
+        )
+        self._replace_clip()
+        self.assertEqual(self.store.load_manual_active_frames({self.clip: (1920, 1080)}), {})
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+
+    def test_manual_frame_out_of_bounds_for_current_frame_is_dropped(self) -> None:
+        """지금 프레임 크기를 벗어난 사각형은 읽을 때 버리고 행도 지움"""
+        self.store.set_manual_active_frame(
+            self.clip, ActiveFrame(1600, 1000, 260, 40), frame_width=1920, frame_height=1080
+        )
+        self.assertEqual(self.store.load_manual_active_frames({self.clip: (1280, 720)}), {})
+        self.assertEqual(self.store.count_manual_active_frames(), 0)
+
+    def test_manual_frame_odd_rectangle_is_normalized_on_read(self) -> None:
+        """읽을 때도 같은 정규화를 거쳐 짝수 좌표와 크기로 맞춤"""
+        self.assertEqual(self.store.count_manual_active_frames(), 0)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "INSERT INTO frame_analysis_manual_active_frame"
+            " (source_path, manual_x, manual_y, manual_width, manual_height)"
+            " VALUES (?, 261, 41, 1601, 999)",
+            (self.clip,),
+        )
+        conn.commit()
+        conn.close()
+        self.assertEqual(
+            self.store.load_manual_active_frames({self.clip: (1920, 1080)}),
+            {self.clip: ActiveFrame(1600, 998, 260, 40)},
+        )
+
+    def test_manual_frame_from_an_old_schema_is_kept_and_stamped(self) -> None:
+        """식별 값 열이 없던 DB의 행은 한 번 유효하게 읽고 지금 파일 값으로 채움"""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "CREATE TABLE frame_analysis_manual_active_frame ("
+            "source_path TEXT PRIMARY KEY, manual_x INTEGER NOT NULL, "
+            "manual_y INTEGER NOT NULL, manual_width INTEGER NOT NULL, "
+            "manual_height INTEGER NOT NULL) WITHOUT ROWID"
+        )
+        conn.execute(
+            "INSERT INTO frame_analysis_manual_active_frame VALUES (?, 260, 40, 1600, 1000)",
+            (self.clip,),
+        )
+        conn.commit()
+        conn.close()
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.assertEqual(
+            self.store.load_manual_active_frames({self.clip: (1920, 1080)}),
+            {self.clip: manual},
+        )
+        stat = os.stat(self.clip)
+        conn = sqlite3.connect(self.db_path)
+        stored = conn.execute(
+            "SELECT filesize_bytes, mtime_ns FROM frame_analysis_manual_active_frame"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(stored, (stat.st_size, stat.st_mtime_ns))
+        self._replace_clip()
+        self.assertEqual(self.store.load_manual_active_frames({self.clip: (1920, 1080)}), {})
+
+    def test_manual_frame_with_unknown_frame_size_is_kept(self) -> None:
+        """프레임 크기를 모르는 채로 조회해도 사용자 지정 활성 화면을 지우지 않음"""
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.store.set_manual_active_frame(
+            self.clip, manual, frame_width=1920, frame_height=1080
+        )
+        self.assertEqual(
+            self.store.load_manual_active_frames({self.clip: (0, 0)}), {self.clip: manual}
+        )
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+
+    def test_manual_frame_of_a_deleted_file_survives_the_lookup(self) -> None:
+        """파일을 지운 뒤 조회해도 사용자 지정 활성 화면 행을 지우지 않음"""
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.store.set_manual_active_frame(
+            self.clip, manual, frame_width=1920, frame_height=1080
+        )
+        os.remove(self.clip)
+        self.assertEqual(
+            self.store.load_manual_active_frames({self.clip: (1280, 720)}), {self.clip: manual}
+        )
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+
+    def test_manual_frame_read_survives_a_failing_cleanup_write(self) -> None:
+        """정리 쓰기가 실패해도 조회는 걸러 낸 결과를 돌려주고 한 줄 경고만 남김"""
+        self.store.set_manual_active_frame(
+            self.clip, ActiveFrame(1600, 1000, 260, 40), frame_width=1920, frame_height=1080
+        )
+        with (
+            patch(
+                "src.service.frame_analysis_service.write_row_changes",
+                side_effect=sqlite3.OperationalError("attempt to write a readonly database"),
+            ),
+            self.assertLogs("src.service.frame_analysis_service", level="WARNING") as logs,
+        ):
+            self.assertEqual(self.store.load_manual_active_frames({self.clip: (1280, 720)}), {})
+        self.assertEqual(len(logs.records), 1)
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+
+    def test_crop_exclusion_read_survives_a_failing_cleanup_write(self) -> None:
+        """잘라내기 제외 조회도 정리 쓰기 실패와 무관하게 결과를 돌려줌"""
+        self.store.set_crop_exclusion(self.clip, True)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "UPDATE frame_analysis_crop_exclude SET filesize_bytes = NULL, mtime_ns = NULL"
+        )
+        conn.commit()
+        conn.close()
+        with (
+            patch(
+                "src.service.frame_analysis_service.write_row_changes",
+                side_effect=sqlite3.OperationalError("attempt to write a readonly database"),
+            ),
+            self.assertLogs("src.service.frame_analysis_service", level="WARNING"),
+        ):
+            self.assertEqual(
+                self.store.load_crop_exclusions([self.clip]), frozenset({self.clip})
+            )
+        self.assertEqual(self.store.count_crop_exclusions(), 1)
+
+    def test_manual_frame_read_returns_when_a_writer_holds_the_lock(self) -> None:
+        """다른 연결이 쓰기 잠금을 잡고 있어 정리가 막혀도 짧게 포기하고 걸러 낸 결과를 돌려줌
+
+        - 조회는 화면 스레드에서 돌므로 분석 워커의 쓰기를 오래 기다리지 않아야 함
+        - 정리하지 못한 행은 지우지 않고 남겨 다음 조회에서 다시 시도
+        """
+        self.store.set_manual_active_frame(
+            self.clip, ActiveFrame(1600, 1000, 260, 40), frame_width=1920, frame_height=1080
+        )
+        blocker = sqlite3.connect(self.db_path)
+        self.addCleanup(blocker.close)
+        blocker.execute("BEGIN IMMEDIATE")
+        self.addCleanup(
+            lambda: blocker.execute("ROLLBACK") if blocker.in_transaction else None
+        )
+        started = time.monotonic()
+        with self.assertLogs("src.service.frame_analysis_service", level="WARNING") as logs:
+            result = self.store.load_manual_active_frames({self.clip: (1280, 720)})
+        elapsed = time.monotonic() - started
+        self.assertEqual(result, {})
+        self.assertEqual(len(logs.records), 1)
+        self.assertLess(elapsed, SQLITE_BUSY_TIMEOUT_SEC)
+        blocker.execute("ROLLBACK")
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+
+    def test_crop_exclusion_is_ignored_when_the_file_changes(self) -> None:
+        """잘라내기 제외도 같은 경로의 영상이 바뀌면 쓰지 않되 행은 지우지 않음"""
+        self.store.set_crop_exclusion(self.clip, True)
+        self.assertEqual(self.store.load_crop_exclusions([self.clip]), frozenset({self.clip}))
+        self._replace_clip()
+        self.assertEqual(self.store.load_crop_exclusions([self.clip]), frozenset())
+        self.assertEqual(self.store.count_crop_exclusions(), 1)
+
+    def test_manual_frame_drawn_before_a_replace_encode_applies_to_the_archived_original(
+        self,
+    ) -> None:
+        """원본 교체 인코딩 뒤 정상 조회는 행을 건너뛰고, 보관 원본 식별 값으로 조회하면 적용됨
+
+        - 정상 조회가 행을 지우면 보관 원본을 띄우는 비교가 그 지정을 잃음
+        """
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.store.set_manual_active_frame(self.clip, manual, frame_width=1920, frame_height=1080)
+        stored_size, stored_mtime = os.stat(self.clip).st_size, os.stat(self.clip).st_mtime_ns
+        self._replace_clip()
+        self.assertEqual(self.store.load_manual_active_frames({self.clip: (1920, 1080)}), {})
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+        self.assertEqual(
+            self.store.load_manual_active_frames(
+                {self.clip: (1920, 1080)},
+                identity_overrides={self.clip: (stored_size, stored_mtime)},
+            ),
+            {self.clip: manual},
+        )
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+
+    def test_crop_exclusion_uses_the_override_identity_of_the_rendered_file(self) -> None:
+        """다른 파일을 띄우는 조회는 그 파일의 식별 값과 맞는 행을 쓰고, 맞지 않는 행은 지우지 않음"""
+        self.store.set_crop_exclusion(self.clip, True)
+        stat = os.stat(self.clip)
+        original = (stat.st_size, stat.st_mtime_ns)
+        self.assertEqual(
+            self.store.load_crop_exclusions([self.clip], identity_overrides={self.clip: original}),
+            frozenset({self.clip}),
+        )
+        mismatched = (stat.st_size + 1, stat.st_mtime_ns)
+        self.assertEqual(
+            self.store.load_crop_exclusions(
+                [self.clip], identity_overrides={self.clip: mismatched}
+            ),
+            frozenset(),
+        )
+        self.assertEqual(self.store.count_crop_exclusions(), 1)
+        self.assertEqual(self.store.load_crop_exclusions([self.clip]), frozenset({self.clip}))
+
+    def test_manual_frame_uses_the_override_identity_of_the_rendered_file(self) -> None:
+        """사용자 지정 활성 화면도 띄우는 파일의 식별 값과 맞으면 쓰고, 맞지 않으면 지우지 않고 건너뜀"""
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.store.set_manual_active_frame(
+            self.clip, manual, frame_width=1920, frame_height=1080
+        )
+        stat = os.stat(self.clip)
+        original = (stat.st_size, stat.st_mtime_ns)
+        self.assertEqual(
+            self.store.load_manual_active_frames(
+                {self.clip: (1920, 1080)}, identity_overrides={self.clip: original}
+            ),
+            {self.clip: manual},
+        )
+        mismatched = (stat.st_size + 1, stat.st_mtime_ns)
+        self.assertEqual(
+            self.store.load_manual_active_frames(
+                {self.clip: (1920, 1080)}, identity_overrides={self.clip: mismatched}
+            ),
+            {},
+        )
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+        self.assertEqual(
+            self.store.load_manual_active_frames({self.clip: (1920, 1080)}),
+            {self.clip: manual},
+        )
+
+    def test_crop_exclusion_from_an_old_schema_is_kept_and_stamped(self) -> None:
+        """식별 값 열이 없던 잘라내기 제외 행도 한 번 유효하게 읽고 지금 파일 값으로 채움"""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "CREATE TABLE frame_analysis_crop_exclude ("
+            "source_path TEXT PRIMARY KEY, exclude_crop INTEGER NOT NULL) WITHOUT ROWID"
+        )
+        conn.execute(
+            "INSERT INTO frame_analysis_crop_exclude VALUES (?, 1)",
+            (self.clip,),
+        )
+        conn.commit()
+        conn.close()
+        self.assertEqual(self.store.load_crop_exclusions([self.clip]), frozenset({self.clip}))
+        self._replace_clip()
+        self.assertEqual(self.store.load_crop_exclusions([self.clip]), frozenset())
+        self.assertEqual(self.store.count_crop_exclusions(), 1)
+
+    def test_crop_exclusion_from_an_old_schema_stays_null_when_read_with_an_override(self) -> None:
+        """예전 스키마 잘라내기 제외 행은 다른 파일을 띄우는 조회에서도 식별 값이 NULL로 남음
+
+        - 보관 원본의 식별 값으로 채우면 다음 정상 조회가 결과 파일과 비교해 이 행을 무시함
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "CREATE TABLE frame_analysis_crop_exclude ("
+            "source_path TEXT PRIMARY KEY, exclude_crop INTEGER NOT NULL,"
+            " filesize_bytes INTEGER, mtime_ns INTEGER) WITHOUT ROWID"
+        )
+        conn.execute(
+            "INSERT INTO frame_analysis_crop_exclude VALUES (?, 1, NULL, NULL)",
+            (self.clip,),
+        )
+        conn.commit()
+        conn.close()
+        stat = os.stat(self.clip)
+        archive_identity = (stat.st_size + 1, stat.st_mtime_ns)
+        self.assertEqual(
+            self.store.load_crop_exclusions(
+                [self.clip], identity_overrides={self.clip: archive_identity}
+            ),
+            frozenset({self.clip}),
+        )
+        conn = sqlite3.connect(self.db_path)
+        stored = conn.execute(
+            "SELECT filesize_bytes, mtime_ns FROM frame_analysis_crop_exclude"
+        ).fetchone()
+        conn.close()
+        self.assertEqual(stored, (None, None))
+        self.assertEqual(self.store.load_crop_exclusions([self.clip]), frozenset({self.clip}))
+
+    def test_manual_frame_with_one_identity_column_is_ignored_and_kept(self) -> None:
+        """식별 값이 한 열만 있는 행은 정상 조회에서 바뀐 행처럼 건너뛰되 지우지 않음(채우지 않음)"""
+        self.store.set_manual_active_frame(
+            self.clip, ActiveFrame(1600, 1000, 260, 40), frame_width=1920, frame_height=1080
+        )
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("UPDATE frame_analysis_manual_active_frame SET mtime_ns = NULL")
+        conn.commit()
+        conn.close()
+        self.assertEqual(self.store.load_manual_active_frames({self.clip: (1920, 1080)}), {})
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+
+    def test_manual_frame_saved_after_the_select_survives_cleanup(self) -> None:
+        """조회 뒤 같은 경로에 새로 저장한 활성 화면을 정리 삭제가 지우지 않음"""
+        self.store.set_manual_active_frame(
+            self.clip, ActiveFrame(1600, 1000, 260, 40), frame_width=1920, frame_height=1080
+        )
+        fresh = ActiveFrame(1280, 720, 0, 180)
+
+        def _validate_then_save(
+            rows: Sequence[Sequence[object]],
+            frame_sizes: Mapping[str, tuple[int, int]],
+            *,
+            identity_overrides: Mapping[str, tuple[int, int]] | None = None,
+        ) -> tuple[dict[str, ActiveFrame], list[Sequence[object]], list[tuple[int, int, str]]]:
+            result = validated_manual_rows(
+                rows, frame_sizes, identity_overrides=identity_overrides
+            )
+            self.store.set_manual_active_frame(
+                self.clip, fresh, frame_width=1920, frame_height=1080
+            )
+            return result
+
+        with patch(
+            "src.service.frame_analysis_service.validated_manual_rows",
+            side_effect=_validate_then_save,
+        ):
+            self.assertEqual(self.store.load_manual_active_frames({self.clip: (1280, 720)}), {})
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+        self.assertEqual(
+            self.store.load_manual_active_frames({self.clip: (1920, 1080)}), {self.clip: fresh}
+        )
+
+    def test_crop_exclusion_saved_after_the_select_survives_cleanup(self) -> None:
+        """조회 뒤 같은 경로에 새로 저장한 잘라내기 제외를 정리 삭제가 지우지 않음"""
+        self.store.set_crop_exclusion(self.clip, True)
+        self._replace_clip()
+        original = validated_crop_exclusion_rows
+
+        def _validate_then_save(
+            rows: Sequence[Sequence[object]],
+            *,
+            identity_overrides: Mapping[str, tuple[int, int]] | None = None,
+        ) -> tuple[list[str], list[tuple[int, int, str]]]:
+            result = original(rows, identity_overrides=identity_overrides)
+            self.store.set_crop_exclusion(self.clip, True)
+            return result
+
+        with patch(
+            "src.service.frame_analysis_service.validated_crop_exclusion_rows",
+            side_effect=_validate_then_save,
+        ):
+            self.assertEqual(self.store.load_crop_exclusions([self.clip]), frozenset())
+        self.assertEqual(self.store.count_crop_exclusions(), 1)
+        self.assertEqual(self.store.load_crop_exclusions([self.clip]), frozenset({self.clip}))
 
 
 class TestFrameStoreScopedCleanup(_ServiceTestCase):
@@ -329,7 +708,7 @@ class TestFrameStoreScopedCleanup(_ServiceTestCase):
         self.assertEqual(self.store.count_manual_active_frames([self.root_a]), 1)
         self.assertEqual(self.store.clear_manual_active_frames([self.root_a]), 1)
         self.assertEqual(
-            self.store.load_manual_active_frames([self.crop_b]), {self.crop_b: manual}
+            self.store.load_manual_active_frames({self.crop_b: (1920, 1080)}), {self.crop_b: manual}
         )
         self.assertEqual(self.store.count_manual_active_frames(), 1)
         self.assertEqual(self.store.clear_manual_active_frames(), 1)
@@ -563,16 +942,16 @@ class TestFrameAnalysisService(_ServiceTestCase):
             "C:/work/clip.mp4", manual, frame_width=1920, frame_height=1080
         )
         self.assertEqual(
-            self.store.load_manual_active_frames(["C:/work/clip.mp4"]),
+            self.store.load_manual_active_frames({"C:/work/clip.mp4": (1920, 1080)}),
             {"C:/work/clip.mp4": manual},
         )
-        self.assertEqual(self.store.load_manual_active_frames(["C:/work/other.mp4"]), {})
-        self.assertEqual(self.store.load_manual_active_frames([]), {})
+        self.assertEqual(self.store.load_manual_active_frames({"C:/work/other.mp4": (1920, 1080)}), {})
+        self.assertEqual(self.store.load_manual_active_frames({}), {})
         self.assertEqual(self.store.count(), 1)
         self.store.set_manual_active_frame(
             "C:/work/clip.mp4", None, frame_width=1920, frame_height=1080
         )
-        self.assertEqual(self.store.load_manual_active_frames(["C:/work/clip.mp4"]), {})
+        self.assertEqual(self.store.load_manual_active_frames({"C:/work/clip.mp4": (1920, 1080)}), {})
         self.store.set_manual_active_frame(
             "", manual, frame_width=1920, frame_height=1080
         )
@@ -587,7 +966,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
             frame_height=1080,
         )
         self.assertEqual(
-            self.store.load_manual_active_frames(["C:/work/clip.mp4"])["C:/work/clip.mp4"],
+            self.store.load_manual_active_frames({"C:/work/clip.mp4": (1920, 1080)})["C:/work/clip.mp4"],
             ActiveFrame(1600, 998, 260, 40),
         )
         self.store.set_manual_active_frame(
@@ -596,7 +975,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
             frame_width=1920,
             frame_height=1080,
         )
-        self.assertEqual(self.store.load_manual_active_frames(["C:/work/clip.mp4"]), {})
+        self.assertEqual(self.store.load_manual_active_frames({"C:/work/clip.mp4": (1920, 1080)}), {})
 
     def test_manual_active_frame_rejects_tiny_and_out_of_bounds_values(self) -> None:
         """최소 크기 미만, 영상 밖 지정은 저장하지 않고 `ValueError`"""

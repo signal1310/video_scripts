@@ -404,6 +404,171 @@ class SessionTests(_ControllerCase):
         assert target is not None
         self.assertEqual(target.crop, ActiveFrame(1216, 2160, 1312, 0))
 
+    def _finish_archive_encode(self) -> None:
+        """원본 교체 모드로 끝난 인코딩 기록을 남겨 비교 상대를 보관 원본으로 만듦"""
+        batch = self.history.create_batch(
+            self.tmp.name,
+            '{"encoder": "libx264"}',
+            [
+                NewItem(
+                    source_path=self.source,
+                    source_size=1,
+                    source_mtime_ns=1,
+                    plan_json=self.plan_json(),
+                )
+            ],
+        )
+        self.history.update_item(
+            batch,
+            self.source,
+            {"state": EncodeState.DONE, "output_path": self.output, "archive_path": self.archive},
+        )
+
+    def _save_archive_record(self) -> None:
+        """보관 원본을 잰 분석 캐시 행(자동 감지 1600x1000+260,40)을 저장"""
+        info = self.info(self.archive)
+        self.store.save(
+            FrameAnalysisRecord(
+                filename="video.mp4",
+                filesize_bytes=info.size_bytes,
+                mtime_ns=info.mtime_ns,
+                active_width=1600,
+                active_height=1000,
+                active_x=260,
+                active_y=40,
+                has_black_bars=True,
+                metric_used="VMAF",
+                vmaf_model="vmaf_v0.6.1",
+                tier_scores=(TierScore(tier="720p", ssim=0.9983, vmaf=98.7),),
+                candidate_tier="720p",
+                valid_segments=3,
+                total_segments=3,
+                unmeasurable=False,
+                is_vr_protected=False,
+                measured_at="2026-11-22T00:00:00Z",
+                analysis_version=FRAME_ANALYSIS_VERSION,
+            )
+        )
+
+    def _match_source_to_archive(self) -> None:
+        """인코딩 전 원본이 보관 원본과 같은 크기, 수정 시각을 갖도록 맞춤"""
+        archive_stat = os.stat(self.archive)
+        with open(self.source, "wb") as handle:
+            handle.write(b"x")
+        os.utime(self.source, ns=(archive_stat.st_atime_ns, archive_stat.st_mtime_ns))
+
+    def _place_result_over_the_source(self) -> None:
+        """원본 교체처럼 결과 크기로 바꾸되 수정 시각은 보관 원본 값으로 되돌림"""
+        archive_stat = os.stat(self.archive)
+        with open(self.source, "wb") as handle:
+            handle.write(b"result")
+        os.utime(self.source, ns=(archive_stat.st_atime_ns, archive_stat.st_mtime_ns))
+
+    def test_manual_frame_drawn_on_the_original_applies_to_the_archived_original(self) -> None:
+        """인코딩 전 원본에 그린 사용자 지정이 보관 원본과 비교할 때 그대로 적용됨
+
+        - 보관 원본은 사각형을 그린 원본과 같은 파일이고 인코더도 그 영역을 잘랐으므로,
+          결과 파일 경로의 지정이라도 보관 원본의 식별 값과 맞으면 씀
+        """
+        self._match_source_to_archive()
+        self.store.set_manual_active_frame(
+            self.source, ActiveFrame(1280, 720, 0, 0), frame_width=3840, frame_height=2160
+        )
+        self._place_result_over_the_source()
+        self._finish_archive_encode()
+        self._save_archive_record()
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = self.controller.build_session(self.source, 0.0)
+        self.assertEqual(session.plan.original.path, self.archive)
+        self.assertEqual(session.active_frame, ActiveFrame(1280, 720, 0, 0))
+        self.assertEqual((session.width, session.height), (1280, 720))
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+
+    def test_manual_frame_redrawn_on_the_result_does_not_apply_to_the_archive(self) -> None:
+        """결과 파일에 다시 그린 사용자 지정은 보관 원본에 적용하지 않고 DB에도 남김
+
+        - 결과 좌표로 그린 사각형은 보관 원본의 식별 값과 달라 비교 화면에서 무시되지만,
+          결과 파일에는 유효한 지정이므로 지우거나 지금 값으로 덮지 않음
+        """
+        self._finish_archive_encode()
+        self._place_result_over_the_source()
+        self.store.set_manual_active_frame(
+            self.source, ActiveFrame(1280, 720, 0, 0), frame_width=3840, frame_height=2160
+        )
+        self._save_archive_record()
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = self.controller.build_session(self.source, 0.0)
+        self.assertEqual(session.plan.original.path, self.archive)
+        self.assertEqual(session.active_frame, ActiveFrame(1600, 1000, 260, 40))
+        self.assertEqual((session.width, session.height), (1600, 1000))
+        self.assertEqual(self.store.count_manual_active_frames(), 1)
+        self.assertEqual(
+            self.store.load_manual_active_frames({self.source: (3840, 2160)}),
+            {self.source: ActiveFrame(1280, 720, 0, 0)},
+        )
+
+    def test_crop_exclusion_set_before_the_encode_survives_the_comparison(self) -> None:
+        """인코딩 전에 지정한 잘라내기 제외가 비교 창을 여는 것만으로 지워지지 않고 적용됨"""
+        self._match_source_to_archive()
+        self.store.set_crop_exclusion(self.source, True)
+        self._place_result_over_the_source()
+        self._finish_archive_encode()
+        self._save_archive_record()
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = self.controller.build_session(self.source, 0.0)
+        self.assertIsNone(session.active_frame)
+        self.assertEqual((session.width, session.height), (3840, 2160))
+        self.assertEqual(self.store.count_crop_exclusions(), 1)
+
+    def test_manual_frame_applies_when_the_compared_original_is_the_source(self) -> None:
+        """비교 기준 원본이 source_path와 같으면 그 파일과 맞춘 지정을 적용하고, 보관 원본과 맞지 않으면 무시
+
+        - 사용자 지정은 source_path 좌표로 저장되므로 보관 원본과 비교할 때는 보관 원본의 식별 값을
+          기준으로 맞춰 보고, 결과 파일용 지정은 비교 화면에만 쓰지 않음
+        """
+        with open(self.archive, "wb") as handle:
+            handle.write(b"archived original")
+        self.store.set_manual_active_frame(
+            self.source, ActiveFrame(1280, 720, 0, 0), frame_width=3840, frame_height=2160
+        )
+        for original_path, expected in (
+            (self.source, ActiveFrame(1280, 720, 0, 0)),
+            (self.archive, ActiveFrame(1600, 1000, 260, 40)),
+        ):
+            with self.subTest(original_path=original_path):
+                info = self.info(original_path)
+                self.store.save(
+                    FrameAnalysisRecord(
+                        filename="video.mp4",
+                        filesize_bytes=info.size_bytes,
+                        mtime_ns=info.mtime_ns,
+                        active_width=1600,
+                        active_height=1000,
+                        active_x=260,
+                        active_y=40,
+                        has_black_bars=True,
+                        metric_used="VMAF",
+                        vmaf_model="vmaf_v0.6.1",
+                        tier_scores=(TierScore(tier="720p", ssim=0.9983, vmaf=98.7),),
+                        candidate_tier="720p",
+                        valid_segments=3,
+                        total_segments=3,
+                        unmeasurable=False,
+                        is_vr_protected=False,
+                        measured_at="2026-11-22T00:00:00Z",
+                        analysis_version=FRAME_ANALYSIS_VERSION,
+                    )
+                )
+                with mock.patch.object(
+                    self.service,
+                    "comparable_result",
+                    return_value=(original_path, self.output),
+                ), mock.patch.object(self.service, "probe", side_effect=self._probe):
+                    session = self.controller.build_session(self.source, 0.0)
+                self.assertEqual(session.plan.original.path, original_path)
+                self.assertEqual(session.active_frame, expected)
+                self.assertEqual((session.width, session.height), (expected.width, expected.height))
+
     def test_service_factory_rebuilds_on_each_session(self) -> None:
         config = ClassifierConfig()
         config.execution.ffmpeg_path = "old-ffmpeg"

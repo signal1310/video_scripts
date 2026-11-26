@@ -544,7 +544,7 @@ class ControllerTests(_ControllerCase):
         manual = ActiveFrame(1280, 720, 0, 180)
         controller.set_manual_active_frame([self.ev], manual)
         path = os.path.join(self.root, "a.mp4")
-        self.assertEqual(self.store.load_manual_active_frames([path]), {path: manual})
+        self.assertEqual(self.store.load_manual_active_frames({path: (1920, 1080)}), {path: manual})
         self.assertEqual(self.view.table_model.manual_frames, {"a.mp4": manual})
         self.assertEqual(set(controller._results), {"a.mp4"})
         self.assertEqual(self.reevaluated, 1)
@@ -553,7 +553,7 @@ class ControllerTests(_ControllerCase):
             "사용자 지정 활성 화면을 저장했습니다. 이 영상은 인코딩할 때 지정한 영역을 잘라냅니다.",
         )
         controller.set_manual_active_frame([self.ev], None)
-        self.assertEqual(self.store.load_manual_active_frames([path]), {})
+        self.assertEqual(self.store.load_manual_active_frames({path: (1920, 1080)}), {})
         self.assertEqual(self.view.table_model.manual_frames, {})
         self.assertEqual(self.reevaluated, 2)
         self.assertEqual(

@@ -120,7 +120,9 @@ def _resolve_frame_cache_for(
             size_by_name[video.filename] = (video.width, video.height)
             keys.append((video.filename, stat.st_size, stat.st_mtime_ns))
         excluded = store.load_crop_exclusions(list(path_by_name.values()))
-        manual = store.load_manual_active_frames(list(path_by_name.values()))
+        manual = store.load_manual_active_frames(
+            {path: size_by_name[name] for name, path in path_by_name.items()}
+        )
         frames: dict[str, ActiveFrame] = {}
         frame_targets: dict[str, str] = {}
         for key, record in store.load_many(keys).items():

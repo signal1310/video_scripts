@@ -24,6 +24,7 @@ from src.core.analysis.frame_compare import (
     ORIGINAL_LABEL,
     ComparePlan,
     FrameSource,
+    is_same_file_path,
     resolve_compare_plan,
     result_target,
 )
@@ -147,7 +148,20 @@ class FrameCompareController:
         record = self._load_record(filename, info.size_bytes, info.mtime_ns)
         candidate = None if record is None else record.candidate_tier
         scores = () if record is None else record.tier_scores
-        active = self._crop_frame(source_path, info.width, info.height, record)
+        # - 원본 교체 모드에서 source_path는 결과 파일이라, 영상별 지정은 결과 파일이 아니라 지금
+        #   화면에 띄우는 보관 원본의 식별 값과 맞춰 봄
+        rendered_identity = (
+            None
+            if pair is None or is_same_file_path(pair[0], source_path)
+            else (info.size_bytes, info.mtime_ns)
+        )
+        active = self._crop_frame(
+            source_path,
+            info.width,
+            info.height,
+            record,
+            identity_override=rendered_identity,
+        )
         result_crop = None if result is None else self._result_crop(source_path)
         plan = resolve_compare_plan(
             source_path=original_path,
@@ -188,13 +202,28 @@ class FrameCompareController:
         width: int,
         height: int,
         record: FrameAnalysisRecord | None,
+        *,
+        identity_override: tuple[int, int] | None,
     ) -> ActiveFrame | None:
-        """설정과 영상별 제외, 사용자 지정 활성 화면을 확인해 잘라내기 확정 활성 화면 반환. 보류면 None"""
+        """설정과 영상별 제외, 사용자 지정 활성 화면을 확인해 잘라내기 확정 활성 화면 반환. 보류면 None
+
+        - 원본 교체 모드에서 source_path는 결과 파일이고 화면에 띄우는 원본은 보관 파일이라,
+          영상별 지정은 저장 경로의 결과 파일이 아니라 보관 원본의 식별 값과 맞춰 봄
+        - 식별 값이 보관 원본과 맞지 않는 행은 결과 파일용 지정일 수 있어 지우지 않고 무시하며,
+          결과 파일 좌표로 다시 그린 사각형도 이 비교에서 걸림
+        """
         if record is None:
             return None
         config = self._config_provider() if self._config_provider is not None else ClassifierConfig()
-        excluded = self._store.load_crop_exclusions([source_path])
-        manual = self._store.load_manual_active_frames([source_path])
+        overrides = (
+            None if identity_override is None else {source_path: identity_override}
+        )
+        excluded = self._store.load_crop_exclusions(
+            [source_path], identity_overrides=overrides
+        )
+        manual = self._store.load_manual_active_frames(
+            {source_path: (width, height)}, identity_overrides=overrides
+        )
         frame = resolve_crop_frame(
             record.active_region,
             crop_enabled=config.encode.crop_black_bars,

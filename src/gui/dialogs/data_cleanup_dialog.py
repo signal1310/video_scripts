@@ -153,7 +153,10 @@ ITEM_TOOLTIPS: dict[CleanupItemKey, str] = {
     "column_widths": "표 열 너비를 기본값으로 되돌립니다.",
     "column_visibility": "표에 보이던 열과 표시 프리셋을 기본값으로 되돌립니다.",
     "table_sort_group": "표의 정렬, 그룹, 필터 조건을 모두 지웁니다.",
-    "window_geometry": "메인 창 크기와 위치, 상단 영역 접힘 상태를 기본값으로 되돌립니다.",
+    "window_geometry": (
+        "메인 창 크기와 위치, 상단 영역 접힘 상태를 기본값으로 되돌립니다. "
+        "표의 가로 스크롤 위치도 함께 초기화합니다."
+    ),
     "recent_dirs_selection": "최근 작업 폴더 목록과 표에서 마지막으로 고른 영상 기억을 지웁니다.",
     "criteria_settings": "판별 기준 설정을 기본값으로 되돌립니다. 되돌릴 수 없습니다.",
     "encode_settings": "인코딩 설정을 기본값으로 되돌립니다. 되돌릴 수 없습니다.",

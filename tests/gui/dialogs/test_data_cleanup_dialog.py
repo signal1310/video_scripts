@@ -128,6 +128,14 @@ class DataCleanupDialogStructureTest(_ImmediateLoaderCase):
             self.assertIn("원본 영상", checkbox.toolTip())
             self.assertEqual(checkbox.toolTip(), item_tooltip(key))
 
+    def test_window_geometry_tooltip_mentions_table_horizontal_scroll(self) -> None:
+        """창 크기 항목의 라벨은 그대로 두고 툴팁에 표 가로 스크롤 초기화 안내를 더하는지 검증"""
+        dialog = _dialog(_Recorder())
+        checkbox = dialog._checkboxes["window_geometry"]
+        self.assertEqual(checkbox.text(), "창 크기/위치 및 상단 접힘")
+        self.assertIn("표의 가로 스크롤 위치도 함께 초기화합니다.", checkbox.toolTip())
+        self.assertEqual(checkbox.toolTip(), item_tooltip("window_geometry"))
+
     def test_preset_pills_match_service_presets(self) -> None:
         dialog = _dialog(_Recorder())
         self.assertEqual(len(dialog._preset_buttons), 6)

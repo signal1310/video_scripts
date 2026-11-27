@@ -15,17 +15,51 @@ from PyQt6.QtMultimedia import QMediaPlayer, QVideoFrame
 from PyQt6.QtWidgets import QApplication
 
 from src.core.models import ActiveFrame
-from src.gui.dialogs.frame_compare_playback_rules import MIN_RENDER_INTERVAL_SEC
+from src.gui.dialogs.frame_compare_playback_rules import (
+    MIN_RENDER_INTERVAL_SEC,
+    PAIR_BUFFER_FRAMES,
+)
 from src.gui.dialogs.frame_compare_player import ComparePlaybackEngine
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
+
+# - 30fps 원본 한 프레임의 마이크로초. 합성 프레임 시각을 실제 재생과 같게 맞춤
+_FRAME_US = 33_333
 
 
 def _image(width: int = 320, height: int = 180, color: str = "#FF0000") -> QImage:
     image = QImage(width, height, QImage.Format.Format_RGB32)
     image.fill(QColor(color))
     return image
+
+
+def _counter_frame(index: int, width: int = 64, height: int = 36) -> QVideoFrame:
+    """프레임 번호를 좌상단 색에 실은 합성 프레임. 시작 시각도 번호에 맞춤"""
+    image = QImage(width, height, QImage.Format.Format_RGB32)
+    image.fill(QColor(index % 256, index // 256, 0))
+    frame = QVideoFrame(image)
+    frame.setStartTime(index * _FRAME_US)
+    return frame
+
+
+def _counter(image: QImage) -> int:
+    """합성 프레임에 실린 번호를 읽음"""
+    color = image.pixelColor(0, 0)
+    return color.red() + color.green() * 256
+
+
+class _Clock:
+    """time.monotonic을 대신하는 시험용 시계"""
+
+    def __init__(self, start: float = 100.0) -> None:
+        self.value = start
+
+    def now(self) -> float:
+        return self.value
+
+    def advance(self, seconds: float) -> None:
+        self.value += seconds
 
 
 class EngineTests(GuiTestCase):
@@ -139,15 +173,98 @@ class EngineTests(GuiTestCase):
         self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
         self.assertEqual(len(self.frames), 1)
 
-    def test_secondary_frame_conversion_is_throttled_too(self) -> None:
-        """두 파일 모드에서도 같은 간격 안의 종 프레임을 버리는지 검증"""
+    def test_burst_of_one_side_does_not_starve_the_other_side(self) -> None:
+        """5배속처럼 양쪽이 계속 프레임을 보내면 어느 쪽도 멈추지 않는지 검증
+
+        - 수정 전에는 두 재생기가 같은 30fps 게이트를 다투어, 게이트를 이긴 쪽만 갱신되고
+          반대쪽은 직전 이미지를 되풀이해 한쪽만 움직였다
+        """
+        self._load(None)
+        self.engine._playing = True
+        clock = _Clock()
+        with mock.patch("src.gui.dialogs.frame_compare_player.time.monotonic", side_effect=clock.now):
+            for tick in range(5):
+                for offset in range(5):
+                    index = tick * 5 + offset
+                    self.engine._on_primary_frame(_counter_frame(index))
+                    self.engine._on_secondary_frame(_counter_frame(index))
+                clock.advance(MIN_RENDER_INTERVAL_SEC * 1.5)
+        counters = [(_counter(original), _counter(compared)) for original, compared in self.frames]
+        self.assertEqual(len(counters), 5)
+        for index, (original, compared) in enumerate(counters):
+            self.assertLessEqual(abs(original - compared), 1)
+            if index == 0:
+                continue
+            previous = counters[index - 1]
+            self.assertGreater(original, previous[0])
+            self.assertGreater(compared, previous[1])
+
+    def test_newest_frame_of_each_side_is_paired_on_every_tick(self) -> None:
+        """한 틱에서 양쪽이 여러 장을 보내도 내보낸 짝은 각 쪽 최신 프레임인지 검증"""
+        self._load(None)
+        self.engine._playing = True
+        clock = _Clock()
+        with mock.patch("src.gui.dialogs.frame_compare_player.time.monotonic", side_effect=clock.now):
+            for index in range(3):
+                self.engine._on_secondary_frame(_counter_frame(index))
+            for index in range(3):
+                self.engine._on_primary_frame(_counter_frame(index))
+                clock.advance(MIN_RENDER_INTERVAL_SEC * 1.5)
+        counters = [(_counter(original), _counter(compared)) for original, compared in self.frames]
+        self.assertEqual(counters, [(0, 0), (1, 1), (2, 2)])
+
+    def test_pair_takes_the_closest_secondary_frame_in_time(self) -> None:
+        """종 프레임이 여러 장 쌓이면 주 프레임과 시작 시각이 가장 가까운 한 장을 고르는지 검증"""
         self._load(None)
         self.engine._playing = True
         self.engine._last_render = 0.0
-        self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
-        self.engine._last_render = time.monotonic()
-        self.engine._on_secondary_frame(QVideoFrame(_image(1280, 720, "#0000FF")))
+        for index in (10, 11, 12, 13, 14, 15):
+            self.engine._on_secondary_frame(_counter_frame(index))
+        self.engine._on_primary_frame(_counter_frame(13))
+        self.assertEqual(len(self.frames), 1)
+        original, compared = self.frames[0]
+        self.assertEqual(_counter(original), 13)
+        self.assertEqual(_counter(compared), 13)
+
+    def test_pair_is_skipped_when_no_secondary_frame_matches_in_time(self) -> None:
+        """허용 폭을 넘게 어긋난 종 프레임만 있으면 어긋난 짝 대신 직전 화면을 두는지 검증"""
+        self._load(None)
+        self.engine._playing = True
+        self.engine._last_render = 0.0
+        self.engine._on_secondary_frame(_counter_frame(0))
+        self.engine._on_primary_frame(_counter_frame(30))
         self.assertEqual(self.frames, [])
+
+    def test_render_interval_gate_still_limits_two_file_pairs(self) -> None:
+        """두 파일 비교도 같은 간격 안에서는 두 번 변환하지 않는지 검증"""
+        self._load(None)
+        self.engine._playing = True
+        self.engine._last_render = time.monotonic()
+        self.engine._on_primary_frame(_counter_frame(0))
+        self.engine._on_secondary_frame(_counter_frame(0))
+        self.assertEqual(self.frames, [])
+
+    def test_same_pair_is_not_rendered_twice(self) -> None:
+        """이미 내보낸 짝을 다시 변환해 그리지 않는지 검증"""
+        self._load(None)
+        self.engine._playing = True
+        clock = _Clock()
+        with mock.patch(
+            "src.gui.dialogs.frame_compare_player.time.monotonic", side_effect=clock.now
+        ):
+            self.engine._on_primary_frame(_counter_frame(0))
+            self.engine._on_secondary_frame(_counter_frame(0))
+            clock.advance(MIN_RENDER_INTERVAL_SEC * 1.5)
+            self.engine._on_secondary_frame(_counter_frame(0))
+        self.assertEqual(len(self.frames), 1)
+
+    def test_secondary_buffer_keeps_only_recent_frames(self) -> None:
+        """종 프레임 보관이 정해진 장수를 넘지 않는지 검증"""
+        self._load(None)
+        self.engine._playing = True
+        for index in range(PAIR_BUFFER_FRAMES + 5):
+            self.engine._on_secondary_frame(_counter_frame(index))
+        self.assertEqual(len(self.engine._secondary_frames), PAIR_BUFFER_FRAMES)
 
     def test_dual_mode_pairs_primary_and_secondary_frames(self) -> None:
         self._load(None)
@@ -312,9 +429,9 @@ class EngineTests(GuiTestCase):
         """보정 시크 뒤 쿨다운 동안에는 다시 시크하지 않는지 검증"""
         self.engine._dual = True
         self.engine._playing = True
+        self.engine._secondary_frames.append(_counter_frame(0))
         with (
             mock.patch.object(self.engine._primary, "position", return_value=5000),
-            mock.patch.object(self.engine._secondary, "position", return_value=0),
             mock.patch.object(self.engine._secondary, "setPosition") as set_position,
             mock.patch(
                 "src.gui.dialogs.frame_compare_player.time.monotonic", side_effect=[100.0, 100.1]
@@ -323,6 +440,29 @@ class EngineTests(GuiTestCase):
             self.engine._sync_secondary()
             self.engine._sync_secondary()
         set_position.assert_called_once_with(5000)
+
+    def test_secondary_sync_ignores_small_frame_time_gaps(self) -> None:
+        """원본 두 장 안쪽의 시각 차는 보정하지 않는지 검증"""
+        self.engine._dual = True
+        self.engine._playing = True
+        self.engine._secondary_frames.append(_counter_frame(0))
+        with (
+            mock.patch.object(self.engine._primary, "position", return_value=50),
+            mock.patch.object(self.engine._secondary, "setPosition") as set_position,
+        ):
+            self.engine._sync_secondary()
+        set_position.assert_not_called()
+
+    def test_secondary_sync_seeks_to_the_primary_frame_time_and_drops_stale_frames(self) -> None:
+        """보정은 주 프레임 시각으로 이동하고 이전 위치의 종 프레임을 버리는지 검증"""
+        self.engine._dual = True
+        self.engine._playing = True
+        self.engine._primary_frame = _counter_frame(100)
+        self.engine._secondary_frames.append(_counter_frame(10))
+        with mock.patch.object(self.engine._secondary, "setPosition") as set_position:
+            self.engine._sync_secondary()
+        set_position.assert_called_once_with(3_333)
+        self.assertEqual(len(self.engine._secondary_frames), 0)
 
     def test_audio_rate_and_getters(self) -> None:
         self.engine.apply_audio(50, True)
@@ -361,4 +501,3 @@ class EngineTests(GuiTestCase):
         self._load()
         self.engine.stop()
         self.assertEqual(self.engine._source_files, [])
-

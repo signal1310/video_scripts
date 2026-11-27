@@ -3,6 +3,7 @@
 - 축소 비교는 원본 한 파일만 재생하고 받은 프레임을 규격으로 줄였다 되돌려 비교 쌍을 만듦
 - 원본 vs 결과 비교는 원본이 주 재생기, 결과가 오디오 없는 종 재생기이며, 원본 프레임을
   결과를 만든 활성 화면으로 잘라 두 파일의 화소를 1:1로 맞춤
+- 두 파일 비교는 두 재생기가 각각 보낸 프레임을 시작 시각으로 짝지어 같은 장면을 나란히 보여 줌
 - 재생 중에만 프레임을 내보내, 일시중지 뒤에는 화면이 정밀 추출 프레임으로 안착하게 함
 - 재생 중에도 다른 프로그램이 파일 이름을 바꾸거나 지울 수 있도록 공유 모드 핸들로 염
 """
@@ -10,6 +11,7 @@
 from __future__ import annotations
 
 import time
+from collections import deque
 
 from PyQt6.QtCore import QFile, QObject, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QImage
@@ -21,7 +23,10 @@ from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX
 from src.gui.dialogs.frame_compare_playback_rules import (
     MIN_RENDER_INTERVAL_SEC,
+    PAIR_BUFFER_FRAMES,
     SYNC_COOLDOWN_SEC,
+    closest_frame_index,
+    pair_tolerance_us,
     restart_from_start,
     roundtrip_compare_frame,
     sync_drift_exceeded,
@@ -77,8 +82,11 @@ class ComparePlaybackEngine(QObject):
         self._dual: bool = False
         self._pending_position_ms: int | None = None
         self._source_files: list[QFile] = []
-        self._primary_image: QImage | None = None
-        self._secondary_image: QImage | None = None
+        self._primary_frame: QVideoFrame | None = None
+        # - 두 파일 비교는 나중에 받은 프레임 하나뿐 아니라 최근 몇 장을 남겨 시각이 가장 가까운 짝을 고름
+        self._secondary_frames: deque[QVideoFrame] = deque(maxlen=PAIR_BUFFER_FRAMES)
+        # - 직전에 내보낸 두 프레임의 시작 시각. 같은 짝을 다시 변환해 그리는 일을 막음
+        self._last_pair_us: tuple[int, int] | None = None
         self._processing_frame: bool = False
         self._pending_frame: QVideoFrame | None = None
         self._last_render: float = 0.0
@@ -208,9 +216,7 @@ class ComparePlaybackEngine(QObject):
         self._ready = False
         self._pending_position_ms = None
         self._crop = None
-        self._primary_image = None
-        self._secondary_image = None
-        self._pending_frame = None
+        self._clear_frame_state()
         self._sync_cooldown_until = 0.0
 
     def is_playing(self) -> bool:
@@ -286,26 +292,39 @@ class ComparePlaybackEngine(QObject):
             self._secondary.pause()
 
     def _sync_secondary(self) -> None:
-        """재생 중 위치 차가 배속 비례 기준을 넘으면 종 재생기를 맞추고 잠시 재시크를 쉼
+        """주/종 프레임 시각 차가 원본 두 장을 넘으면 종 재생기를 주 프레임 시각으로 맞추고 잠시 쉼
 
         - 보정 시크 직후 쿨다운 동안은 다시 시크하지 않아 고배속에서 보정이 반복되지 않게 함
+        - 시크 뒤에는 이전 위치의 종 프레임이 남아 있지 않도록 보관분을 비움
         """
         if not self._dual or not self._playing:
             return
         now = time.monotonic()
         if now < self._sync_cooldown_until:
             return
-        primary_ms = self._primary.position()
-        if sync_drift_exceeded(primary_ms, self._secondary.position(), self._rate):
-            self._secondary.setPosition(primary_ms)
-            self._sync_cooldown_until = now + SYNC_COOLDOWN_SEC
+        secondary_frame = self._latest_secondary_frame()
+        if secondary_frame is None:
+            return
+        primary_us = self._primary_frame_us()
+        gap_us = primary_us - max(secondary_frame.startTime(), 0)
+        if not sync_drift_exceeded(gap_us, self._frame_rate()):
+            return
+        self._secondary.setPosition(max(primary_us // 1000, 0))
+        self._secondary_frames.clear()
+        self._sync_cooldown_until = now + SYNC_COOLDOWN_SEC
+
+    def _primary_frame_us(self) -> int:
+        """주 재생기가 마지막으로 보낸 프레임의 시작 시각, 아직 없으면 현재 위치로 대신함"""
+        if self._primary_frame is not None and self._primary_frame.startTime() >= 0:
+            return self._primary_frame.startTime()
+        return max(self._primary.position(), 0) * 1000
 
     def _on_primary_frame(self, frame: QVideoFrame) -> None:
-        """주 재생기 프레임을 받아 비교 쌍을 만들고, 처리 중이면 최신 프레임만 남김"""
+        """주 재생기 프레임을 최신 한 장으로 남기고, 처리 중이면 최신 프레임만 남김"""
         if not self._playing:
             return
         if self._processing_frame:
-            self._pending_frame = frame
+            self._pending_frame = QVideoFrame(frame)
             return
         self._processing_frame = True
         try:
@@ -326,14 +345,19 @@ class ComparePlaybackEngine(QObject):
         return True
 
     def _consume_primary_frame(self, frame: QVideoFrame) -> None:
-        """프레임 한 장을 QImage로 바꿔 축소 쌍이나 두 파일 쌍으로 내보냄"""
-        if not self._render_due():
+        """받은 주 프레임을 최신 한 장으로 남기고, 축소 비교면 바로 비교 쌍을 만듦"""
+        if not frame.isValid():
             return
-        image = frame.toImage()
-        if image.isNull():
-            return
-        image = crop_active_frame(image, self._crop)
+        # - 신호 인자는 소유하지 않은 참조라 슬롯이 끝나면 사라지므로 보관용 복사본을 씀
+        self._primary_frame = QVideoFrame(frame)
         if not self._dual:
+            # - 축소 비교는 한 파일만 재생하므로 짝을 맞출 상대가 없어 받은 즉시 변환
+            if not self._render_due():
+                return
+            image = frame.toImage()
+            if image.isNull():
+                return
+            image = crop_active_frame(image, self._crop)
             compared = roundtrip_compare_frame(
                 image,
                 self._frame_width,
@@ -343,22 +367,54 @@ class ComparePlaybackEngine(QObject):
             )
             self.frames_ready.emit(image, compared)
             return
-        self._primary_image = image
-        secondary = self._secondary_image
-        if secondary is not None:
-            self.frames_ready.emit(image, secondary)
+        self._render_pair()
 
     def _on_secondary_frame(self, frame: QVideoFrame) -> None:
-        """종 재생기 프레임을 보관하고 주 프레임과 짝지어 내보냄"""
-        if not self._playing or not self._dual:
+        """종 재생기 프레임을 최근 몇 장 보관하고 주 프레임과 시각이 맞는 짝을 내보냄"""
+        if not self._playing or not self._dual or not frame.isValid():
+            return
+        self._secondary_frames.append(QVideoFrame(frame))
+        self._render_pair()
+
+    def _render_pair(self) -> None:
+        """최신 주 프레임과 시각이 가장 가까운 종 프레임을 30fps 간격으로 한 쌍만 내보냄
+
+        - 변환(toImage)은 여기서만 하므로 두 재생기가 프레임을 아무리 빨리 보내도 UI 비용이 늘지 않음
+        - 허용 폭 안에 맞는 종 프레임이 없으면 짝을 새로 만들지 않고 직전 화면을 그대로 둠
+        """
+        if self._primary_frame is None or not self._secondary_frames:
+            return
+        primary_us = max(self._primary_frame.startTime(), 0)
+        candidate = closest_frame_index(
+            primary_us,
+            [max(frame.startTime(), 0) for frame in self._secondary_frames],
+            pair_tolerance_us(self._frame_rate()),
+        )
+        if candidate is None:
+            return
+        secondary_frame = self._secondary_frames[candidate]
+        primary_start = self._primary_frame.startTime()
+        secondary_start = secondary_frame.startTime()
+        pair_us = (max(primary_start, 0), max(secondary_start, 0))
+        # - 시작 시각을 알 수 없는 프레임은 같은 짝인지 가릴 수 없어 그대로 내보내 화면이 멈추지 않게 함
+        if primary_start >= 0 and secondary_start >= 0 and pair_us == self._last_pair_us:
             return
         if not self._render_due():
             return
-        image = frame.toImage()
-        if image.isNull():
+        image = self._primary_frame.toImage()
+        secondary_image = secondary_frame.toImage()
+        if image.isNull() or secondary_image.isNull():
             return
-        self._secondary_image = image
-        primary = self._primary_image
-        if primary is not None:
-            self.frames_ready.emit(primary, image)
+        self._last_pair_us = pair_us
+        self.frames_ready.emit(crop_active_frame(image, self._crop), secondary_image)
 
+    def _latest_secondary_frame(self) -> QVideoFrame | None:
+        """종 재생기가 마지막으로 보낸 프레임, 아직 없으면 None"""
+        return self._secondary_frames[-1] if self._secondary_frames else None
+
+    def _clear_frame_state(self) -> None:
+        """보관하던 프레임과 처리 대기 상태를 비움"""
+        self._primary_frame = None
+        self._secondary_frames.clear()
+        self._last_pair_us = None
+        self._pending_frame = None

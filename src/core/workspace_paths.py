@@ -110,6 +110,26 @@ def primary_root_dir(spec: str | Sequence[str]) -> str:
     return roots[0] if roots else ""
 
 
+def normalize_root_key(root_dir: str) -> str:
+    """작업 폴더 목록을 구분자, 대소문자, 끝 구분자 표기와 무관한 직접 지정 저장 키로 변환
+
+    - 조회, 저장, 불러오기가 모두 이 함수를 거쳐야 같은 폴더 목록이 한 항목으로 묶임
+    """
+    return PATH_SPEC_SEP.join(
+        os.path.normcase(os.path.normpath(path)) for path in parse_root_dirs(root_dir)
+    )
+
+
+def logical_name_for_path(path: str, root_spec: str | Sequence[str]) -> tuple[str, str] | None:
+    """절대 경로를 (그 경로를 담은 작업 폴더, 논리 파일명)으로 되돌림. 작업 폴더 밖이면 None"""
+    for root in parse_root_dirs(root_spec):
+        if not is_within_roots(path, (root,)):
+            continue
+        relative = os.path.relpath(path, root)
+        return root, compose_logical_filename(root, relative.replace(os.sep, "/"), root_spec)
+    return None
+
+
 def are_all_valid_dirs(spec: str | Sequence[str]) -> bool:
     """작업 폴더가 1개 이상이고 모두 실존하는 디렉터리인지 판별"""
     roots = parse_root_dirs(spec)
@@ -222,6 +242,7 @@ def split_logical_filename(
     """논리 파일명을 (소속 작업 폴더, 작업 폴더 내 상대 경로 posix) 쌍으로 분해
 
     - 라벨이 일치하는 작업 폴더가 없으면 주 작업 폴더로 폴백
+    - 정규화 키(normalize_root_key)처럼 대소문자가 바뀐 목록으로 풀어도 같은 폴더를 찾도록 라벨을 대소문자 무시로 다시 대조
     """
     roots = parse_root_dirs(root_spec)
     posix = logical_filename.replace("\\", "/")
@@ -230,6 +251,9 @@ def split_logical_filename(
     head, sep, rest = posix.partition(LOGICAL_SEP)
     _, label_to_root = build_root_label_map(roots)
     root = label_to_root.get(head)
+    if root is None:
+        folded = {label.casefold(): value for label, value in label_to_root.items()}
+        root = folded.get(head.casefold())
     if root is None or not sep:
         return (roots[0], posix)
     return (root, rest)

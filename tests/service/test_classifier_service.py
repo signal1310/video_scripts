@@ -26,6 +26,7 @@ from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.core.models import ActiveFrame, QualityZone
 from src.core.probe_parser import compress_probe_response
 from src.core.smart_action import DownscaleReason, SmartAction
+from src.core.workspace_paths import normalize_root_key
 from src.service import analysis_probe as probe_mod
 from src.service.analysis_probe import load_stored_rows
 from src.service.analysis_store import (
@@ -817,6 +818,97 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                 self.assertEqual(view.manual_frames, {})
                 self.assertEqual(view.active_frames, {})
                 self.assertEqual(view.frame_targets, {})
+
+
+class TestServiceDesignationFollowsContent(unittest.TestCase):
+    """서비스가 지정 행 크기의 파일만 지문을 확인하고 새 경로에 지정을 붙이는지"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = os.path.join(self._tmp.name, "work")
+        os.makedirs(self.root)
+        self.db_path = os.path.join(self._tmp.name, "video_cache.sqlite3")
+        self.store = AnalysisStore(self.db_path)
+        self.addCleanup(self.store.close)
+        self.registry = CacheRegistry()
+        self.clip = os.path.join(self.root, "clip.mp4")
+        with open(self.clip, "wb") as handle:
+            handle.write(b"v" * 4096)
+        self.other = os.path.join(self.root, "other.mp4")
+        with open(self.other, "wb") as handle:
+            handle.write(b"o" * 32)
+        self.props = [
+            make_video(filename="clip.mp4"),
+            make_video(filename="other.mp4"),
+        ]
+        self.registry.put(self.root, TableCache(self.root, list(self.props), include_keyframe=False))
+
+    def _service(self) -> VideoClassifierService:
+        return VideoClassifierService(
+            self.root, ClassifierConfig(), registry=self.registry, store=self.store
+        )
+
+    def _identity(self, path: str) -> tuple[int, str]:
+        stat = os.stat(path)
+        return (stat.st_size, compute_fingerprint(path, stat.st_size))
+
+    def test_no_designation_means_no_file_is_read(self) -> None:
+        with mock.patch(
+            "src.service.frame_analysis_store.computed_fingerprint",
+            side_effect=AssertionError("지정이 없으면 지문을 계산하지 않음"),
+        ):
+            self.assertEqual(self._service().scan_content_identities(), {})
+
+    def test_only_files_with_a_designation_size_are_fingerprinted(self) -> None:
+        self.store.write_manual_targets({self.root: {"clip.mp4": "720p"}})
+        found = self._service().scan_content_identities()
+        self.assertEqual(found, {self.clip: self._identity(self.clip)})
+
+    def test_fingerprint_known_to_the_analysis_cache_is_reused(self) -> None:
+        """분석 캐시가 이미 아는 지문은 영상을 다시 읽지 않고 씀"""
+        self.store.write_manual_targets({self.root: {"clip.mp4": "720p"}})
+        with mock.patch(
+            "src.core.analysis.file_fingerprint.compute_fingerprint",
+            side_effect=AssertionError("분석 캐시가 아는 지문은 다시 계산하지 않음"),
+        ):
+            found = self._service().scan_content_identities()
+        self.assertEqual(found[self.clip][0], os.stat(self.clip).st_size)
+
+    def test_sync_moves_the_path_rows_and_the_manual_target(self) -> None:
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.set_crop_exclusion(self.clip, True)
+        finally:
+            frame_store.close()
+        self.store.write_manual_targets({normalize_root_key(self.root): {"clip.mp4": "720p"}})
+        renamed = os.path.join(self.root, "renamed.mp4")
+        os.rename(self.clip, renamed)
+        self.registry.put(
+            self.root,
+            TableCache(
+                self.root,
+                [make_video(filename="renamed.mp4"), make_video(filename="other.mp4")],
+                include_keyframe=False,
+            ),
+        )
+        service = self._service()
+        service.manual_targets = {"clip.mp4": "720p"}
+        result = service.sync_designations()
+        key = normalize_root_key(self.root)
+        self.assertEqual(
+            result.moved,
+            [((key, "clip.mp4"), (key, "renamed.mp4"))],
+        )
+        self.assertEqual(
+            self.store.read_manual_targets({}),
+            {normalize_root_key(self.root): {"renamed.mp4": "720p"}},
+        )
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            self.assertEqual(frame_store.load_crop_exclusions([renamed]), frozenset({renamed}))
+        finally:
+            frame_store.close()
 
 
 class TestPrepareCachePrescanReuse(unittest.TestCase):

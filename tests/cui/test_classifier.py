@@ -172,6 +172,29 @@ class TestClassifierModule(unittest.TestCase):
         vc.save_state()
         self.assertEqual(load_manual_target_store({}).get(work), {"regular.mp4": "keep"})
 
+    def test_designation_sync_releases_the_analysis_db_handle(self) -> None:
+        """지정 이관 판정을 마친 뒤 분석 DB 파일 핸들이 남지 않아 작업 폴더를 그대로 지울 수 있음을 검증"""
+        import shutil
+
+        from src.core.models import VideoProps
+
+        work = self._isolated_root()
+        self._write_files(work)
+        with open(os.path.join(work, "regular.mp4"), "wb") as f:
+            f.write(b"v" * 64)
+        save_manual_target_store({work: {"regular.mp4": "keep"}})
+        vid = VideoProps("regular.mp4", 1920, 1080, 0, 30.0, 9000, 128, 112.5, 100.0, "h264", 1.0)
+        DEFAULT_CACHE_REGISTRY.put(work, TableCache(work, [vid], include_keyframe=True))
+
+        vc = VideoClassifier()
+        vc.get_summary_report()
+        vc.set_manual_target_tier(["regular.mp4"], None)
+        vc.get_summary_report()
+
+        # - 판정이 연 분석 DB 연결이 남아 있으면 Windows에서 PermissionError가 남
+        shutil.rmtree(self._state_root)
+        self.assertFalse(os.path.exists(self._state_root))
+
     def test_print_methods_respect_table_and_summary_options(self) -> None:
         """print_summary는 표 없이, print_tables는 요약 없이, include_summary=False는 요약만 생략하고 출력함을 검증"""
         vc = self._classifier_with_cache()

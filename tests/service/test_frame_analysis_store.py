@@ -866,6 +866,166 @@ class TestFrameStoreScopedCleanup(_StoreTestCase):
         self.assertEqual(self.store.count(), 0)
 
 
+class TestFrameStoreDesignationFollowsContent(_StoreTestCase):
+    """영상별 지정이 이름 변경, 폴더 이동, 복사, 다른 드라이브로 옮겨도 내용을 따라가는지"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        roots = tempfile.TemporaryDirectory()
+        self.addCleanup(roots.cleanup)
+        self.root = os.path.join(roots.name, "work")
+        os.makedirs(self.root)
+        self.clip = os.path.join(self.root, "Solo cam - video 2.mp4")
+        with open(self.clip, "wb") as handle:
+            handle.write(b"v" * 4096)
+
+    def _identity(self, path: str) -> tuple[int, str]:
+        stat = os.stat(path)
+        return (stat.st_size, compute_fingerprint(path, stat.st_size))
+
+    def _copy(self, source: str, target: str) -> None:
+        with open(source, "rb") as src, open(target, "wb") as dst:
+            dst.write(src.read())
+
+    def _crop_paths(self) -> set[str]:
+        conn = sqlite3.connect(self.db_path)
+        paths = {str(row[0]) for row in conn.execute("SELECT source_path FROM frame_analysis_crop_exclude")}
+        conn.close()
+        return paths
+
+    def test_rename_moves_the_crop_exclusion_row(self) -> None:
+        self.store.set_crop_exclusion(self.clip, True)
+        renamed = os.path.join(self.root, "renamed.mp4")
+        os.rename(self.clip, renamed)
+        self.store.sync_designations({renamed: self._identity(renamed)})
+        self.assertEqual(self._crop_paths(), {renamed})
+        self.assertEqual(self.store.load_crop_exclusions([renamed]), frozenset({renamed}))
+
+    def test_move_to_another_folder_and_drive_letter_keeps_the_row(self) -> None:
+        self.store.set_crop_exclusion(self.clip, True)
+        other = os.path.join(self.tmp_dir, "other", "nested")
+        os.makedirs(other)
+        moved = os.path.join(other, "moved.mp4")
+        os.rename(self.clip, moved)
+        self.store.sync_designations({moved: self._identity(moved)})
+        self.assertEqual(self._crop_paths(), {moved})
+        self.assertEqual(self.store.load_crop_exclusions([moved]), frozenset({moved}))
+
+    def test_copy_gives_the_copy_an_independent_crop_exclusion(self) -> None:
+        self.store.set_crop_exclusion(self.clip, True)
+        copy_path = os.path.join(self.root, "copy.mp4")
+        self._copy(self.clip, copy_path)
+        self.store.sync_designations({copy_path: self._identity(copy_path)})
+        self.assertEqual(self._crop_paths(), {self.clip, copy_path})
+        self.assertEqual(self.store.load_crop_exclusions([self.clip, copy_path]), frozenset({self.clip, copy_path}))
+        self.store.set_crop_exclusion(self.clip, False)
+        self.assertEqual(self.store.load_crop_exclusions([copy_path]), frozenset({copy_path}))
+
+    def test_designation_is_not_applied_when_a_same_size_file_differs(self) -> None:
+        self.store.set_crop_exclusion(self.clip, True)
+        other = os.path.join(self.root_other(), "same_size.mp4")
+        os.makedirs(os.path.dirname(other), exist_ok=True)
+        with open(other, "wb") as handle:
+            handle.write(b"w" * 4096)
+        self.store.sync_designations({other: self._identity(other)})
+        self.assertEqual(self._crop_paths(), {self.clip})
+
+    def test_manual_frame_and_vr_override_follow_a_rename(self) -> None:
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.store.set_manual_active_frame(self.clip, manual, frame_width=1920, frame_height=1080)
+        self.store.set_vr_override(source_path=self.clip, filename="Solo cam - video 2.mp4", manual_vr=True)
+        renamed = os.path.join(self.root, "renamed.mp4")
+        os.rename(self.clip, renamed)
+        self.store.sync_designations({renamed: self._identity(renamed)})
+        self.assertEqual(self.store.load_manual_active_frames({renamed: (1920, 1080)}), {renamed: manual})
+        self.assertEqual(self.store.load_vr_overrides([renamed]), frozenset({renamed}))
+        self.assertEqual(self.store.load_vr_overrides([self.clip]), frozenset())
+
+    def test_same_name_size_and_mtime_with_other_content_is_not_applied(self) -> None:
+        self.store.set_crop_exclusion(self.clip, True)
+        stat = os.stat(self.clip)
+        with open(self.clip, "wb") as handle:
+            handle.write(b"w" * stat.st_size)
+        os.utime(self.clip, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        self.assertEqual(os.stat(self.clip).st_mtime_ns, stat.st_mtime_ns)
+        self.assertEqual(self.store.load_crop_exclusions([self.clip]), frozenset())
+        self.assertEqual(self._crop_paths(), {self.clip})
+
+    def test_same_content_copy_moves_after_the_source_is_gone(self) -> None:
+        self.store.set_crop_exclusion(self.clip, True)
+        elsewhere = os.path.join(self.root_other(), "copy.mp4")
+        os.makedirs(os.path.dirname(elsewhere), exist_ok=True)
+        self._copy(self.clip, elsewhere)
+        identity = self._identity(elsewhere)
+        os.remove(self.clip)
+        self.store.sync_designations({elsewhere: identity})
+        self.assertEqual(self._crop_paths(), {elsewhere})
+        self.assertEqual(self.store.load_crop_exclusions([elsewhere]), frozenset({elsewhere}))
+
+    def test_manual_frame_of_a_copy_elsewhere_is_applied(self) -> None:
+        """보고 사례: 수동 활성 화면이 있는 영상의 같은 내용 복사본도 그 화면으로 판정됨"""
+        manual = ActiveFrame(1600, 1000, 260, 40)
+        self.store.set_manual_active_frame(self.clip, manual, frame_width=1920, frame_height=1080)
+        other_root = self.root_other()
+        os.makedirs(other_root, exist_ok=True)
+        copy_path = os.path.join(other_root, "Solo cam - video 2.mp4")
+        self._copy(self.clip, copy_path)
+        self.store.sync_designations({copy_path: self._identity(copy_path)})
+        self.assertEqual(
+            self.store.load_manual_active_frames({copy_path: (1920, 1080)}),
+            {copy_path: manual},
+        )
+        self.assertEqual(
+            self.store.load_manual_active_frames({self.clip: (1920, 1080)}),
+            {self.clip: manual},
+        )
+
+    def test_layout_backfills_the_content_key_of_an_old_row(self) -> None:
+        """내용 키가 비어 있던 지정 행도 지문을 한 번 채워 새 경로를 따라갈 준비가 됨"""
+        self.store.count()
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "INSERT INTO frame_analysis_crop_exclude (source_path, exclude_crop) VALUES (?, 1)",
+            (self.clip,),
+        )
+        conn.commit()
+        conn.close()
+        stat = os.stat(self.clip)
+        self.assertEqual(self.store.designation_sizes(), {stat.st_size})
+        conn = sqlite3.connect(self.db_path)
+        stored = conn.execute(
+            "SELECT filesize_bytes, fingerprint FROM frame_analysis_crop_exclude WHERE source_path = ?",
+            (self.clip,),
+        ).fetchone()
+        conn.close()
+        self.assertEqual(stored[0], stat.st_size)
+        self.assertIsNotNone(stored[1])
+
+    def test_designation_sizes_lists_saved_sizes_only(self) -> None:
+        self.assertEqual(self.store.designation_sizes(), set())
+        self.store.set_crop_exclusion(self.clip, True)
+        stat = os.stat(self.clip)
+        self.assertEqual(self.store.designation_sizes(), {stat.st_size})
+
+    def root_other(self) -> str:
+        return os.path.join(self.tmp_dir, "another_root")
+
+    def test_empty_scan_changes_nothing(self) -> None:
+        self.store.set_crop_exclusion(self.clip, True)
+        self.assertEqual(self.store.sync_designations({}), [])
+        self.assertEqual(self._crop_paths(), {self.clip})
+
+    def test_data_cleanup_counts_and_clears_rows_created_by_a_copy(self) -> None:
+        self.store.set_crop_exclusion(self.clip, True)
+        copy_path = os.path.join(self.root, "copy.mp4")
+        with open(self.clip, "rb") as src, open(copy_path, "wb") as dst:
+            dst.write(src.read())
+        self.store.sync_designations({copy_path: self._identity(copy_path)})
+        self.assertEqual(self.store.count_crop_exclusions([self.root]), 2)
+        self.assertEqual(self.store.clear_crop_exclusions([self.root]), 2)
+        self.assertEqual(self._crop_paths(), set())
+
+
 class TestFrameStoreScopedCleanupCost(_StoreTestCase):
     """정리 범위 판정이 행 수에 비례해 폴더를 훑지 않는지"""
 

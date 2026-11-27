@@ -182,3 +182,17 @@ class TestLogicalOwnerResolverCost(_RootCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestResolveWithNormalizedKey(_RootCase):
+    """정규화 키(소문자로 바뀐 목록)로 풀어도 라벨이 같은 작업 폴더를 가리키는지"""
+
+    def test_label_matches_case_insensitively(self) -> None:
+        with tempfile.TemporaryDirectory() as base:
+            work_a = os.path.join(base, "WorkA")
+            work_b = os.path.join(base, "WorkB")
+            spec = f"{work_a};{work_b}"
+            resolved = paths_module.resolve_source_filepath(
+                paths_module.normalize_root_key(spec), "WorkB/x.mp4"
+            )
+            self.assertEqual(os.path.normcase(resolved), os.path.normcase(os.path.join(work_b, "x.mp4")))

@@ -34,6 +34,7 @@ from src.core.resolution_tiers import copy_manual_targets
 from src.core.workspace_paths import (
     LogicalOwnerResolver,
     format_root_dirs,
+    normalize_root_key,
     parse_root_dirs,
 )
 from src.service.analysis_store_schema import (
@@ -103,15 +104,20 @@ from src.service.analysis_store_schema import (
     expected_table_info as expected_table_info,
 )
 from src.service.analysis_work_records import (
+    ManualTargetSync,
     clear_manual_targets,
     clear_table_selections,
     count_manual_targets,
     count_table_selections,
+    manual_target_sizes,
     read_manual_targets,
     read_table_selection,
+    refresh_manual_target_identities,
+    sync_manual_target_designations,
     write_manual_targets,
     write_table_selection,
 )
+from src.service.designation_content import ContentIdentity
 from src.service.sql_transaction import transaction
 
 logger = logging.getLogger(__name__)
@@ -686,6 +692,19 @@ class AnalysisStore:
         """영상별 출력 해상도 직접 지정 건수. root_dirs를 주면 그 작업 폴더 키의 지정만 셈"""
         return self._run(lambda conn: count_manual_targets(conn, root_dirs), 0)
 
+    def manual_target_sizes(self) -> set[int]:
+        """출력 해상도 직접 지정 행이 남긴 파일 크기 집합(스캔 지문 대조 범위 축소용)"""
+        return self._run_isolated(manual_target_sizes, set())
+
+    def sync_manual_target_designations(
+        self, found: Mapping[str, ContentIdentity], root_dir: str
+    ) -> ManualTargetSync:
+        """스캔이 확인한 내용 키로 출력 해상도 직접 지정을 새 경로(다른 작업 폴더 포함)에 붙임"""
+        return self._run_isolated(
+            lambda conn: sync_manual_target_designations(conn, found=found, root_spec=root_dir),
+            ManualTargetSync(),
+        )
+
     def clear_manual_targets(self, root_dirs: Sequence[str] | None = None) -> int:
         """영상별 출력 해상도 직접 지정을 지우고 지운 건수 반환"""
         return self._run(lambda conn: clear_manual_targets(conn, root_dirs), 0)
@@ -712,6 +731,22 @@ class AnalysisStore:
     def write_manual_targets(self, store: Mapping[str, Mapping[str, str]]) -> None:
         """작업 폴더별 직접 지정 맵 전체를 전용 테이블에 한 트랜잭션으로 교체 저장"""
         self._run(lambda conn: write_manual_targets(conn, store), None)
+
+    def refresh_manual_target_identities(
+        self, root_dir: str, filenames: Iterable[str]
+    ) -> int:
+        """지정 행의 내용 키를 지금 파일에서 다시 읽어 채움. 채운 행 수 반환
+
+        - 사용자가 그 영상에 지정을 새로 고를 때 불러, 같은 경로의 내용이 바뀐 뒤에도 새 지정이 붙게 함
+        - 파일을 읽지 못하면 저장 값을 그대로 두어 다음 스캔이 그 내용의 새 경로를 찾게 함
+        """
+        key = normalize_root_key(root_dir)
+        targets = [(key, name) for name in dict.fromkeys(filenames) if name]
+        if not targets:
+            return 0
+        return self._run_isolated(
+            lambda conn: refresh_manual_target_identities(conn, targets), 0
+        )
 
     def read_table_selection(self, root_key: str) -> set[str]:
         """작업 폴더에 마지막으로 선택되어 있던 영상 파일명 집합을 전용 테이블에서 읽음"""
@@ -746,6 +781,29 @@ class AnalysisStore:
                 if self._conn is None:
                     self._disabled = True
                 return default
+
+    def _run_isolated(self, action: Callable[[sqlite3.Connection], _T], default: _T) -> _T:
+        """이번 호출 전용 연결로 작업하고 바로 닫음
+
+        - 판정, 스캔처럼 한 번 부르는 조회에 오래 사는 연결을 쓰면 DB 파일 핸들이 남아
+          작업 폴더 정리와 테스트 정리 단계를 막음
+        - 연결 실패는 종전과 같이 경고만 남기고 기본값을 돌려줌(저장소 자체는 비활성화하지 않음)
+        """
+        with self._lock:
+            if self._disabled:
+                return default
+            try:
+                conn = self._open_with_recovery()
+            except (sqlite3.Error, OSError) as e:
+                logger.warning("분석 캐시 DB 작업에 실패해 캐시 없이 계속합니다: %s", e)
+                return default
+            try:
+                return action(conn)
+            except (sqlite3.Error, OSError) as e:
+                logger.warning("분석 캐시 DB 작업에 실패해 캐시 없이 계속합니다: %s", e)
+                return default
+            finally:
+                conn.close()
 
     def _open_with_recovery(self) -> sqlite3.Connection:
         try:

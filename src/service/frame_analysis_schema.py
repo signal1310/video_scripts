@@ -118,19 +118,23 @@ _LEGACY_TABLE_SQL: str = _table_sql(
     nullable=frozenset(set(RECORD_COLUMNS) - set(LEGACY_KEY_COLUMN_NAMES)),
     if_not_exists=True,
 )
-# - 경로 키 지정 표들. 3단계에서 내용 키로 옮길 때까지 경로를 기본 키로 둠
+# - 경로 키 지정 표들. 경로와 함께 내용 키(크기, 내용 지문)를 남겨 파일을 옮기거나 복사해도 지정을 찾음
 _SCHEMA_STATEMENTS: tuple[str, ...] = (
     _CACHE_TABLE_SQL,
     _LEGACY_TABLE_SQL,
     f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_VR_TABLE} (\n"
     "  source_path TEXT PRIMARY KEY,\n"
-    "  manual_vr INTEGER NOT NULL\n"
+    "  manual_vr INTEGER NOT NULL,\n"
+    "  filesize_bytes INTEGER,\n"
+    "  mtime_ns INTEGER,\n"
+    "  fingerprint TEXT\n"
     ") WITHOUT ROWID",
     f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_CROP_TABLE} (\n"
     "  source_path TEXT PRIMARY KEY,\n"
     "  exclude_crop INTEGER NOT NULL,\n"
     "  filesize_bytes INTEGER,\n"
-    "  mtime_ns INTEGER\n"
+    "  mtime_ns INTEGER,\n"
+    "  fingerprint TEXT\n"
     ") WITHOUT ROWID",
     f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_MANUAL_FRAME_TABLE} (\n"
     "  source_path TEXT PRIMARY KEY,\n"
@@ -139,7 +143,8 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "  manual_width INTEGER NOT NULL,\n"
     "  manual_height INTEGER NOT NULL,\n"
     "  filesize_bytes INTEGER,\n"
-    "  mtime_ns INTEGER\n"
+    "  mtime_ns INTEGER,\n"
+    "  fingerprint TEXT\n"
     ") WITHOUT ROWID",
     f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_REVIEW_ACK_TABLE} (\n"
     "  source_path TEXT PRIMARY KEY,\n"
@@ -161,8 +166,13 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     (FRAME_ANALYSIS_TABLE, "crop_scan_failed", "INTEGER NOT NULL DEFAULT 0"),
     (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "filesize_bytes", "INTEGER"),
     (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "mtime_ns", "INTEGER"),
+    (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "fingerprint", "TEXT"),
     (FRAME_ANALYSIS_CROP_TABLE, "filesize_bytes", "INTEGER"),
     (FRAME_ANALYSIS_CROP_TABLE, "mtime_ns", "INTEGER"),
+    (FRAME_ANALYSIS_CROP_TABLE, "fingerprint", "TEXT"),
+    (FRAME_ANALYSIS_VR_TABLE, "filesize_bytes", "INTEGER"),
+    (FRAME_ANALYSIS_VR_TABLE, "mtime_ns", "INTEGER"),
+    (FRAME_ANALYSIS_VR_TABLE, "fingerprint", "TEXT"),
 )
 
 

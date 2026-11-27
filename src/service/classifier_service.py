@@ -35,8 +35,10 @@ from src.core.models import ActiveFrame, SummaryReport, VideoProps
 from src.core.quality_probe import METRIC_VMAF
 from src.core.workspace_paths import are_all_valid_dirs, parse_root_dirs, resolve_source_filepath
 from src.service.analysis_probe import FileEntry, StoredRows, count_pending_files
-from src.service.analysis_store import AnalysisStore
+from src.service.analysis_store import AnalysisStore, FileKey
+from src.service.analysis_work_records import ManualTargetSync
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, DirSignature, TableCache
+from src.service.designation_content import ContentIdentity
 from src.service.encode.encode_output_history import EncodeOutputHistory
 from src.service.frame_analysis_record import FrameAnalysisRecord
 from src.service.frame_analysis_store import FrameAnalysisStore
@@ -442,6 +444,88 @@ class VideoClassifierService:
                 self.root_dir, recursive=self.recursive, excluded_dirnames=self._excluded_dirnames()
             )
         )
+
+    def designation_sizes(self) -> set[int]:
+        """지정 행(경로 지정 표와 출력 해상도 직접 지정)이 남긴 파일 크기 집합
+
+        - 내용이 같은 파일은 크기도 같으므로, 스캔이 이 크기의 파일만 지문을 확인하게 좁힘
+        """
+        db_path = self._store.db_path if self._store is not None else None
+        if db_path is None:
+            return set()
+        sizes = self._store.manual_target_sizes() if self._store is not None else set()
+        store = FrameAnalysisStore(db_path)
+        try:
+            return sizes | store.designation_sizes()
+        finally:
+            store.close()
+
+    def refresh_manual_target_identities(self, filenames: Sequence[str]) -> int:
+        """현재 작업 폴더 지정 행의 내용 키를 지금 파일에서 다시 읽어 채움. 채운 행 수 반환
+
+        - 사용자가 그 영상에 지정을 새로 고를 때 불러, 같은 경로의 내용이 바뀐 뒤에도 새 지정이 붙게 함
+        - 분석 캐시 저장소가 없으면 지정도 저장되지 않으므로 아무 것도 하지 않음
+        """
+        if self._store is None:
+            return 0
+        return self._store.refresh_manual_target_identities(self.root_dir, filenames)
+
+    def scan_content_identities(self) -> dict[str, ContentIdentity]:
+        """작업 폴더 영상 중 지정 행과 크기가 같은 파일의 내용 키(크기, 지문)를 확인
+
+        - 지정 행이 남긴 크기의 파일만 확인해, 지정이 없으면 파일을 읽지 않음
+        - 지문은 분석 캐시가 이미 아는 값을 먼저 쓰고 모자란 파일만 읽음(판정마다 같은 영상을 다시 읽지 않게)
+        - 지문을 확인하지 못한 파일은 빠져 종전처럼 경로로만 지정을 판정
+        """
+        cache = self.cache
+        if cache is None:
+            return {}
+        sizes = self.designation_sizes()
+        if not sizes:
+            return {}
+        entries: list[tuple[FileKey, str]] = []
+        for video in cache.data:
+            path = resolve_source_filepath(self.root_dir, video.filename)
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            if stat.st_size not in sizes:
+                continue
+            entries.append(((video.filename, stat.st_size, stat.st_mtime_ns), path))
+        if not entries:
+            return {}
+        db_path = self._store.db_path if self._store is not None else None
+        if db_path is None:
+            return {}
+        store = FrameAnalysisStore(db_path)
+        try:
+            fingerprints = store.resolve_content_keys(entries)
+        finally:
+            store.close()
+        return {
+            path: (key[1], fingerprint)
+            for key, path in entries
+            if (fingerprint := fingerprints.get(key)) is not None
+        }
+
+    def sync_designations(self) -> ManualTargetSync:
+        """스캔이 확인한 내용 키로 영상별 직접 지정을 새 경로(다른 작업 폴더 포함)에 붙임
+
+        - 경로 지정 표(수동 VR 보호, 잘라내기 제외, 사용자 지정 활성 화면)와 출력 해상도 직접 지정을 함께 옮김
+        - 옛 경로의 파일이 사라졌으면 옮기고 남아 있으면 복사하며, 이미 지정이 있는 경로는 건드리지 않음
+        """
+        found = self.scan_content_identities()
+        db_path = self._store.db_path if self._store is not None else None
+        if db_path is not None and found:
+            store = FrameAnalysisStore(db_path)
+            try:
+                store.sync_designations(found)
+            finally:
+                store.close()
+        if self._store is None:
+            return ManualTargetSync()
+        return self._store.sync_manual_target_designations(found, self.root_dir)
 
     def _resolve_encoded_evidence(
         self, videos: Sequence[VideoProps]

@@ -1,7 +1,6 @@
 """UI 무관 분류 세션 모듈(GUI, 노트북 파사드 공용)"""
 
 import logging
-import os
 from collections.abc import Callable, Iterable, Sequence
 
 from src.core.analysis.prober import CancelCheck, ProgressCallback
@@ -12,7 +11,12 @@ from src.core.exceptions import DomainFileNotFoundError, DomainValueError, Error
 from src.core.messages import format_invalid_root_dir_msg
 from src.core.models import SummaryReport, VideoProps
 from src.core.resolution_tiers import copy_manual_targets, is_valid_manual_target
-from src.core.workspace_paths import are_all_valid_dirs, format_root_dirs, parse_root_dirs
+from src.core.workspace_paths import (
+    are_all_valid_dirs,
+    format_root_dirs,
+    parse_root_dirs,
+)
+from src.core.workspace_paths import normalize_root_key as normalize_root_key
 from src.service.analysis_probe import StoredRows
 from src.service.analysis_store import AnalysisStore
 from src.service.analysis_timing import (
@@ -25,16 +29,6 @@ from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry
 from src.service.classifier_service import VideoClassifierService
 
 logger = logging.getLogger(__name__)
-
-
-def normalize_root_key(root_dir: str) -> str:
-    """작업 폴더 목록을 구분자, 대소문자, 끝 구분자 표기와 무관한 직접 지정 저장 키로 변환
-
-    - 조회, 저장, 불러오기가 모두 이 함수를 거쳐야 같은 폴더 목록이 한 항목으로 묶임
-    """
-    return ";".join(
-        os.path.normcase(os.path.normpath(path)) for path in parse_root_dirs(root_dir)
-    )
 
 
 class ClassifierSession:
@@ -62,6 +56,8 @@ class ClassifierSession:
         self._exception_tokens: list[str] = []
         # - 작업 폴더 경로 -> 파일명 -> 규격 키 또는 축소 안 함 값. 현재 작업 폴더 몫만 서비스에 동기화
         self._manual_target_store: dict[str, dict[str, str]] = {}
+        # - 저장한 뒤 같은 경로의 내용이 바뀌어 판정에 쓰지 않을 (작업 폴더 키, 파일명). 행은 남겨 둠
+        self._stale_designations: frozenset[tuple[str, str]] = frozenset()
 
     @property
     def service(self) -> VideoClassifierService:
@@ -220,6 +216,8 @@ class ClassifierSession:
         for root, entries in store.items():
             merged.setdefault(normalize_root_key(root), {}).update(entries)
         self._manual_target_store = {root: entries for root, entries in merged.items() if entries}
+        # - 저장된 지정을 다시 불러왔으므로 이전 스캔의 낡음 표시는 더 이상 유효하지 않음
+        self._stale_designations = frozenset()
         self._sync_manual_targets()
 
     def set_manual_target_tier(self, filenames: Iterable[str], value: str | None) -> None:
@@ -230,17 +228,31 @@ class ClassifierSession:
                 code=ErrorCode.MANUAL_TARGET_INVALID,
             )
         entries = self._manual_target_store.setdefault(normalize_root_key(self.root_dir), {})
+        key = normalize_root_key(self.root_dir)
+        chosen: list[str] = []
         for name in filenames:
             if value is None:
                 entries.pop(name, None)
             else:
                 entries[name] = value
+                chosen.append(name)
+            # - 사용자가 지금 고른 지정은 내용이 바뀐 것으로 보지 않으므로 이전 낡음 표시를 지움
+            self._stale_designations = frozenset(
+                item for item in self._stale_designations if item != (key, name)
+            )
+        if chosen:
+            # - 같은 경로의 내용이 바뀐 뒤 다시 지정한 값도 그 내용에 붙도록 저장된 내용 키를 지금 파일로 맞춤
+            self._service.refresh_manual_target_identities(chosen)
         self._drop_empty_manual_targets()
         self._sync_manual_targets()
 
     def clear_manual_target_tiers(self) -> None:
         """현재 작업 폴더의 출력 해상도 직접 지정을 모두 해제"""
-        self._manual_target_store.pop(normalize_root_key(self.root_dir), None)
+        key = normalize_root_key(self.root_dir)
+        self._manual_target_store.pop(key, None)
+        self._stale_designations = frozenset(
+            item for item in self._stale_designations if item[0] != key
+        )
         self._sync_manual_targets()
 
     def _prune_manual_target_tiers(self) -> None:
@@ -262,25 +274,57 @@ class ClassifierSession:
             del self._manual_target_store[key]
 
     def _sync_manual_targets(self) -> None:
-        """현재 작업 폴더의 직접 지정 맵을 서비스에 복사해 전달(평가 경로가 세션 저장소를 직접 참조하지 않도록 함)"""
-        self._service.manual_targets = self.manual_target_tiers
+        """현재 작업 폴더의 직접 지정 맵을 서비스에 복사해 전달(평가 경로가 세션 저장소를 직접 참조하지 않도록 함)
 
-    def sync_renamed_manual_targets(self) -> bool:
-        """지문 매칭으로 복구된 이름 변경 쌍에 맞춰 출력 해상도 직접 지정 키를 이관"""
-        cache = self._service.cache
-        if cache is None or not cache.renamed_pairs:
-            return False
-        entries = self._manual_target_store.get(normalize_root_key(self.root_dir))
-        if not entries:
-            return False
+        - 같은 경로의 내용이 바뀐 지정은 행은 남기되 이번 판정에서만 빼서 다른 영상에 붙지 않게 함
+        """
+        key = normalize_root_key(self.root_dir)
+        stale_names = {name for root, name in self._stale_designations if root == key}
+        self._service.manual_targets = {
+            name: tier
+            for name, tier in self._manual_target_store.get(key, {}).items()
+            if name not in stale_names
+        }
+
+    def sync_designations(self) -> bool:
+        """스캔에서 찾은 내용으로 영상별 직접 지정(출력 해상도 지정 포함)을 새 경로에 붙임
+
+        - 옮긴 지정은 메모리 맵에서도 옛 이름을 지우고 새 이름으로 옮김
+        - 복사한 지정은 원본을 그대로 두고 새 이름을 더함
+        - 같은 경로의 내용이 바뀐 지정은 행을 남기고 이번 판정에서만 빼 둠
+        """
+        result = self._service.sync_designations()
+        self._stale_designations = result.stale
+        current = self._manual_target_store.setdefault(normalize_root_key(self.root_dir), {})
         changed = False
-        for old_name, new_name in cache.renamed_pairs.items():
-            if old_name in entries and new_name not in entries:
-                entries[new_name] = entries.pop(old_name)
-                changed = True
+        handled: set[str] = set()
+        for old, new in result.moved:
+            handled.add(old[1])
+            tier = self._manual_target_store.get(old[0], {}).pop(old[1], None)
+            if tier is None:
+                continue
+            self._manual_target_store.setdefault(new[0], {})[new[1]] = tier
+            changed = True
+        for old, new in result.copied:
+            handled.add(old[1])
+            tier = self._manual_target_store.get(old[0], {}).get(old[1])
+            if tier is None:
+                continue
+            self._manual_target_store.setdefault(new[0], {}).setdefault(new[1], tier)
+            changed = True
+        # - 아직 DB에 저장되지 않은 메모리 지정은 스캔이 지문으로 찾은 이름 변경 쌍으로 옮김
+        cache = self._service.cache
+        for old_name, new_name in (cache.renamed_pairs if cache is not None else {}).items():
+            if old_name in handled or old_name not in current or new_name in current:
+                continue
+            current[new_name] = current.pop(old_name)
+            changed = True
         if changed:
-            self._sync_manual_targets()
-        return changed
+            self._manual_target_store = {
+                root: kept for root, kept in self._manual_target_store.items() if kept
+            }
+        self._sync_manual_targets()
+        return changed or bool(result.stale)
 
     def get_summary_report(
         self, ensure_keyframe: bool = False, *, prescan: StoredRows | None = None
@@ -290,7 +334,7 @@ class ClassifierSession:
         prescan은 시작 복원 판정이 이미 읽은 파일 목록과 저장 행. 복원에 이어지는 분석만 넘김
         """
         self._service.prepare_cache(force_keyframe=ensure_keyframe, prescan=prescan)
-        self.sync_renamed_manual_targets()
+        self.sync_designations()
         self._prune_manual_target_tiers()
         return self._service.evaluate_all(ensure_keyframe=ensure_keyframe, prescan=prescan)
 

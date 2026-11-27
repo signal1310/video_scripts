@@ -22,6 +22,14 @@ from src.core.analysis.frame_analysis import ActiveRegion, normalize_manual_acti
 from src.core.models import ActiveFrame
 from src.core.workspace_paths import LogicalOwnerResolver, is_within_roots
 from src.service.analysis_store import ContentKey, FileKey
+from src.service.designation_content import (
+    ContentIdentity,
+    ContentMove,
+    fill_missing_fingerprints,
+    mismatched_paths,
+    optional_text,
+    sync_path_designations,
+)
 from src.service.frame_analysis_record import FrameAnalysisRecord, record_to_row, row_to_record
 from src.service.frame_analysis_schema import (
     CONTENT_KEY_COLUMN_NAMES,
@@ -175,6 +183,24 @@ def _delete_path_rows(conn: sqlite3.Connection, table: str, root_dirs: Sequence[
         conn.execute("ROLLBACK")
         raise
     return len(paths)
+
+
+def _kept_with_matching_content(
+    rows: Sequence[Sequence[object]],
+    kept: Sequence[str],
+    *,
+    fingerprint_index: int,
+    identity_overrides: Mapping[str, tuple[int, int]] | None,
+) -> list[str]:
+    """유지 목록에서 지금 파일 내용이 저장 지문과 다른 경로를 뺀 목록
+
+    - 같은 이름, 크기, 수정 시각이어도 내용이 다르면 지정을 붙이지 않음
+    - 다른 파일을 띄우는 조회(`identity_overrides`)의 경로는 그 파일의 지정일 수 있어 그대로 둠
+    """
+    overridden = set() if identity_overrides is None else set(identity_overrides)
+    stored = {str(row[0]): optional_text(row[fingerprint_index]) for row in rows}
+    bad = mismatched_paths([(path, stored.get(path)) for path in kept if path not in overridden])
+    return [path for path in kept if path not in bad]
 
 
 class FrameAnalysisStore:
@@ -362,7 +388,11 @@ class FrameAnalysisStore:
         return self._run(lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_VR_TABLE, root_dirs))
 
     def load_vr_overrides(self, paths: Sequence[str]) -> frozenset[str]:
-        """수동 VR 보호로 저장된 전체 경로 집합 조회"""
+        """수동 VR 보호로 저장된 전체 경로 집합 조회
+
+        - 저장 시점 내용 지문이 지금 파일과 다르면(같은 이름, 크기, 수정 시각이어도) 그 경로를 빼고 행은 남김
+        - 지문을 아직 모르는 행과 파일을 읽지 못한 행은 종전처럼 경로로만 판정
+        """
 
         def _select(conn: sqlite3.Connection) -> frozenset[str]:
             keys = list(dict.fromkeys(path for path in paths if path))
@@ -370,11 +400,13 @@ class FrameAnalysisStore:
                 return frozenset()
             placeholders = ", ".join("?" * len(keys))
             rows = conn.execute(
-                f"SELECT source_path FROM {FRAME_ANALYSIS_VR_TABLE} "
-                f"WHERE manual_vr = 1 AND source_path IN ({placeholders})",
+                f"SELECT source_path, filesize_bytes, mtime_ns, fingerprint"
+                f" FROM {FRAME_ANALYSIS_VR_TABLE}"
+                f" WHERE manual_vr = 1 AND source_path IN ({placeholders})",
                 keys,
             ).fetchall()
-            return frozenset(str(row[0]) for row in rows)
+            bad = mismatched_paths([(str(row[0]), optional_text(row[3])) for row in rows])
+            return frozenset(str(row[0]) for row in rows if str(row[0]) not in bad)
 
         return self._run(_select)
 
@@ -384,6 +416,7 @@ class FrameAnalysisStore:
         - 보호 여부에 따라 활성 화면과 축소 후보가 달라지므로 낡은 측정 결과를 남기지 않음
         - 측정 행은 내용 키로 식별하므로 이름이 바뀐 영상도 지우려면 그 경로의 내용 키를 풀어 씀.
           지문을 확인하지 못하면 옛 파일명 키 행만 지움
+        - 저장하는 지정 행에도 내용 키를 함께 남겨 파일을 옮기거나 복사해도 지정을 찾음
         """
         identity = file_identity(source_path)
         fingerprint: str | None = None
@@ -398,8 +431,15 @@ class FrameAnalysisStore:
             try:
                 if manual_vr:
                     conn.execute(
-                        f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_VR_TABLE} (source_path, manual_vr) VALUES (?, 1)",
-                        (source_path,),
+                        f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_VR_TABLE}"
+                        " (source_path, manual_vr, filesize_bytes, mtime_ns, fingerprint)"
+                        " VALUES (?, 1, ?, ?, ?)",
+                        (
+                            source_path,
+                            None if identity is None else identity[0],
+                            None if identity is None else identity[1],
+                            fingerprint,
+                        ),
                     )
                 else:
                     conn.execute(
@@ -442,18 +482,24 @@ class FrameAnalysisStore:
                 return frozenset()
             placeholders = ", ".join("?" * len(keys))
             rows = conn.execute(
-                f"SELECT source_path, exclude_crop, filesize_bytes, mtime_ns"
+                f"SELECT source_path, exclude_crop, filesize_bytes, mtime_ns, fingerprint"
                 f" FROM {FRAME_ANALYSIS_CROP_TABLE}"
                 f" WHERE exclude_crop = 1 AND source_path IN ({placeholders})",
                 keys,
             ).fetchall()
-            kept, stamped = validated_crop_exclusion_rows(rows, identity_overrides=identity_overrides)
+            kept, stamped = validated_crop_exclusion_rows(
+                [row[:4] for row in rows], identity_overrides=identity_overrides
+            )
             _write_row_changes_best_effort(
                 self._db_path,
                 table=FRAME_ANALYSIS_CROP_TABLE,
                 stamped=stamped,
             )
-            return frozenset(kept)
+            return frozenset(
+                _kept_with_matching_content(
+                    rows, kept, fingerprint_index=4, identity_overrides=identity_overrides
+                )
+            )
 
         return self._run(_select)
 
@@ -461,11 +507,12 @@ class FrameAnalysisStore:
         """영상별 검은 여백 잘라내기 제외를 저장. 분석 캐시는 지우지 않음
 
         - 활성 화면과 축소 후보는 그대로 유효하며 판정 입력에서만 잘라내기를 건너뜀
-        - 저장 시점 파일 크기와 수정 시각을 함께 남겨, 같은 경로의 파일이 바뀌면 읽을 때 버림
+        - 저장 시점 파일 크기, 수정 시각, 내용 지문을 함께 남겨, 같은 경로의 파일이 바뀌면 읽을 때 버림
         """
         if not source_path:
             return
         identity = file_identity(source_path) if excluded else None
+        fingerprint = None if identity is None else computed_fingerprint(source_path, identity[0])
 
         def _write(conn: sqlite3.Connection) -> None:
             conn.execute("BEGIN IMMEDIATE")
@@ -473,12 +520,13 @@ class FrameAnalysisStore:
                 if excluded:
                     conn.execute(
                         f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_CROP_TABLE}"
-                        " (source_path, exclude_crop, filesize_bytes, mtime_ns)"
-                        " VALUES (?, 1, ?, ?)",
+                        " (source_path, exclude_crop, filesize_bytes, mtime_ns, fingerprint)"
+                        " VALUES (?, 1, ?, ?, ?)",
                         (
                             source_path,
                             None if identity is None else identity[0],
                             None if identity is None else identity[1],
+                            fingerprint,
                         ),
                     )
                 else:
@@ -515,11 +563,13 @@ class FrameAnalysisStore:
             placeholders = ", ".join("?" * len(keys))
             rows = conn.execute(
                 f"SELECT source_path, manual_width, manual_height, manual_x, manual_y,"
-                f" filesize_bytes, mtime_ns FROM {FRAME_ANALYSIS_MANUAL_FRAME_TABLE}"
+                f" filesize_bytes, mtime_ns, fingerprint FROM {FRAME_ANALYSIS_MANUAL_FRAME_TABLE}"
                 f" WHERE source_path IN ({placeholders})",
                 keys,
             ).fetchall()
-            frames, dropped, stamped = validated_manual_rows(rows, frame_sizes, identity_overrides=identity_overrides)
+            frames, dropped, stamped = validated_manual_rows(
+                [row[:7] for row in rows], frame_sizes, identity_overrides=identity_overrides
+            )
             _write_row_changes_best_effort(
                 self._db_path,
                 table=FRAME_ANALYSIS_MANUAL_FRAME_TABLE,
@@ -527,7 +577,10 @@ class FrameAnalysisStore:
                 dropped=dropped,
                 stamped=stamped,
             )
-            return frames
+            kept = _kept_with_matching_content(
+                rows, list(frames), fingerprint_index=7, identity_overrides=identity_overrides
+            )
+            return {path: frames[path] for path in kept}
 
         return self._run(_select)
 
@@ -543,13 +596,18 @@ class FrameAnalysisStore:
 
         - 저장 전 `normalize_manual_active_frame`으로 프레임 안의 짝수 크기와 좌표로 맞추고,
           전체 프레임과 같아지면 지움으로 처리
-        - 저장 시점 파일 크기와 수정 시각을 함께 남겨, 같은 경로의 파일이 바뀌면 읽을 때 버림
+        - 저장 시점 파일 크기, 수정 시각, 내용 지문을 함께 남겨, 같은 경로의 파일이 바뀌면 읽을 때 버림
         - 분석 캐시는 지우지 않음. 활성 화면은 판정 입력에서만 바뀌고 측정 결과는 그대로 씀
         """
         if not source_path:
             return
         normalized = None if frame is None else normalize_manual_active_frame(frame, frame_width, frame_height)
         identity = None if normalized is None else file_identity(source_path)
+        fingerprint = (
+            None
+            if identity is None
+            else computed_fingerprint(source_path, identity[0])
+        )
 
         def _write(conn: sqlite3.Connection) -> None:
             conn.execute("BEGIN IMMEDIATE")
@@ -562,7 +620,7 @@ class FrameAnalysisStore:
                     conn.execute(
                         f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_MANUAL_FRAME_TABLE}"
                         " (source_path, manual_x, manual_y, manual_width, manual_height,"
-                        " filesize_bytes, mtime_ns) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        " filesize_bytes, mtime_ns, fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             source_path,
                             normalized.x,
@@ -571,6 +629,7 @@ class FrameAnalysisStore:
                             normalized.height,
                             None if identity is None else identity[0],
                             None if identity is None else identity[1],
+                            fingerprint,
                         ),
                     )
                 conn.execute("COMMIT")
@@ -659,6 +718,51 @@ class FrameAnalysisStore:
                 raise
 
         self._run(_write)
+
+    def designation_sizes(self) -> set[int]:
+        """경로 지정 행(수동 VR 보호, 잘라내기 제외, 사용자 지정 활성 화면)이 남긴 파일 크기 집합
+
+        - 내용이 같은 파일은 크기도 같으므로, 스캔이 이 크기의 파일만 지문을 확인하게 좁힘
+        - 내용 키가 없던 예전 행은 그 경로의 파일을 읽어 한 번 채워, 옛 지정도 새 경로를 따라가게 함
+          (파일이 없거나 읽지 못한 행은 NULL로 남아 종전처럼 경로로만 적용)
+        """
+        tables = (FRAME_ANALYSIS_VR_TABLE, FRAME_ANALYSIS_CROP_TABLE, FRAME_ANALYSIS_MANUAL_FRAME_TABLE)
+
+        def _select(conn: sqlite3.Connection) -> set[int]:
+            sizes: set[int] = set()
+            for table in tables:
+                fill_missing_fingerprints(conn, table=table)
+                rows = conn.execute(
+                    f"SELECT DISTINCT filesize_bytes FROM {table} WHERE filesize_bytes IS NOT NULL"
+                ).fetchall()
+                sizes.update(int(str(row[0])) for row in rows)
+            return sizes
+
+        return self._run(_select)
+
+    def sync_designations(self, found: Mapping[str, ContentIdentity]) -> list[ContentMove[str]]:
+        """스캔에서 찾은 내용 키로 경로 지정 행(수동 VR 보호, 잘라내기 제외, 사용자 지정 활성 화면)을 새 경로에 붙임
+
+        - 옛 경로의 파일이 사라졌으면 그 행을 새 경로로 옮기고, 남아 있으면 복사(독립된 행)
+        - 이미 지정이 있는 경로는 건드리지 않아 사용자가 새로 고른 값을 덮지 않음
+        - 내용이 다른 파일에는 붙이지 않음(파일 크기와 지문이 모두 같은 행만 짝지음)
+        """
+        if not found:
+            return []
+
+        def _write(conn: sqlite3.Connection) -> list[ContentMove[str]]:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                moves: list[ContentMove[str]] = []
+                for table in (FRAME_ANALYSIS_VR_TABLE, FRAME_ANALYSIS_CROP_TABLE, FRAME_ANALYSIS_MANUAL_FRAME_TABLE):
+                    moves.extend(sync_path_designations(conn, table=table, found=found))
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+            return moves
+
+        return self._run(_write)
 
     def close(self) -> None:
         """열려 있는 모든 스레드의 연결을 닫음"""

@@ -1,6 +1,7 @@
 """샘플 인코딩 구성, 지표 파싱, 기울기/비율 집계, 프로세스 실행기 단위 테스트"""
 
 import json
+import math
 import sys
 import tempfile
 import threading
@@ -30,8 +31,10 @@ from src.core.quality_probe import (
     parse_ssim_stats,
     parse_vmaf_log,
     resolve_metric_name,
+    ssim_db_from_score,
     vmaf_model_for,
 )
+from src.core.sample_points import FLAT_ROUNDTRIP_SSIM_DB
 
 
 def _build_plan() -> EncodePlan:
@@ -162,25 +165,79 @@ class TestQualityProbe(unittest.TestCase):
         stats = "n:1 Y:0.99 U:0.99 V:0.99 All:0.980 (17.0)\nn:2 Y:0.99 U:0.99 V:0.99 All:0.990 (20.0)\n"
         parsed = parse_ssim_stats(stats)
         assert parsed is not None
-        self.assertAlmostEqual(parsed[0], 0.985, places=4)
-        self.assertAlmostEqual(parsed[1], 18.5, places=4)
+        self.assertAlmostEqual(parsed.score, 0.985, places=4)
+        # - -10 * log10(1 - 0.985) = 18.2391dB, 구현 환산식을 그대로 쓰지 않고 독립 계산값으로 확인
+        self.assertAlmostEqual(parsed.db, 18.2391, places=4)
+        self.assertEqual(parsed.frame_scores, (0.98, 0.99))
         self.assertIsNone(parse_ssim_stats("n:1 Y:0.99"))
+
+    def test_negative_db_line_still_counts_as_a_frame(self) -> None:
+        """음수 dB 줄(점수가 0 미만)도 프레임으로 세어 모집단에서 빠지지 않는지 검증"""
+        lines = [f"n:{index} Y:1 U:1 V:1 All:1.000000 (inf)\n" for index in range(9)]
+        lines.append("n:9 Y:0.4 U:0.4 V:0.4 All:0.400000 (-3.98)\n")
+        parsed = parse_ssim_stats("".join(lines))
+        assert parsed is not None
+        self.assertEqual(len(parsed.frame_scores), 10)
+        self.assertEqual(parsed.frame_scores[-1], 0.4)
+        self.assertAlmostEqual(parsed.score, (9 + 0.4) / 10, places=6)
 
     def test_parse_ssim_infinity_is_capped_for_flat_segments(self) -> None:
         inf_only = "n:1 Y:1.000000 U:1.000000 V:1.000000 All:1.000000 (inf)\n"
         parsed = parse_ssim_stats(inf_only)
         assert parsed is not None
-        self.assertAlmostEqual(parsed[0], 1.0)
-        self.assertAlmostEqual(parsed[1], SSIM_DB_MAX)
-        self.assertGreaterEqual(parsed[1], 40.0)
+        self.assertAlmostEqual(parsed.score, 1.0)
+        self.assertAlmostEqual(parsed.db, SSIM_DB_MAX)
+        self.assertEqual(parsed.frame_scores, (None,))
+        self.assertEqual(ssim_db_from_score(1.0), SSIM_DB_MAX)
+        self.assertAlmostEqual(ssim_db_from_score(0.99), 20.0, places=6)
+        # - 로그 반올림으로 1을 넘거나 음수인 점수는 [0, 1]로 클램프해 상한과 0dB로 환산
+        self.assertEqual(ssim_db_from_score(1.0000001), SSIM_DB_MAX)
+        self.assertEqual(ssim_db_from_score(-0.1), 0.0)
+        self.assertGreaterEqual(parsed.db, 40.0)
         mixed = (
             "n:1 Y:1.0 U:1.0 V:1.0 All:1.000000 (inf)\n"
             "n:2 Y:0.9 U:0.9 V:0.9 All:0.980000 (17.0)\n"
         )
         parsed_mixed = parse_ssim_stats(mixed)
         assert parsed_mixed is not None
-        self.assertAlmostEqual(parsed_mixed[0], 0.99, places=4)
-        self.assertAlmostEqual(parsed_mixed[1], (SSIM_DB_MAX + 17.0) / 2.0, places=4)
+        self.assertAlmostEqual(parsed_mixed.score, 0.99, places=4)
+        # - dB는 프레임별 dB 평균이 아니라 평균 점수 0.99를 환산한 값이어야 함
+        self.assertAlmostEqual(parsed_mixed.db, 20.0, places=4)
+        self.assertEqual(parsed_mixed.frame_scores, (None, 0.98))
+
+    def test_parse_ssim_db_follows_mean_score_not_frame_db_mean(self) -> None:
+        """정지 화면(inf) 15%가 섞인 구간은 프레임별 dB 평균보다 낮은 dB로 판정"""
+        lines = [f"n:{index} Y:1 U:1 V:1 All:0.999000 (30.0)\n" for index in range(85)]
+        lines += [f"n:{index} Y:1 U:1 V:1 All:1.000000 (inf)\n" for index in range(85, 100)]
+        parsed = parse_ssim_stats("".join(lines))
+        assert parsed is not None
+        self.assertAlmostEqual(parsed.score, 0.99915, places=6)
+        # - 프레임별 dB를 평균한 40.5dB가 아니라 평균 점수 환산값이라 40dB 미만
+        self.assertAlmostEqual(parsed.db, -10.0 * math.log10(1.0 - 0.99915), places=4)
+        self.assertLess(parsed.db, FLAT_ROUNDTRIP_SSIM_DB)
+        self.assertEqual(len(parsed.frame_scores), 100)
+        self.assertIsNone(parsed.frame_scores[-1])
+        all_inf = "".join(f"n:{index} Y:1 U:1 V:1 All:1.000000 (inf)\n" for index in range(100))
+        parsed_inf = parse_ssim_stats(all_inf)
+        assert parsed_inf is not None
+        self.assertAlmostEqual(parsed_inf.db, SSIM_DB_MAX)
+        self.assertGreaterEqual(parsed_inf.db, FLAT_ROUNDTRIP_SSIM_DB)
+
+    def test_static_frames_are_kept_as_none_markers(self) -> None:
+        """같은 화면(inf) 프레임은 평균에서 점수 1이지만 프레임 목록에는 None으로 남음
+
+        - 움직이는 프레임만 모은 모집단을 만드는 재료이며, 정지 프레임이 평균에 섞여도 점수는 1로 셈
+        """
+        loss_score = round(1.0 - 10.0 ** (-11.0 / 10.0), 6)
+        lines = [f"n:{index} Y:1 U:1 V:1 All:1.000000 (inf)\n" for index in range(29)]
+        lines += [f"n:29 Y:1 U:1 V:1 All:{loss_score:.6f} (11.00)\n"]
+        parsed = parse_ssim_stats("".join(lines))
+        assert parsed is not None
+        self.assertAlmostEqual(parsed.score, (29 * 1.0 + loss_score) / 30, places=6)
+        self.assertAlmostEqual(parsed.db, 25.7712, places=3)
+        self.assertLess(parsed.db, FLAT_ROUNDTRIP_SSIM_DB)
+        self.assertEqual(parsed.frame_scores[:29], (None,) * 29)
+        self.assertAlmostEqual(parsed.frame_scores[29] or 0.0, loss_score, places=6)
 
     def test_fit_slope_k_matches_exponential_model(self) -> None:
         points = [(q, 2.0 ** ((22.0 - q) / 6.0) * 1000.0) for q in (18.0, 22.0, 26.0, 30.0)]

@@ -80,15 +80,15 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(EDGE_SNAP_RATIO, 0.02)
         self.assertEqual(EDGE_SNAP_MIN_PX, 8)
         self.assertEqual(MANUAL_FRAME_MIN_SIZE_PX, 32)
-        self.assertEqual(FRAME_ANALYSIS_VERSION, 233)
-        self.assertEqual(analysis_version_for_mode("fast"), 232)
-        self.assertEqual(analysis_version_for_mode("balanced"), 233)
-        self.assertEqual(analysis_version_for_mode("precise"), 237)
-        self.assertEqual(analysis_version_for_mode("fast", "lanczos"), 302)
-        self.assertEqual(analysis_version_for_mode("precise", "spline"), 317)
+        self.assertEqual(FRAME_ANALYSIS_VERSION, 352)
+        self.assertEqual(analysis_version_for_mode("fast"), 351)
+        self.assertEqual(analysis_version_for_mode("balanced"), 352)
+        self.assertEqual(analysis_version_for_mode("precise"), 353)
+        self.assertEqual(analysis_version_for_mode("fast", "lanczos"), 421)
+        self.assertEqual(analysis_version_for_mode("precise", "spline"), 433)
         self.assertNotIn(CROP_SCAN_VERSION, _all_mode_versions())
         self.assertNotIn(236, _all_mode_versions())
-        self.assertEqual(analysis_version_for_mode("unknown"), 233)
+        self.assertEqual(analysis_version_for_mode("unknown"), 352)
         self.assertEqual(SSIM_CONFIRMED_PASS_SCORE, 0.998)
         self.assertEqual(SSIM_CONFIRMED_FAIL_SCORE, 0.995)
         self.assertEqual(VMAF_CONFIRMED_PASS_SCORE, 99.5)
@@ -560,10 +560,10 @@ class CropScanVersionTests(unittest.TestCase):
         self.assertFalse(is_crop_only_result(_Versioned(FRAME_ANALYSIS_VERSION)))
 
     def test_crop_version_stays_usable_across_quality_modes(self) -> None:
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 232))
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 237))
-        self.assertTrue(is_usable_analysis_version(233, 233))
-        self.assertFalse(is_usable_analysis_version(230, 233))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 351))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 353))
+        self.assertTrue(is_usable_analysis_version(352, 352))
+        self.assertFalse(is_usable_analysis_version(233, 352))
 
 
 class FrameAnalysisThresholdTests(unittest.TestCase):

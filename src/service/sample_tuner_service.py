@@ -345,7 +345,7 @@ def _measure_segment_metric(
     if metric == METRIC_VMAF:
         return parse_vmaf_log(text)
     stats = parse_ssim_stats(text)
-    return None if stats is None else stats[0]
+    return None if stats is None else stats.score
 
 
 def _measure_probe(

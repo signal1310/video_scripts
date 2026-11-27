@@ -1,6 +1,7 @@
 """화질 분석 테스트 대역: 실행기 대역, 명령 해석 도우미, 캐시 행 생성기(FFmpeg 없이 측정 흐름 검증)"""
 
 import json
+import math
 import re
 import threading
 from collections.abc import Callable, Sequence
@@ -20,6 +21,14 @@ _GRAY_BAR_LUMA: int = 16
 _GRAY_PICTURE_LUMA: int = 120
 # - 대역이 회색조 프레임을 만들 때 쓰는 기본 영상 크기. 실제 크기를 아는 호출자는 `frame_size`로 바꿈
 DEFAULT_FAKE_FRAME_SIZE: tuple[int, int] = (1920, 1080)
+DEFAULT_FAKE_SSIM_SCORE: float = 0.9995
+
+
+def ssim_stats_line(score: float) -> str:
+    """SSIM 점수 하나를 FFmpeg stats 로그 한 줄로 만듦. 점수 1은 dB가 inf"""
+    if score >= 1.0:
+        return f"n:1 Y:1 U:1 V:1 All:{score:.6f} (inf)\n"
+    return f"n:1 Y:1 U:1 V:1 All:{score:.6f} ({-10.0 * math.log10(1.0 - score):.2f})\n"
 
 
 def make_frame_record(
@@ -131,6 +140,7 @@ class FakeStderrRunner:
     - `frame_size`: CLI 스캔이 돌려줄 회색조 프레임 크기
     - `black_frame`: CLI 스캔 지점을 검은 화면으로 볼지
     - `ssim_by_tier`, `vmaf_by_tier`: 규격 키별 지표 값, 없으면 통과 값
+    - `ssim_text_by_tier`: 규격 키별 stats 로그 전문. 주면 `ssim_by_tier` 대신 이 내용을 씀
     - `on_call`: 명령 실행 직전에 호출(취소 신호 주입 등)
     """
 
@@ -141,7 +151,8 @@ class FakeStderrRunner:
         black_returncode: int = 0,
         boxes: Sequence[tuple[int, int, int, int]] = (),
         frame_size: tuple[int, int] = DEFAULT_FAKE_FRAME_SIZE,
-        ssim_by_tier: dict[str, tuple[float, float]] | None = None,
+        ssim_by_tier: dict[str, float] | None = None,
+        ssim_text_by_tier: dict[str, str] | None = None,
         vmaf_by_tier: dict[str, float] | None = None,
         fail_metric: bool = False,
         on_call: Callable[[list[str]], None] | None = None,
@@ -150,7 +161,8 @@ class FakeStderrRunner:
         self.black_returncode: int = black_returncode
         self.boxes: tuple[tuple[int, int, int, int], ...] = tuple(boxes)
         self.frame_size: tuple[int, int] = frame_size
-        self.ssim_by_tier: dict[str, tuple[float, float]] = ssim_by_tier or {}
+        self.ssim_by_tier: dict[str, float] = ssim_by_tier or {}
+        self.ssim_text_by_tier: dict[str, str] = ssim_text_by_tier or {}
         self.vmaf_by_tier: dict[str, float] = vmaf_by_tier or {}
         self.fail_metric: bool = fail_metric
         self.on_call: Callable[[list[str]], None] | None = on_call
@@ -214,7 +226,8 @@ class FakeStderrRunner:
         if not logs:
             return (1, "")
         for tier, name in logs.items():
-            score, db = self.ssim_by_tier.get(tier, (0.9995, 30.0))
-            text = f"n:1 Y:1 U:1 V:1 All:{score:.5f} ({db:.2f})\n"
+            text = self.ssim_text_by_tier.get(tier)
+            if text is None:
+                text = ssim_stats_line(self.ssim_by_tier.get(tier, DEFAULT_FAKE_SSIM_SCORE))
             Path(work_dir, name).write_text(text, encoding="utf-8")
         return (0, "")

@@ -44,6 +44,7 @@ from src.core.analysis.frame_analysis import (
 from src.core.analysis.frame_fast_metrics import (
     build_split_ssim_command,
     clear_metric_logs,
+    moving_score_stats,
     parse_ssim_logs,
     ssim_log_name,
     vmaf_log_name,
@@ -59,12 +60,17 @@ from src.core.command_history import (
 from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.quality_probe import (
     METRIC_VMAF,
+    SsimStats,
     parse_vmaf_log,
     resolve_metric_name,
     vmaf_model_for,
 )
 from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, ResolutionTier
-from src.core.sample_points import DEFAULT_SEGMENT_COUNT, FLAT_ROUNDTRIP_SSIM_DB, sample_segments
+from src.core.sample_points import (
+    DEFAULT_SEGMENT_COUNT,
+    FLAT_ROUNDTRIP_SSIM_DB,
+    sample_segments,
+)
 
 POLL_INTERVAL_SEC: float = 0.1
 PROCESS_TERMINATE_TIMEOUT_SEC: float = 5.0
@@ -171,6 +177,15 @@ def _median(values: Sequence[float]) -> float | None:
     return statistics.median(values) if values else None
 
 
+def _is_flat_roundtrip(stats: SsimStats) -> bool:
+    """같은 화면이 아닌 프레임만 모은 점수로 축소 손실이 드러나지 않는지 판정
+
+    - 같은 화면 프레임을 모두 뺀 모집단이라 정지 프레임이 평균을 끌어올리지 않음
+    - dB가 기준 이상이면 평탄이며, 평탄 지점은 VMAF 단계에서도 뺌
+    """
+    return stats.db >= FLAT_ROUNDTRIP_SSIM_DB
+
+
 def _run_parallel(tasks: Sequence[Callable[[], _T]], workers: int) -> list[_T]:
     """라운드 안의 구간 측정을 워커 수만큼 병렬 실행하고 제출 순서대로 결과를 모음"""
     if workers <= 1 or len(tasks) <= 1:
@@ -200,7 +215,7 @@ def _measure_ssim_point(
     fast_keyframe_seek: bool,
     cancel_event: threading.Event | None,
     algorithm: str = DEFAULT_SCALE_ALGORITHM,
-) -> dict[str, tuple[float, float]] | None:
+) -> dict[str, SsimStats] | None:
     """구간 한 지점의 대상 규격 전체 SSIM 점수와 dB. 명령이 실패하면 None"""
     _check_cancel(cancel_event)
     log_names = {tier.key: log_prefix + ssim_log_name(point_index, tier.key) for tier in tiers}
@@ -329,12 +344,14 @@ def _run_ssim_stage(
             if scores is None:
                 continue
             measured_points.add(point_index)
-            if all(db >= FLAT_ROUNDTRIP_SSIM_DB for _score, db in scores.values()):
+            # - 같은 화면 프레임은 점수에서 빠지고, 모든 규격에서 모두 같은 화면인 지점만 정지로 봄
+            population = moving_score_stats(scores)
+            if not population or all(_is_flat_roundtrip(stats) for stats in population.values()):
                 flat_points.add(point_index)
             else:
                 used_points.add(point_index)
-                for key, (score, _db) in scores.items():
-                    cumulative[key].append(score)
+                for key, stats in population.items():
+                    cumulative[key].append(stats.score)
             if on_stage is not None:
                 on_stage(STAGE_SSIM, len(measured_points), total_points)
         medians = {key: _median(values) for key, values in cumulative.items()}

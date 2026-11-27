@@ -18,7 +18,7 @@ import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 from src.core.command_history import (
     STAGE_FRAME_ANALYSIS,
@@ -48,9 +48,9 @@ PROCESS_TERMINATE_TIMEOUT_SEC: float = 5.0
 # - 이 실행기는 샘플 인코딩과 지표 측정 모두에 쓰이므로 취소 문구는 특정 단계를 지칭하지 않음
 CANCEL_MESSAGE: str = "명령 실행이 취소되었습니다"
 MIN_SLOPE_POINTS: int = 2
-# - 같은 화면의 SSIM dB는 inf로 출력되므로 평균과 무효 구간 판정(40dB 이상)이 흔들리지 않게 상한으로 캡핑
+# - 같은 화면은 SSIM이 inf라서 평균 점수에서 환산한 dB를 상한으로 캐핑함
 SSIM_DB_MAX: float = 100.0
-SSIM_ALL_RE: re.Pattern[str] = re.compile(r"All:\s*([0-9.]+)\s*\(([0-9.]+|inf)\)")
+SSIM_ALL_RE: re.Pattern[str] = re.compile(r"All:\s*(-?[0-9.]+)\s*\((-?[0-9.]+|inf)\)")
 
 
 class CommandRunner(Protocol):
@@ -224,22 +224,50 @@ def parse_vmaf_log(text: str) -> float | None:
     return None
 
 
-def parse_ssim_stats(text: str) -> tuple[float, float] | None:
-    """ssim stats 로그의 All 점수와 dB 평균. 측정 줄이 없으면 None
+def ssim_db_from_score(score: float) -> float:
+    """SSIM 점수를 FFmpeg 정의(-10 * log10(1 - score))의 dB로 환산
 
-    - 같은 화면처럼 dB가 inf인 줄은 `SSIM_DB_MAX`로 캡핑해 평균이 무한대가 되지 않게 함
-    - 캡핑 값은 무효 구간 판정 기준(40dB 이상)보다 크므로 정적 구간 제외가 그대로 동작
+    - 점수는 로그 반올림으로 1을 넘거나 음수가 될 수 있어 [0, 1]로 클램프한 뒤 환산
+    - 점수가 1이면 dB가 무한대이므로 `SSIM_DB_MAX`로 캡핑하고, 점수 0은 0dB임
+    - 로그에 찍힌 프레임별 dB를 평균하지 않고 이 환산을 거친 평균 점수에 씀
     """
-    scores: list[float] = []
-    dbs: list[float] = []
-    for match in SSIM_ALL_RE.finditer(text):
-        scores.append(float(match.group(1)))
-        raw_db = SSIM_DB_MAX if match.group(2) == "inf" else float(match.group(2))
-        dbs.append(min(raw_db, SSIM_DB_MAX))
-    if not scores:
-        return None
-    return (sum(scores) / len(scores), sum(dbs) / len(dbs))
+    remaining = 1.0 - min(max(score, 0.0), 1.0)
+    if remaining <= 0.0:
+        return SSIM_DB_MAX
+    return min(-10.0 * math.log10(remaining), SSIM_DB_MAX)
 
+
+class SsimStats(NamedTuple):
+    """ssim stats 로그 한 구간의 평균 점수, 그 점수의 dB, 프레임별 점수
+
+    - `frame_scores`의 `None`은 그 규격에서 같은 화면(inf)인 프레임
+    """
+
+    score: float
+    db: float
+    frame_scores: tuple[float | None, ...] = ()
+
+
+def parse_ssim_stats(text: str) -> SsimStats | None:
+    """ssim stats 로그의 All 점수 평균, 그 평균 점수의 dB, 프레임별 점수. 측정 줄이 없으면 None
+
+    - dB는 평균 점수에서 환산함. 프레임별 dB를 평균하면 정지 화면(inf)이 섞인 구간의
+      손실이 과소평가되어 무효 구간 판정이 흔들림
+    - 같은 화면(inf) 프레임은 평균에서 점수 1로 넣고 프레임별 점수에는 `None`으로 남겨,
+      움직이는 프레임만 모은 공통 모집단(`frame_fast_metrics.moving_score_stats`)의 재료로 씀
+    - 평균 점수가 1이면 `SSIM_DB_MAX`로 캐핑하며, 이 값은 무효 구간 판정 기준보다 큼
+    - 음수 dB 줄(점수가 0 미만)도 프레임으로 세어 모집단과 평균에서 빠지지 않게 함
+    """
+    frame_scores: list[float | None] = []
+    for line in text.splitlines():
+        match = SSIM_ALL_RE.search(line)
+        if match is None:
+            continue
+        frame_scores.append(None if match.group(2) == "inf" else float(match.group(1)))
+    if not frame_scores:
+        return None
+    mean_score = sum(1.0 if score is None else score for score in frame_scores) / len(frame_scores)
+    return SsimStats(mean_score, ssim_db_from_score(mean_score), tuple(frame_scores))
 
 def fit_quality_slope_k(points: Sequence[tuple[float, float]]) -> float | None:
     """(품질값, 바이트) 쌍에서 크기 곡선 기울기 K 산출
@@ -348,4 +376,4 @@ def measure_metric(
     if metric == METRIC_VMAF:
         return parse_vmaf_log(text)
     ssim = parse_ssim_stats(text)
-    return ssim[0] if ssim is not None else None
+    return ssim.score if ssim is not None else None

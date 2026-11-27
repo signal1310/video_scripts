@@ -96,27 +96,28 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
         mode=FRAME_ANALYSIS_MODE_FAST,
         segment_duration_sec=0.5,
         fast_keyframe_seek=True,
-        analysis_version=232,
+        analysis_version=351,
     ),
     FRAME_ANALYSIS_MODE_BALANCED: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_BALANCED,
         segment_duration_sec=1.0,
         fast_keyframe_seek=True,
-        analysis_version=233,
+        analysis_version=352,
     ),
     FRAME_ANALYSIS_MODE_PRECISE: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_PRECISE,
         segment_duration_sec=2.0,
         fast_keyframe_seek=False,
-        analysis_version=237,
+        analysis_version=353,
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
 # - 보간 방식별 캐시 버전 간격. 방식 이름 순서로 10씩 떨어뜨려 방식, 화질 분석 방식 조합마다 다른 버전을 씀
 SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
-# - 화질 분석 방식 버전 값(232, 233, 237, 보간 방식 오프셋 포함)과 겹치는 번호를 쓰면 전용 행이 그 방식의 결과로 오인되므로,
-#   방식 버전 값을 피해 고르고 방식을 올릴 때도 겹치지 않는지 확인함
+# - `analysis_version_for_mode`는 방식 버전(351-353)에 보간 방식 오프셋(-20~80)을 더해 331-433 사이 10 간격의
+#   세 연속 번호를 만든다. 방식 버전을 올릴 때는 새 최솟값(기준값 - 20)이 이전에 배포한 기준값 + 80보다 커야
+#   캐시 행이 다른 측정 조건으로 재사용되지 않으며, 새 전용 버전도 그 집합에 들지 않는 번호(현재 235)인지 확인
 CROP_SCAN_VERSION: int = 235
 METRIC_CROP_ONLY: str = ""
 

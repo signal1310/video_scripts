@@ -1,5 +1,6 @@
 """화질 분석 실행 흐름(고속 측정, 적응형 조기 확정, 취소, 측정 불가)과 프로세스 실행기 검증"""
 
+import math
 import sys
 import tempfile
 import threading
@@ -20,16 +21,27 @@ from src.core.analysis.frame_analysis_runner import (
     ProcessStderrRunner,
     analyze_frames,
 )
-from src.core.quality_probe import VMAF_MODEL_4K, VMAF_MODEL_DEFAULT
+from src.core.quality_probe import VMAF_MODEL_4K, VMAF_MODEL_DEFAULT, ssim_db_from_score
 from tests._frame_analysis_fakes import FakeStderrRunner
 
 _DURATION_SEC: float = 20.0
 _SEGMENT_COUNT: int = 9
 
 
-def _tier_scores(value: tuple[float, float]) -> dict[str, tuple[float, float]]:
-    """모든 축소 규격에 같은 SSIM 점수와 dB를 주는 사전"""
-    return {tier.key: value for tier in candidate_tiers_for(3840, 2160)}
+def _tier_scores_text(text: str) -> dict[str, str]:
+    """모든 축소 규격에 같은 SSIM stats 로그 전문을 주는 사전"""
+    return {tier.key: text for tier in candidate_tiers_for(3840, 2160)}
+
+
+def _static_mixed_log(finite_score: float, finite_lines: int, static_lines: int) -> str:
+    """같은 화면(inf) 줄과 유한 점수 줄을 섞은 SSIM stats 로그"""
+    finite_db = -10.0 * math.log10(1.0 - finite_score)
+    lines = [f"n:{index} Y:1 U:1 V:1 All:1.000000 (inf)\n" for index in range(static_lines)]
+    lines.extend(
+        f"n:{index} Y:1 U:1 V:1 All:{finite_score:.6f} ({finite_db:.2f})\n"
+        for index in range(static_lines, static_lines + finite_lines)
+    )
+    return "".join(lines)
 
 
 class _RunnerTestCase(unittest.TestCase):
@@ -89,13 +101,13 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.tier_scores[-1].vmaf, 99.0)
         self.assertEqual(result.valid_segment_count, 1)
         self.assertEqual(result.total_segment_count, _SEGMENT_COUNT)
-        self.assertEqual(result.analysis_version, 233)
+        self.assertEqual(result.analysis_version, 352)
         self.assertEqual(runner.count_commands("pgm"), _SEGMENT_COUNT)
 
     def test_fast_mode_uses_half_second_segments_and_fast_seek(self) -> None:
         runner = FakeStderrRunner()
         result = self.analyze(runner, mode="fast")
-        self.assertEqual(result.analysis_version, 232)
+        self.assertEqual(result.analysis_version, 351)
         self.assertIn("-noaccurate_seek", runner.commands[0])
         metric = next(args for args in runner.commands if "-filter_complex" in args)
         self.assertEqual(metric[metric.index("-t") + 1], "0.500")
@@ -103,13 +115,13 @@ class TestAnalyzeFrames(_RunnerTestCase):
     def test_precise_mode_uses_two_second_segments_and_accurate_seek(self) -> None:
         runner = FakeStderrRunner()
         result = self.analyze(runner, mode="precise")
-        self.assertEqual(result.analysis_version, 237)
+        self.assertEqual(result.analysis_version, 353)
         self.assertNotIn("-noaccurate_seek", runner.commands[0])
         metric = next(args for args in runner.commands if "-filter_complex" in args)
         self.assertEqual(metric[metric.index("-t") + 1], "2.000")
 
     def test_ssim_failure_skips_vmaf(self) -> None:
-        runner = FakeStderrRunner(ssim_by_tier={"1440p": (0.98, 18.0)})
+        runner = FakeStderrRunner(ssim_by_tier={"1440p": 0.98})
         result = self.analyze(runner)
         self.assertEqual(runner.count_commands("libvmaf"), 0)
         self.assertEqual(len(result.tier_scores), 7)
@@ -118,9 +130,7 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertLess(result.tier_scores[0].ssim or 1.0, 0.996)
 
     def test_unconfirmed_tiers_receive_more_rounds(self) -> None:
-        runner = FakeStderrRunner(
-            ssim_by_tier={"1440p": (0.9995, 30.0), "1080p": (0.997, 20.0), "900p": (0.99, 18.0)}
-        )
+        runner = FakeStderrRunner(ssim_by_tier={"1440p": 0.9995, "1080p": 0.997, "900p": 0.99})
         result = self.analyze(runner, has_vmaf=False)
         self.assertEqual(result.candidate_tier, "1080p")
         measured = runner.tiers_measured("ssim")
@@ -155,7 +165,68 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertTrue(all(score.vmaf is None for score in result.tier_scores))
 
     def test_flat_segments_are_unmeasurable(self) -> None:
-        runner = FakeStderrRunner(ssim_by_tier=_tier_scores((0.9995, 45.0)))
+        # - 같은 화면만 있는 지점은 평균 점수가 1이라 dB가 상한에 걸려 평탄으로 제외됨
+        all_inf = "".join(f"n:{index} Y:1 U:1 V:1 All:1.000000 (inf)\n" for index in range(30))
+        runner = FakeStderrRunner(ssim_text_by_tier=_tier_scores_text(all_inf))
+        result = self.analyze(runner)
+        self.assertTrue(result.unmeasurable)
+        self.assertEqual(result.valid_segment_count, 0)
+
+    def test_partially_static_point_scores_only_moving_frames(self) -> None:
+        """정지 화면 프레임을 뺀 모집단이라 희석된 평균이 아니라 움직이는 프레임 손실이 점수에 남음"""
+        thirty_db_score = 1.0 - 10.0 ** (-30.0 / 10.0)
+        log = _static_mixed_log(thirty_db_score, finite_lines=85, static_lines=15)
+        result = self.analyze(FakeStderrRunner(ssim_text_by_tier=_tier_scores_text(log)))
+        self.assertFalse(result.unmeasurable)
+        # - 평균이 통과 확정값을 넘어 1라운드에서 확정되므로 유효 지점은 1개
+        self.assertEqual(result.valid_segment_count, 1)
+        # - 같은 화면 15프레임을 빼고 움직인 85프레임만 평균하므로 희석된 0.99915가 아니라 0.999
+        score = result.tier_scores[0].ssim or 0.0
+        self.assertAlmostEqual(score, 0.999, places=6)
+        # - 같은 화면을 빼는 해석으로도 30.0dB이며 평탄 기준 미만이라 지점이 살아남음
+        self.assertAlmostEqual(ssim_db_from_score(score), 30.0, places=3)
+
+    def test_moving_frames_under_the_bar_fail_the_static_point(self) -> None:
+        """30프레임 중 26프레임이 같은 화면이고 움직인 4프레임이 기준 미만이면 그 지점은 탈락
+
+        - 희석된 평균 0.99867은 통과 기준을 넘지만 움직이는 프레임만 보면 0.99라 통과하지 않음
+        - 정지 프레임이 평균을 끌어올려 축소 손실을 가리던 회귀를 막는 확인
+        """
+        log = _static_mixed_log(0.99, finite_lines=4, static_lines=26)
+        result = self.analyze(FakeStderrRunner(ssim_text_by_tier=_tier_scores_text(log)), has_vmaf=False)
+        self.assertFalse(result.unmeasurable)
+        self.assertIsNone(result.candidate_tier)
+        self.assertLess(result.tier_scores[0].ssim or 1.0, 0.996)
+
+    def test_static_point_is_flat_and_skipped_in_vmaf(self) -> None:
+        """모든 규격에서 모든 프레임이 같은 화면인 지점만 정지로 보아 VMAF에서도 제외"""
+        all_inf = "".join(f"n:{index} Y:1 U:1 V:1 All:1.000000 (inf)\n" for index in range(30))
+        runner = FakeStderrRunner(ssim_text_by_tier=_tier_scores_text(all_inf))
+        result = self.analyze(runner)
+        self.assertTrue(result.unmeasurable)
+        self.assertEqual(result.valid_segment_count, 0)
+        self.assertEqual(runner.count_commands("libvmaf"), 0)
+
+    def test_frames_identical_only_at_the_higher_tier_are_counted_as_full_score(self) -> None:
+        """높은 규격에서만 같은 화면인 프레임은 그 규격에서 1.0으로 들어가고 양쪽 모집단에 포함
+
+        - 1440p는 29프레임이 같은 화면이고 1080p는 24프레임만 같음
+        - 공통 모집단은 두 규격 중 한 곳이라도 움직인 6프레임이라 후보를 잃지 않음
+        """
+        log_1440 = _static_mixed_log(0.99, finite_lines=1, static_lines=29)
+        log_1080 = _static_mixed_log(0.9995, finite_lines=5, static_lines=24) + "".join(
+            f"n:{index} Y:1 U:1 V:1 All:0.985000 (18.24)\n" for index in range(5, 6)
+        )
+        logs = _tier_scores_text(log_1080)
+        logs["1440p"] = log_1440
+        result = self.analyze(FakeStderrRunner(ssim_text_by_tier=logs))
+        self.assertIsNotNone(result.candidate_tier)
+        self.assertAlmostEqual(result.tier_scores[0].ssim or 0.0, (5 * 1.0 + 0.99) / 6, places=6)
+        self.assertAlmostEqual(result.tier_scores[1].ssim or 0.0, (5 * 0.9995 + 0.985) / 6, places=6)
+
+    def test_all_static_point_is_flat(self) -> None:
+        all_inf = "".join(f"n:{index} Y:1 U:1 V:1 All:1.000000 (inf)\n" for index in range(100))
+        runner = FakeStderrRunner(ssim_text_by_tier=_tier_scores_text(all_inf))
         result = self.analyze(runner)
         self.assertTrue(result.unmeasurable)
         self.assertEqual(result.valid_segment_count, 0)

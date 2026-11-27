@@ -10,7 +10,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from src.core.analysis.frame_analysis import ActiveRegion
-from src.core.quality_probe import parse_ssim_stats
+from src.core.quality_probe import SsimStats, parse_ssim_stats, ssim_db_from_score
 from src.core.resolution_tiers import (
     DEFAULT_SCALE_ALGORITHM,
     ResolutionTier,
@@ -120,9 +120,50 @@ def build_split_ssim_command(
     return args
 
 
-def parse_ssim_logs(work_dir: str, log_names: Mapping[str, str]) -> dict[str, tuple[float, float]]:
-    """규격별 SSIM 로그에서 (점수, dB)를 읽음. 없는 로그는 결과에서 뺌"""
-    scores: dict[str, tuple[float, float]] = {}
+def _frame_score(stats: SsimStats, index: int) -> float | None:
+    """프레임 번호의 점수. 같은 화면(inf)이거나 프레임 수를 넘으면 None"""
+    if index >= len(stats.frame_scores):
+        return None
+    return stats.frame_scores[index]
+
+
+def moving_score_stats(stats_by_tier: Mapping[str, SsimStats]) -> dict[str, SsimStats]:
+    """규격별 SSIM에서 같은 화면이 아닌 프레임만 모은 공통 모집단으로 다시 계산한 점수
+
+    - 모집단은 측정한 규격 중 한 곳에서라도 같은 화면이 아닌 프레임 전체
+    - 어떤 규격에서 같은 화면인 프레임은 그 규격에서 점수 1로 넣어 규격 사이 모집단을 맞춤
+      (같은 화면 프레임이 평균을 끌어올려 움직이는 프레임의 손실을 통과시키지 않게 함)
+    - 모든 규격에서 모든 프레임이 같은 화면이면 빈 사전(정지 지점)
+    """
+    frames = list(stats_by_tier.values())
+    if not frames:
+        return {}
+    length = max(len(stats.frame_scores) for stats in frames)
+    moving = [
+        index
+        for index in range(length)
+        if any(_frame_score(stats, index) is not None for stats in frames)
+    ]
+    if not moving:
+        return {}
+    population: dict[str, SsimStats] = {}
+    for tier_key, stats in stats_by_tier.items():
+        values: list[float] = []
+        for index in moving:
+            score = _frame_score(stats, index)
+            values.append(1.0 if score is None else score)
+        mean_score = sum(values) / len(values)
+        population[tier_key] = SsimStats(mean_score, ssim_db_from_score(mean_score), tuple(values))
+    return population
+
+
+def parse_ssim_logs(work_dir: str, log_names: Mapping[str, str]) -> dict[str, SsimStats]:
+    """규격별 SSIM 로그에서 점수, dB, 프레임별 점수를 읽음. 없는 로그는 결과에서 뺌
+
+    - 같은 화면 프레임을 포함한 규격별 평균과 함께 프레임별 점수를 남겨, 호출자가
+      움직이는 프레임만 모은 공통 모집단(`moving_score_stats`)으로 다시 계산하게 함
+    """
+    scores: dict[str, SsimStats] = {}
     for tier_key, name in log_names.items():
         path = Path(work_dir, name)
         if not path.is_file():

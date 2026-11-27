@@ -58,6 +58,7 @@ from src.gui.widgets.header_encode_button import (
     create_encode_arrow_label,
     set_encode_arrow_color,
 )
+from src.gui.widgets.path_autocomplete import PathAutocomplete
 
 _MODE_POPUP_GAP_Y: int = 3
 _ANALYZE_GAP_BEFORE_PX: int = 8
@@ -360,6 +361,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.path_edit.focus_lost.connect(self._on_path_edit_focus_lost)
         self.path_edit.textEdited.connect(self._on_path_text_edited)
         self._set_path_invalid(None)
+        # - 입력이 멈추면 하위 폴더를 읽어 바로 아래에 폴더 목록을 띄움
+        self.path_autocomplete = PathAutocomplete(self.path_edit, self)
 
         self.path_stack = QStackedWidget(self)
         self.path_stack.addWidget(self.folder_name_btn)
@@ -518,6 +521,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self._show_folder_name()
 
     def _show_folder_name(self) -> None:
+        self.path_autocomplete.close()
         self.path_stack.setCurrentWidget(self.folder_name_btn)
 
     def _on_path_edit_focus_lost(self) -> None:
@@ -661,6 +665,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
 
     def set_busy(self, busy: bool) -> None:
         """작업 진행 여부에 따라 컨트롤 활성화 상태를 제어하고, 스캔 버튼과 중단 버튼을 인플레이스 전환"""
+        if busy:
+            self.path_autocomplete.close()
         self.path_edit.setEnabled(not busy)
         self.folder_name_btn.setEnabled(not busy)
         self.btn_browse.setEnabled(not busy)
@@ -699,6 +705,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         set_encode_arrow_color(self.encode_arrow, palette)
         self.btn_encode_start.apply_theme(palette)
         self.split_analyze.apply_theme(palette)
+        self.path_autocomplete.apply_theme(palette)
         set_button_icon(
             self.btn_cancel,
             "x-circle",

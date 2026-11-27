@@ -975,6 +975,26 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertEqual(header.committed_path, "next_dir")
         self.assertEqual(header.path_edit.text(), "next_dir")
 
+    def test_header_autocomplete_closes_when_path_is_committed_or_busy(self) -> None:
+        """경로 입력이 끝나거나 작업이 시작되면 자동완성 목록을 닫는지 검증"""
+        header = HeaderBar("committed_dir")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            header.begin_path_edit()
+            header.path_edit.setText(f"{tmpdir}{os.sep}")
+            header.path_autocomplete._start_reading()
+            self.assertTrue(header.path_autocomplete.is_open)
+            header.restore_committed_path()
+            self.assertFalse(header.path_autocomplete.is_open)
+
+            header.begin_path_edit()
+            header.path_edit.setText(f"{tmpdir}{os.sep}")
+            header.path_autocomplete._start_reading()
+            self.assertTrue(header.path_autocomplete.is_open)
+            header.set_busy(True)
+            self.assertFalse(header.path_autocomplete.is_open)
+            header.set_busy(False)
+            header.path_autocomplete.close()
+
     def _two_video_table(self) -> VideoTableView:
         """h264(키프레임 1.0초)와 hevc(키프레임 미측정) 두 영상을 적재한 표시 상태의 테이블 뷰를 반환"""
         alpha = make_video(filename="alpha_over.mp4", fps=60.0, vid_kbps=9500, aud_kbps=192, vid_size_MB=120.0, duration=100.0)

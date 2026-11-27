@@ -204,10 +204,35 @@ QPushButton#IconActionButton:checked {{
     background-color: {p.input_selection_bg};
     border-color: {p.accent_blue};
 }}
-QFrame#AnalyzeModePopupCard, QFrame#TopAreaPopupCard, QFrame#PreviewSettingsPopupCard {{
+QFrame#AnalyzeModePopupCard, QFrame#TopAreaPopupCard, QFrame#PreviewSettingsPopupCard, QFrame#PathAutocompleteCard {{
     background-color: {p.bg_card};
     border: 1px solid {p.border_subtle};
     border-radius: 6px;
+}}
+QListWidget#PathAutocompleteList {{
+    background-color: transparent;
+    color: {p.text_primary};
+    border: none;
+    outline: 0;
+    font-size: 9pt;
+}}
+QListWidget#PathAutocompleteList::item {{
+    border-radius: 4px;
+    padding: 3px 6px;
+}}
+QListWidget#PathAutocompleteList::item:hover {{
+    background-color: {p.bg_hover};
+}}
+QListWidget#PathAutocompleteList::item:selected,
+QListWidget#PathAutocompleteList::item:selected:active,
+QListWidget#PathAutocompleteList::item:selected:!active {{
+    background-color: {p.accent_blue};
+    color: {p.text_on_accent};
+}}
+QLabel#PathAutocompleteFooter {{
+    color: {p.text_muted};
+    font-size: 8pt;
+    background-color: transparent;
 }}
 /* 진행 막대의 트랙과 채움은 FillProgressBar가 팔레트 토큰으로 직접 그림 */
 QProgressBar {{

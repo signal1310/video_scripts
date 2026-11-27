@@ -261,7 +261,7 @@ class TestEncodeQualityTuner(unittest.TestCase):
 
         group = SampleGroupProcess()
         proc = _StubProc()
-        self.assertTrue(group.register(proc))
+        self.assertTrue(group.launch(proc))
         group.pause()
         group.resume()
         self.assertIsNone(group.pid)

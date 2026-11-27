@@ -45,6 +45,8 @@ LOG_NAME_VMAF: str = "metric_vmaf.json"
 LOG_NAME_SSIM: str = "metric_ssim.log"
 POLL_INTERVAL_SEC: float = 0.1
 PROCESS_TERMINATE_TIMEOUT_SEC: float = 5.0
+# - 이 실행기는 샘플 인코딩과 지표 측정 모두에 쓰이므로 취소 문구는 특정 단계를 지칭하지 않음
+CANCEL_MESSAGE: str = "명령 실행이 취소되었습니다"
 MIN_SLOPE_POINTS: int = 2
 # - 같은 화면의 SSIM dB는 inf로 출력되므로 평균과 무효 구간 판정(40dB 이상)이 흔들리지 않게 상한으로 캡핑
 SSIM_DB_MAX: float = 100.0
@@ -94,7 +96,7 @@ class ProcessCommandRunner:
         try:
             while True:
                 if self._cancel_event is not None and self._cancel_event.is_set():
-                    raise InterruptedError("샘플 인코딩이 취소되었습니다")
+                    raise InterruptedError(CANCEL_MESSAGE)
                 if deadline is not None and time.monotonic() >= deadline:
                     raise TimeoutError(f"명령 실행 시간({self._timeout_sec:.0f}초)을 초과했습니다")
                 try:

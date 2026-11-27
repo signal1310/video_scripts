@@ -692,7 +692,7 @@ def _frame_analysis_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     rows = (
         (
             "1. 검은 여백, 검은 화면 확인",
-            "키프레임 9지점의 휘도(Y)를 읽어 고정된 검은 여백과 검은 화면을 찾습니다.",
+            "키프레임 최대 9지점의 휘도(Y)를 읽어 고정된 검은 여백과 검은 화면을 찾습니다.",
             f"같은 지점이 {BLACK_FRAME_PIXEL_RATIO:.0%} 이상 어두우면 검은 화면으로 봅니다",
         ),
         (

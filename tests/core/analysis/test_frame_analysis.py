@@ -58,6 +58,15 @@ from src.core.quality_probe import VMAF_THREADS
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, SCALE_ALGORITHM_VALUES
 
 
+def _all_mode_versions() -> list[int]:
+    """화질 분석 방식과 보간 방식 모든 조합의 캐시 버전"""
+    return [
+        analysis_version_for_mode(mode, algorithm)
+        for mode in ("fast", "balanced", "precise")
+        for algorithm in SCALE_ALGORITHM_VALUES
+    ]
+
+
 class TestApprovedConstants(unittest.TestCase):
     """12.17절 승인 확정값과 측정 규칙 버전이 고정값인지 검증"""
 
@@ -74,7 +83,11 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(FRAME_ANALYSIS_VERSION, 233)
         self.assertEqual(analysis_version_for_mode("fast"), 232)
         self.assertEqual(analysis_version_for_mode("balanced"), 233)
-        self.assertEqual(analysis_version_for_mode("precise"), 234)
+        self.assertEqual(analysis_version_for_mode("precise"), 237)
+        self.assertEqual(analysis_version_for_mode("fast", "lanczos"), 302)
+        self.assertEqual(analysis_version_for_mode("precise", "spline"), 317)
+        self.assertNotIn(CROP_SCAN_VERSION, _all_mode_versions())
+        self.assertNotIn(236, _all_mode_versions())
         self.assertEqual(analysis_version_for_mode("unknown"), 233)
         self.assertEqual(SSIM_CONFIRMED_PASS_SCORE, 0.998)
         self.assertEqual(SSIM_CONFIRMED_FAIL_SCORE, 0.995)
@@ -548,7 +561,7 @@ class CropScanVersionTests(unittest.TestCase):
 
     def test_crop_version_stays_usable_across_quality_modes(self) -> None:
         self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 232))
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 234))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 237))
         self.assertTrue(is_usable_analysis_version(233, 233))
         self.assertFalse(is_usable_analysis_version(230, 233))
 

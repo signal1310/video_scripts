@@ -48,8 +48,9 @@ class SampleGroupProcess:
     def __init__(self) -> None:
         self._lock: threading.Lock = threading.Lock()
         self._procs: set[EncodeProcessLike] = set()
-        self._cancelled: bool = False
+        self._paused_procs: set[EncodeProcessLike] = set()
         self._paused: bool = False
+        self._cancelled: bool = False
 
     @property
     def is_cancelled(self) -> bool:
@@ -57,21 +58,30 @@ class SampleGroupProcess:
         with self._lock:
             return self._cancelled
 
-    def register(self, proc: EncodeProcessLike) -> bool:
-        """샘플 프로세스를 등록. 이미 중지됨이면 즉시 취소하고 거짓, 일시중지 중이면 바로 멈춤"""
+    def launch(self, proc: EncodeProcessLike) -> bool:
+        """프로세스를 시작하고 등록. 이미 중지됨이면 시작하지 않고 취소해 거짓
+
+        - 일시중지 상태에서 시작한 프로세스는 시작 직후 한 번 멈추고 `_paused_procs`에 넣어,
+          다음 재개 한 번이 이 프로세스를 정확히 한 번 되돌리게 함
+        - 시작, 등록, 첫 멈춤을 모두 잠금 안에서 처리해 재개가 멈춤보다 먼저 실행되는 경쟁을 막음
+          (멈춤은 대기가 아니라 즉시 끝나는 정지 요청)
+        """
         with self._lock:
             if self._cancelled:
                 proc.cancel()
                 return False
+            proc.start()
             self._procs.add(proc)
             if self._paused:
                 proc.pause()
+                self._paused_procs.add(proc)
             return True
 
     def unregister(self, proc: EncodeProcessLike) -> None:
         """완료된 샘플 프로세스를 목록에서 제거"""
         with self._lock:
             self._procs.discard(proc)
+            self._paused_procs.discard(proc)
 
     def start(self) -> None:
         """개별 샘플 프로세스가 시작을 맡으므로 묶음 시작은 동작 없음"""
@@ -89,18 +99,23 @@ class SampleGroupProcess:
             proc.cancel()
 
     def pause(self) -> None:
-        """실행 중인 모든 샘플 프로세스를 일시중지"""
+        """실행 중인 샘플 프로세스를 일시중지하고 일시중지 상태를 기억
+
+        - 일시중지 상태에서 시작하는 프로세스도 `launch`가 같은 상태를 보고 멈추게 함
+        """
         with self._lock:
             self._paused = True
-            procs = list(self._procs)
+            procs = [proc for proc in self._procs if proc not in self._paused_procs]
+            self._paused_procs.update(procs)
         for proc in procs:
             proc.pause()
 
     def resume(self) -> None:
-        """일시중지한 모든 샘플 프로세스를 재개"""
+        """일시중지 상태를 풀고 멈춘 샘플 프로세스만 다시 실행해 멈춤과 재개 횟수를 맞춤"""
         with self._lock:
             self._paused = False
-            procs = list(self._procs)
+            procs = list(self._paused_procs)
+            self._paused_procs.clear()
         for proc in procs:
             proc.resume()
 
@@ -221,13 +236,12 @@ def _run_segments(
             ffmpeg_executable=ffmpeg_exec,
         )
         proc = process_factory(args, lambda _line: None)
-        if not group.register(proc):
+        if not group.launch(proc):
             return True, False, 0
         try:
             with command_scope(
                 STAGE_SAMPLE_ENCODE, args, target=source_path, source_path=source_path
             ) as handle:
-                proc.start()
                 outcome = proc.wait()
                 handle.exit_code = None if outcome.cancelled else outcome.returncode
         finally:

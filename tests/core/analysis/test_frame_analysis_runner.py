@@ -103,7 +103,7 @@ class TestAnalyzeFrames(_RunnerTestCase):
     def test_precise_mode_uses_two_second_segments_and_accurate_seek(self) -> None:
         runner = FakeStderrRunner()
         result = self.analyze(runner, mode="precise")
-        self.assertEqual(result.analysis_version, 234)
+        self.assertEqual(result.analysis_version, 237)
         self.assertNotIn("-noaccurate_seek", runner.commands[0])
         metric = next(args for args in runner.commands if "-filter_complex" in args)
         self.assertEqual(metric[metric.index("-t") + 1], "2.000")

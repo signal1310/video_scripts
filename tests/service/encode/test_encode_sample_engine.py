@@ -7,11 +7,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from src.core.command_history import STAGE_SAMPLE_ENCODE, clear, snapshot
 from src.core.config import CONTAINER_POLICY_MP4
 from src.core.encode.encode_plan import build_encode_plan
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.ffmpeg_command import build_sample_ffmpeg_args
 from src.core.encode.stream_layout import parse_stream_layout
+from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_sample_engine import (
     SampleGroupProcess,
     run_sample_pass,
@@ -51,6 +53,30 @@ class _FakeProcess:
     @property
     def pid(self) -> int | None:
         return None
+
+
+class _StrictFakeProcess(_FakeProcess):
+    """시작 전 일시중지를 거부하고 호출 순서를 기록하는 가짜 프로세스"""
+
+    def __init__(self, events: list[str]) -> None:
+        super().__init__([], 0, 0)
+        self._events = events
+        self._started = False
+
+    def start(self) -> None:
+        self._started = True
+        self._events.append("start")
+
+    def pause(self) -> None:
+        if not self._started:
+            raise RuntimeError("인코딩 프로세스가 아직 시작되지 않았습니다")
+        self._events.append("pause")
+
+    def cancel(self) -> None:
+        self._events.append("cancel")
+
+    def resume(self) -> None:
+        self._events.append("resume")
 
 
 def _plan(tmp: str):
@@ -168,6 +194,9 @@ class TestSampleEngine(unittest.TestCase):
             def __init__(self) -> None:
                 super().__init__(["python", "out.mp4"], 0, 0)
 
+            def start(self) -> None:
+                events.append("start")
+
             def cancel(self) -> None:
                 events.append("cancel")
 
@@ -181,14 +210,93 @@ class TestSampleEngine(unittest.TestCase):
         proc = _StubProc()
         group.start()
         group.set_priority("normal")
-        self.assertTrue(group.register(proc))
+        self.assertTrue(group.launch(proc))
         group.pause()
         group.resume()
         group.cancel()
         self.assertIsNone(group.pid)
         self.assertEqual(group.wait().returncode, 0)
-        self.assertEqual(events, ["pause", "resume", "cancel"])
-        self.assertFalse(group.register(_StubProc()))
+        self.assertEqual(events, ["start", "pause", "resume", "cancel"])
+        self.assertFalse(group.launch(_StubProc()))
+        self.assertTrue(group.is_cancelled)
+
+    def test_process_started_after_pause_is_paused_once_and_resumed_once(self) -> None:
+        """일시중지 중에 시작한 프로세스는 한 번 멈추고, 한 번의 재개로 한 번만 되돌아오는지 검증"""
+        events: list[str] = []
+        group = SampleGroupProcess()
+        group.pause()
+        self.assertTrue(group.launch(_StrictFakeProcess(events)))
+        self.assertEqual(events, ["start", "pause"])
+        group.resume()
+        self.assertEqual(events, ["start", "pause", "resume"])
+        group.resume()
+        self.assertEqual(events, ["start", "pause", "resume"])
+
+    def test_pause_and_resume_cover_only_running_processes(self) -> None:
+        """일시중지는 실행 중인 프로세스와 이후 시작한 프로세스 모두에 한 번씩만 적용되는지 검증"""
+        events: list[str] = []
+        group = SampleGroupProcess()
+        first = _StrictFakeProcess(events)
+        self.assertTrue(group.launch(first))
+        group.pause()
+        self.assertTrue(group.launch(_StrictFakeProcess(events)))
+        group.resume()
+        self.assertEqual(events, ["start", "pause", "start", "pause", "resume", "resume"])
+
+    def test_cancel_before_start_skips_process_start(self) -> None:
+        """시작 전에 취소된 묶음은 프로세스를 띄우지 않고 즉시 취소하는지 검증"""
+        events: list[str] = []
+        group = SampleGroupProcess()
+        group.cancel()
+        self.assertFalse(group.launch(_StrictFakeProcess(events)))
+        self.assertEqual(events, ["cancel"])
+
+    def test_started_segment_records_command_with_exit_code(self) -> None:
+        """시작한 구간은 명령 기록에 종료 코드와 함께 한 건 남는지 검증"""
+        with TemporaryDirectory() as tmp:
+            clear()
+            outcome = run_sample_pass(
+                batch_id=1,
+                source_path=os.path.join(tmp, "in.mp4"),
+                plan=_plan(tmp),
+                ffmpeg_exec="ffmpeg",
+                process_factory=lambda _args, _cb: _FakeProcess(_args, 1, 0),
+                abort=threading.Event(),
+                segments=((0.0, 2.0),),
+                quality=22.0,
+                build_args=build_sample_ffmpeg_args,
+            )
+            records = snapshot()
+        self.assertEqual(outcome.succeeded_segments, 1)
+        self.assertEqual([(record.stage, record.exit_code) for record in records], [(STAGE_SAMPLE_ENCODE, 0)])
+
+    def test_cancel_in_creation_gap_does_not_start_ffmpeg(self) -> None:
+        """프로세스 생성과 시작 사이에 취소가 들어와도 FFmpeg를 띄우거나 명령 기록을 남기지 않는지 검증"""
+        events: list[str] = []
+        abort = threading.Event()
+        control = PauseControl(abort=abort, clock=lambda: 0.0, notify=lambda _batch, _path: None)
+        with TemporaryDirectory() as tmp:
+
+            def _factory(_args: Sequence[str], _cb: object) -> _StrictFakeProcess:
+                control.cancel_all()
+                return _StrictFakeProcess(events)
+
+            clear()
+            outcome = run_sample_pass(
+                batch_id=1,
+                source_path=os.path.join(tmp, "in.mp4"),
+                plan=_plan(tmp),
+                ffmpeg_exec="ffmpeg",
+                process_factory=_factory,
+                abort=abort,
+                segments=((0.0, 2.0),),
+                quality=22.0,
+                build_args=build_sample_ffmpeg_args,
+                control=control,
+            )
+        self.assertTrue(outcome.cancelled)
+        self.assertEqual(events, ["cancel"])
+        self.assertEqual(snapshot(), ())
 
 
 if __name__ == "__main__":

@@ -108,14 +108,14 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
         mode=FRAME_ANALYSIS_MODE_PRECISE,
         segment_duration_sec=2.0,
         fast_keyframe_seek=False,
-        analysis_version=234,
+        analysis_version=237,
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
 # - 보간 방식별 캐시 버전 간격. 방식 이름 순서로 10씩 떨어뜨려 방식, 화질 분석 방식 조합마다 다른 버전을 씀
 SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
-# - 화질 분석 방식 버전 값(232-234, 보간 방식 오프셋 포함)과 겹치는 번호를 쓰면 전용 행이 그 방식의 결과로 오인되므로,
+# - 화질 분석 방식 버전 값(232, 233, 237, 보간 방식 오프셋 포함)과 겹치는 번호를 쓰면 전용 행이 그 방식의 결과로 오인되므로,
 #   방식 버전 값을 피해 고르고 방식을 올릴 때도 겹치지 않는지 확인함
 CROP_SCAN_VERSION: int = 235
 METRIC_CROP_ONLY: str = ""

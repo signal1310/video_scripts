@@ -1,5 +1,6 @@
 """공통 샘플 구간 선택과 무효 구간 판정, 중앙값 집계 단위 테스트"""
 
+import itertools
 import unittest
 
 from src.core.sample_points import (
@@ -38,6 +39,26 @@ class TestSamplePoints(unittest.TestCase):
         self.assertEqual(sample_segments(15.0), ((0.0, 15.0),))
         self.assertEqual(sample_segments(60.0, 1), ((0.0, 60.0),))
         self.assertEqual(sample_segments(1.5), ((0.0, 1.5),))
+
+    def test_segments_do_not_overlap_between_twenty_and_twenty_two_and_a_half_seconds(self) -> None:
+        """20초 이상 22.5초 미만에서 구간이 겹쳐 같은 프레임을 두 번 재지 않는지 검증"""
+        for tenths in range(200, 226):
+            duration = tenths / 10.0
+            segments = sample_segments(duration)
+            self.assertLessEqual(len(segments), DEFAULT_SEGMENT_COUNT)
+            self.assertGreaterEqual(len(segments), 2)
+            for start, length in segments:
+                self.assertEqual(length, DEFAULT_SEGMENT_DURATION_SEC)
+                self.assertGreaterEqual(start, 0.0)
+                self.assertLessEqual(start + length, duration + 1e-9)
+            for (start, length), (next_start, _) in itertools.pairwise(segments):
+                self.assertGreaterEqual(next_start, start + length - 1e-9)
+
+    def test_overlap_avoidance_keeps_default_grid_for_long_videos(self) -> None:
+        """긴 영상은 기존 9지점 배치를 그대로 유지하는지 검증"""
+        self.assertEqual(len(sample_segments(60.0)), DEFAULT_SEGMENT_COUNT)
+        self.assertEqual(len(sample_segments(22.5)), DEFAULT_SEGMENT_COUNT)
+        self.assertEqual(len(sample_segments(22.4)), DEFAULT_SEGMENT_COUNT - 1)
 
     def test_invalid_segment_by_black_ratio_or_flat_roundtrip(self) -> None:
         black = SegmentQuality(0.0, 2.0, black_ratio=BLACK_RATIO_INVALID_THRESHOLD)

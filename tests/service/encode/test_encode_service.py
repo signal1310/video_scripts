@@ -662,15 +662,14 @@ class TestPauseAndLongPauseNotice(_ServiceCase):
         self.assertTrue(encoder.started.wait(timeout=10.0))
 
         runner.pause_all()
-        paused = encoder.paused
-        self.assertGreaterEqual(paused, 1)
+        self.assertGreaterEqual(encoder.paused, 1)
         now[0] += LONG_RUN_NOTICE_SEC + 1.0
         runner.check_long_pause()
         notices = [e for e in self.events if e.kind == EVENT_LONG_PAUSE]
         self.assertEqual([e.source_path for e in notices], [path])
 
         runner.resume_all()
-        self.assertEqual(encoder.resumed, paused)
+        self.assertEqual(encoder.suspend_depth, 0)
         now[0] += LONG_RUN_NOTICE_SEC + 1.0
         runner.check_long_pause()
         self.assertEqual(len([e for e in self.events if e.kind == EVENT_LONG_PAUSE]), 1)
@@ -1678,14 +1677,13 @@ class TestItemControls(_ServiceCase):
         now = [1000.0]
         runner, encoder, worker, block, batch_id = self._start_blocked(path, now)
         self.assertTrue(runner.pause_one(path))
-        paused = encoder.paused
-        self.assertGreaterEqual(paused, 1)
+        self.assertGreaterEqual(encoder.paused, 1)
         self.assertFalse(runner.pause_one(path))
         now[0] += LONG_RUN_NOTICE_SEC + 1.0
         runner.check_long_pause()
         self.assertEqual([e.source_path for e in self.events if e.kind == EVENT_LONG_PAUSE], [path])
         self.assertTrue(runner.resume_one(path))
-        self.assertEqual(encoder.resumed, paused)
+        self.assertEqual(encoder.suspend_depth, 0)
         self.assertFalse(runner.resume_one(path))
         block.set()
         worker.join(timeout=10.0)
@@ -1696,12 +1694,11 @@ class TestItemControls(_ServiceCase):
         now = [1000.0]
         runner, encoder, worker, block, _batch_id = self._start_blocked(path, now)
         runner.pause_all()
-        paused = encoder.paused
         self.assertFalse(runner.pause_one(path))
         self.assertFalse(runner.resume_one(path))
         runner.resume_all()
-        self.assertGreaterEqual(paused, 1)
-        self.assertEqual(encoder.resumed, paused)
+        self.assertGreaterEqual(encoder.paused, 1)
+        self.assertEqual(encoder.suspend_depth, 0)
         block.set()
         worker.join(timeout=10.0)
 

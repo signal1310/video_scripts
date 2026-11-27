@@ -30,6 +30,7 @@ def sample_segments(
     """결정 19 공통 구간 규칙에 따라 (시작 시각, 길이) 쌍을 반환. 20초 미만은 전체 1구간
 
     - 10%~90% 구간에 균등 배치하고, 마지막 구간이 영상 끝을 넘지 않게 자름
+    - 간격이 구간 길이보다 짧아지는 짧은 영상은 구간 수를 줄여 겹침을 없앰
     """
     if duration_sec <= 0:
         return ()
@@ -38,6 +39,9 @@ def sample_segments(
     start_bound = duration_sec * SAMPLE_RANGE_START_RATIO
     end_bound = max(start_bound, duration_sec * SAMPLE_RANGE_END_RATIO - segment_sec)
     span = end_bound - start_bound
+    # - 간격이 구간 길이보다 짧으면 같은 프레임을 두 번 재므로 배치 구간 수를 간격에 맞춰 줄임
+    fit_count = int(span // segment_sec) + 1
+    count = min(count, fit_count)
     segments: list[tuple[float, float]] = []
     for index in range(count):
         ratio = index / (count - 1) if count > 1 else 0.0

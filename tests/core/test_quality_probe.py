@@ -10,6 +10,7 @@ from pathlib import Path
 from src.core.encode.encode_plan import EncodePlan, build_encode_plan
 from src.core.encode.stream_layout import parse_stream_layout
 from src.core.quality_probe import (
+    CANCEL_MESSAGE,
     FOUR_K_MIN_LONG_SIDE,
     LOG_NAME_SSIM,
     LOG_NAME_VMAF,
@@ -293,5 +294,8 @@ class TestQualityProbe(unittest.TestCase):
                 ProcessCommandRunner(timeout_sec=0.2)([sys.executable, "-c", "import time; time.sleep(5)"], tmp)
             cancel_event = threading.Event()
             cancel_event.set()
-            with self.assertRaises(InterruptedError):
-                ProcessCommandRunner(cancel_event=cancel_event)([sys.executable, "-c", "import time; time.sleep(5)"], tmp)
+            with self.assertRaises(InterruptedError) as caught:
+                ProcessCommandRunner(cancel_event=cancel_event)(
+                    [sys.executable, "-c", "import time; time.sleep(5)"], tmp
+                )
+            self.assertEqual(str(caught.exception), CANCEL_MESSAGE)

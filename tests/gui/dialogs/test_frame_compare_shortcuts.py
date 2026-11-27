@@ -131,6 +131,42 @@ class MatchActionTests(unittest.TestCase):
 
 
 
+class CompareShortcutPressedTests(unittest.TestCase):
+    """여러 창이 함께 쓰는 화질 비교 전환 키 판정"""
+
+    def test_default_key_matches_and_other_keys_do_not(self) -> None:
+        self.assertTrue(
+            shortcuts.compare_shortcut_pressed(
+                _event(Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier), DEFAULT_SHORTCUTS
+            )
+        )
+        self.assertFalse(
+            shortcuts.compare_shortcut_pressed(_event(Qt.Key.Key_B), DEFAULT_SHORTCUTS)
+        )
+
+    def test_custom_key_replaces_the_default(self) -> None:
+        """사용자가 키를 바꾸면 그 키만 전환으로 보고 기본 Ctrl+B는 무시하는지 검증"""
+        custom = _shortcuts_with(**{"classify.compare_selected": "F5"})
+        self.assertTrue(
+            shortcuts.compare_shortcut_pressed(_event(Qt.Key.Key_F5), custom)
+        )
+        self.assertFalse(
+            shortcuts.compare_shortcut_pressed(
+                _event(Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier), custom
+            )
+        )
+
+    def test_cleared_key_matches_nothing(self) -> None:
+        """설정을 비우면 어떤 키도 전환으로 보지 않는지 검증"""
+        cleared = _shortcuts_with(**{"classify.compare_selected": ""})
+        self.assertFalse(
+            shortcuts.compare_shortcut_pressed(
+                _event(Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier), cleared
+            )
+        )
+        self.assertFalse(shortcuts.compare_shortcut_pressed(_event(Qt.Key.Key_F5), cleared))
+
+
 class KeyControllerTests(unittest.TestCase):
     """고정 닫기 순서와 단축키 실행"""
 

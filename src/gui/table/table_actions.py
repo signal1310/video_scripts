@@ -171,6 +171,45 @@ def row_file_state(root_dir: str, ev: VideoEvaluation | None) -> tuple[RowFileSt
     return RowFileState.MISSING, None
 
 
+def _comparison_path(root_dir: str, ev: VideoEvaluation) -> str:
+    """평가 항목의 물리 경로를 대소문자와 구분자 차이를 없앤 비교 키로 변환"""
+    return os.path.normcase(os.path.normpath(resolve_video_filepath(root_dir, ev.video)))
+
+
+class EvaluationPathIndex:
+    """평가 결과의 정규화 경로 색인. 반복 조회에서 행마다 경로를 다시 계산하지 않음
+
+    - 작업 폴더 문자열 해석과 경로 계산은 구성할 때 한 번만 하고, 조회는 사전 조회 한 번으로 끝냄
+    - 같은 경로의 항목이 여럿이면 목록에서 먼저 나온 항목을 남김
+    """
+
+    def __init__(self, root_dir: str, evals: Sequence[VideoEvaluation]) -> None:
+        self._by_path: dict[str, VideoEvaluation] = {}
+        for ev in evals:
+            self._by_path.setdefault(_comparison_path(root_dir, ev), ev)
+
+    def find(self, path: str) -> VideoEvaluation | None:
+        """경로가 가리키는 평가 결과. 같은 파일이 없거나 빈 경로면 없음
+
+        - 운영 체제 표기 차이(대소문자, 구분자)를 무시하고 비교함
+        """
+        if not path:
+            return None
+        return self._by_path.get(os.path.normcase(os.path.normpath(path)))
+
+
+def evaluation_at_path(
+    root_dir: str,
+    evals: Sequence[VideoEvaluation],
+    path: str,
+) -> VideoEvaluation | None:
+    """절대 경로가 가리키는 영상의 평가 결과. 같은 파일이 없으면 없음
+
+    - 한 번만 찾을 때 쓰고, 같은 목록을 반복 조회하면 EvaluationPathIndex를 재사용함
+    """
+    return EvaluationPathIndex(root_dir, evals).find(path)
+
+
 def count_missing_video_files(root_dir: str, evals: Sequence[VideoEvaluation]) -> int:
     """선택 항목 중 영상 파일이 없는 항목 수"""
     return sum(1 for ev in evals if row_file_state(root_dir, ev)[0] is RowFileState.MISSING)

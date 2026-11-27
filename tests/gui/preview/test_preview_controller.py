@@ -22,7 +22,7 @@ from src.core.settings.ui_state import UiState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.preview import preview_controller as module
 from src.gui.preview.preview_controller import PreviewController
-from tests._factories import make_eval
+from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -291,6 +291,31 @@ class PreviewControllerTests(unittest.TestCase):
         with mock.patch.object(self.controller, "open_compare") as open_compare:
             self.controller._on_compare_requested("", 0.0)
         open_compare.assert_not_called()
+
+    def test_refresh_video_info_uses_the_file_the_window_plays(self) -> None:
+        """표 포커스 행이 아니라 창이 재생하는 파일의 평가 결과를 넘기는지 검증"""
+        played = "C:/videos/b.mp4"
+        focused = make_eval(video=make_video(filename="a.mp4"))
+        playing = make_eval(video=make_video(filename="b.mp4"))
+        window = mock.Mock()
+        window.isVisible.return_value = True
+        window.current_path = played
+        self.controller._window = window
+        self.harness.table.get_evaluation_at.return_value = focused
+        self.harness.table.evaluation_at_path.return_value = playing
+        self.controller.refresh_video_info()
+        self.harness.table.evaluation_at_path.assert_called_once_with(played)
+        self.assertIs(window.set_video_info.call_args.args[0].ev, playing)
+
+    def test_refresh_video_info_disables_the_overlay_for_a_file_outside_the_table(self) -> None:
+        """표에 없는 파일을 재생하면 정보 표시를 끄는지 검증"""
+        window = mock.Mock()
+        window.isVisible.return_value = True
+        window.current_path = "C:/other/clip.mp4"
+        self.controller._window = window
+        self.harness.table.evaluation_at_path.return_value = None
+        self.controller.refresh_video_info()
+        window.set_video_info.assert_called_once_with(None)
 
     def test_table_focus_change_in_compare_mode_opens_at_the_remembered_position(self) -> None:
         """비교 모드에서 표 포커스가 바뀌면 구간 이동 간격이 아니라 기억한 시점으로 여는지 검증"""

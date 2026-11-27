@@ -5,7 +5,7 @@
 - 색은 팔레트 토큰만 쓰고, 문구는 TERMINOLOGY.md 6.6절, 6.17절이 기준 정의
 """
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -128,7 +128,13 @@ class EncodeSummaryView(QWidget):
     results_requested = pyqtSignal()
     status_requested = pyqtSignal(str)
 
-    def __init__(self, media: SummaryMedia, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        media: SummaryMedia,
+        parent: QWidget | None = None,
+        *,
+        get_shortcuts: Callable[[], Mapping[str, str]],
+    ) -> None:
         super().__init__(parent)
         self._media: SummaryMedia = media
         self._palette: ThemePalette | None = None
@@ -153,7 +159,7 @@ class EncodeSummaryView(QWidget):
         self.warning_box, self.lbl_warning_icon, self.lbl_warning = self._build_warning_box()
         self.tag_label = self._build_tag_label()
         self.tree_head, self.lbl_section, self.lbl_subtitle, self.badge = self._build_tree_head()
-        self.tree = EncodeImpactTree(self._media, self)
+        self.tree = EncodeImpactTree(self._media, self, get_shortcuts=get_shortcuts)
         self.tree.setVisible(False)
         self._layout_body()
 

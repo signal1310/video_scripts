@@ -8,11 +8,12 @@ from PyQt6.QtCore import QCoreApplication, QEvent, QPoint
 from PyQt6.QtWidgets import QApplication, QMenu
 
 from src.core.config import ClassifierConfig
+from src.gui.table import table_actions
 from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.table_context_menu import show_header_context_menu, show_row_context_menu
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.video_table_view import VideoTableView
-from tests._factories import make_eval
+from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -36,6 +37,42 @@ class TableChildWidgetLifetimeTests(GuiTestCase):
         self.ev = make_eval()
         self.view.table_model.set_data_source([self.ev], root_dir="x", config=ClassifierConfig())
         _APP.processEvents()
+
+    def test_evaluation_at_path_finds_the_row_regardless_of_focus(self) -> None:
+        """포커스 행과 상관없이 파일 경로로 평가 결과를 찾는지 검증"""
+        root = os.path.dirname(os.path.abspath(__file__))
+        other = make_eval(video=make_video(filename="clip.mp4"))
+        view = VideoTableView(root_dir_provider=lambda: root)
+        self.addCleanup(view.close)
+        view.table_model.set_data_source([other], root_dir=root, config=ClassifierConfig())
+        _APP.processEvents()
+        path = os.path.join(root, "clip.mp4")
+        self.assertIs(view.evaluation_at_path(path), other)
+        self.assertIsNone(view.evaluation_at_path(os.path.join(root, "missing.mp4")))
+
+    def test_path_index_is_reused_until_the_model_data_changes(self) -> None:
+        """같은 표 내용으로 되풀이 조회하면 색인을 다시 만들지 않고, 데이터가 바뀌면 다시 만드는지 검증"""
+        root = os.path.dirname(os.path.abspath(__file__))
+        first = make_eval(video=make_video(filename="a.mp4"))
+        second = make_eval(video=make_video(filename="b.mp4"))
+        view = VideoTableView(root_dir_provider=lambda: root)
+        self.addCleanup(view.close)
+        view.table_model.set_data_source([first], root_dir=root, config=ClassifierConfig())
+        _APP.processEvents()
+        with patch(
+            "src.gui.table.video_table_view.EvaluationPathIndex",
+            wraps=table_actions.EvaluationPathIndex,
+        ) as builder:
+            self.assertIs(view.evaluation_at_path(os.path.join(root, "a.mp4")), first)
+            built = builder.call_count
+            for _ in range(3):
+                self.assertIs(view.evaluation_at_path(os.path.join(root, "a.mp4")), first)
+            self.assertEqual(builder.call_count, built)
+
+            view.table_model.set_data_source([second], root_dir=root, config=ClassifierConfig())
+            _APP.processEvents()
+            self.assertIs(view.evaluation_at_path(os.path.join(root, "b.mp4")), second)
+            self.assertEqual(builder.call_count, built + 1)
 
     def test_context_menus_do_not_accumulate_after_repeated_opens(self) -> None:
         """헤더와 행 우클릭 메뉴를 여러 번 띄워도 표 뷰 아래 메뉴 수가 늘지 않는지 검증"""

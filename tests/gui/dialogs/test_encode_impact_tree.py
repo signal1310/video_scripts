@@ -37,6 +37,11 @@ from src.gui.styles.icons import get_active_palette
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
+
+
+def _shortcuts() -> dict[str, str]:
+    """화질 비교 전환 기본 단축키만 담은 설정"""
+    return {"classify.compare_selected": "Ctrl+B"}
 # - 머리글 제목과 오른쪽 끝 배지가 한 줄에 들어가는 폭
 _TREE_WIDTH_PX: int = 480
 _TREE_HEIGHT_PX: int = 400
@@ -100,7 +105,7 @@ class EncodeImpactTreeTests(unittest.TestCase):
         for name in ("clip.mp4", "scale.mp4"):
             open(os.path.join(self.root, name), "wb").close()
         self.media = _FakeMedia()
-        self.tree = EncodeImpactTree(self.media)
+        self.tree = EncodeImpactTree(self.media, get_shortcuts=_shortcuts)
         self.addCleanup(self.tree.deleteLater)
         self.evaluations = [
             make_eval(video=make_video(filename=name)) for name in ("clip.mp4", "scale.mp4", "broken.mp4")

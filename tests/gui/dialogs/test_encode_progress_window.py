@@ -958,6 +958,31 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertEqual(self.media.compared, [self.job_path])
         release_modifier_keys()
 
+    def test_custom_compare_shortcut_replaces_ctrl_b(self) -> None:
+        """화질 비교 전환 키를 바꾸면 진행 창도 그 키만 받고 Ctrl+B는 무시하는지 검증"""
+        window = EncodeProgressWindow(
+            cast("EncodeController", self.controller),
+            self.book,
+            self.media,
+            None,
+            confirm=self._confirm,
+            get_shortcuts=lambda: {"classify.compare_selected": "F5"},
+        )
+        self.addCleanup(window.deleteLater)
+        window.start_batch(self.jobs, _info())
+        window._on_state(self.job_path, EncodeState.RUNNING)
+        window._view_switch.setCurrentIndex(1)
+        QApplication.sendEvent(
+            window,
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier),
+        )
+        release_modifier_keys()
+        self.assertEqual(self.media.compared, [])
+        QApplication.sendEvent(
+            window, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_F5, Qt.KeyboardModifier.NoModifier)
+        )
+        self.assertEqual(self.media.compared, [self.job_path])
+
     def test_refresh_rows_updates_the_result_list_without_an_event(self) -> None:
         """조정자가 기록을 다시 읽은 뒤 refresh_rows를 부르면 교체 대기 행이 나타남"""
         self.book.apply(self.job_path, EncodeState.REPLACE_PENDING, "교체 실패")

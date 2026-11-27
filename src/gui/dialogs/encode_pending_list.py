@@ -7,7 +7,7 @@
 """
 
 import os
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from PyQt6.QtCore import Qt, pyqtBoundSignal, pyqtSignal
@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.gui.dialogs.encode_impact_tree import SummaryMedia
-from src.gui.dialogs.encode_progress_panels import compare_shortcut_pressed
+from src.gui.dialogs.frame_compare_shortcuts import compare_shortcut_pressed
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.table_actions import missing_notice
 
@@ -50,9 +50,13 @@ class _PendingListWidget(QListWidget):
     preview_requested = pyqtSignal(str)
     compare_requested = pyqtSignal(str)
 
+    def __init__(self, shortcuts: Callable[[], Mapping[str, str]], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._get_shortcuts = shortcuts
+
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         if event is not None:
-            if compare_shortcut_pressed(event):
+            if compare_shortcut_pressed(event, self._get_shortcuts()):
                 self._emit_current(self.compare_requested)
                 event.accept()
                 return
@@ -83,7 +87,13 @@ class PendingQueueList(QWidget):
 
     exclusion_changed = pyqtSignal()
 
-    def __init__(self, media: SummaryMedia, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        media: SummaryMedia,
+        parent: QWidget | None = None,
+        *,
+        get_shortcuts: Callable[[], Mapping[str, str]],
+    ) -> None:
         super().__init__(parent)
         self._media: SummaryMedia = media
         self._paths: list[str] = []
@@ -91,7 +101,7 @@ class PendingQueueList(QWidget):
         self._title = QLabel(PENDING_TITLE, self)
         self._title.setObjectName("GroupHeaderTitle")
         self._title.setToolTip(PENDING_HINT)
-        self._list = _PendingListWidget(self)
+        self._list = _PendingListWidget(get_shortcuts, self)
         self._list.setObjectName("EncodePendingList")
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setToolTip(PENDING_HINT)

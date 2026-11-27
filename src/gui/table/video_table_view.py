@@ -51,6 +51,7 @@ from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.reanalysis_blur_delegate import install_table_delegates
 from src.gui.table.table_actions import (
+    EvaluationPathIndex,
     confirm_bulk_play,
     copy_lines_to_clipboard,
     count_missing_video_files,
@@ -137,6 +138,10 @@ class VideoTableView(QTableView):
         self._pending_selection: set[str] | None = None
         # - 기본 Return 재생은 이 위젯이 직접 처리하고, 다른 키로 바뀌면 QAction 단축키가 맡음
         self._play_shortcut: str = DEFAULT_SHORTCUTS["classify.play_selected"]
+        # - 경로로 평가 결과를 찾는 색인. 표 목록이나 작업 폴더가 바뀌면 다시 만듦
+        self._eval_path_root: str = ""
+        self._eval_path_evals: list[VideoEvaluation] | None = None
+        self._eval_path_index: EvaluationPathIndex | None = None
 
         self.table_model = VideoTableModel(self)
         self.proxy_model = VideoSortFilterProxyModel(self)
@@ -591,6 +596,22 @@ class VideoTableView(QTableView):
     def current_video_path(self) -> str | None:
         """현재 포커스 행의 영상 파일 경로, 없으면 None"""
         return self.video_path_at_row(self.currentIndex().row())
+
+    def evaluation_at_path(self, path: str) -> VideoEvaluation | None:
+        """절대 경로가 가리키는 영상의 평가 결과, 표에 없으면 None
+
+        - 포커스 행과 무관하게 파일 자체로 찾아, 다른 창에서 연 영상의 정보를 맞출 때 씀
+        - 표 갱신마다 불리므로 목록과 작업 폴더가 같으면 만든 색인을 다시 씀
+        """
+        root_dir = self._resolve_root_dir()
+        evals = self.table_model.evaluations
+        index = self._eval_path_index
+        if index is None or self._eval_path_root != root_dir or self._eval_path_evals is not evals:
+            index = EvaluationPathIndex(root_dir, evals)
+            self._eval_path_root = root_dir
+            self._eval_path_evals = evals
+            self._eval_path_index = index
+        return index.find(path)
 
     def set_current_row(self, row: int) -> None:
         """선택 범위는 그대로 두고 포커스 행만 옮김"""

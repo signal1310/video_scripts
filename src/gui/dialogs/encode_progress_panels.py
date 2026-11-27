@@ -7,10 +7,10 @@
 """
 
 import html
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from PyQt6.QtCore import QSize, Qt, pyqtBoundSignal, pyqtSignal
-from PyQt6.QtGui import QKeyEvent, QKeySequence, QResizeEvent
+from PyQt6.QtGui import QKeyEvent, QResizeEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -32,9 +32,9 @@ from src.core.encode.encode_batch_book import (
 )
 from src.core.encode.encode_progress_values import TONE_GREW, TONE_SAVED, ResultLine
 from src.core.encode.encode_progress_view import speed_text
-from src.core.settings.shortcuts import COMPARE_ACTION_ID, DEFAULT_SHORTCUTS, normalize_shortcut
 from src.gui.dialogs.encode_flow_layout import FlowLayout
 from src.gui.dialogs.encode_progress_chips import FilterChip
+from src.gui.dialogs.frame_compare_shortcuts import compare_shortcut_pressed
 from src.gui.styles.icons import create_icon_button, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.table_column_formats import encode_state_badge
@@ -166,21 +166,19 @@ def _status_rank(status: str) -> int:
     return RESULT_STATUS_ORDER.index(status) if status in RESULT_STATUS_ORDER else len(RESULT_STATUS_ORDER)
 
 
-def compare_shortcut_pressed(event: QKeyEvent) -> bool:
-    """화질 비교 전환 기본 단축키(Ctrl+B) 입력인지"""
-    pressed = normalize_shortcut(QKeySequence(event.keyCombination()).toString())
-    return pressed == normalize_shortcut(DEFAULT_SHORTCUTS[COMPARE_ACTION_ID])
-
-
 class _ResultListWidget(QListWidget):
     """결과 목록. 스페이스바는 미리 보기, 화질 비교 전환 단축키는 화질 비교 요청으로 넘기고, 창 폭이 바뀌면 알림"""
 
     space_pressed = pyqtSignal(bool)
     resized = pyqtSignal()
 
+    def __init__(self, shortcuts: Callable[[], Mapping[str, str]], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._get_shortcuts = shortcuts
+
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         if event is not None:
-            if compare_shortcut_pressed(event):
+            if compare_shortcut_pressed(event, self._get_shortcuts()):
                 self.space_pressed.emit(True)
                 event.accept()
                 return
@@ -217,7 +215,11 @@ class ResultList(QWidget):
     trash_requested = pyqtSignal(str)
     compare_requested = pyqtSignal(str)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        get_shortcuts: Callable[[], Mapping[str, str]],
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._lines: list[ResultLine] = []
         self._palette: ThemePalette | None = None
@@ -225,7 +227,7 @@ class ResultList(QWidget):
         self._chips: dict[str, FilterChip] = {}
         self._chip_host: QWidget = QWidget(self)
         self._chip_flow: FlowLayout = FlowLayout(self._chip_host)
-        self._list: _ResultListWidget = _ResultListWidget(self)
+        self._list: _ResultListWidget = _ResultListWidget(get_shortcuts, self)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._list.itemDoubleClicked.connect(self._on_double_clicked)

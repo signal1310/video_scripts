@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeyEvent, QKeySequence
 
 from src.core.settings.shortcuts import (
+    COMPARE_ACTION_ID,
     DEFAULT_SHORTCUTS,
     normalize_shortcut,
 )
@@ -242,6 +243,15 @@ def pressed_candidates(event: QKeyEvent) -> tuple[str, ...]:
     if key == Qt.Key.Key_Space and is_shift_space(modifiers):
         candidates.append(_SHIFT_SPACE)
     return tuple(dict.fromkeys(item for item in candidates if item))
+
+
+def compare_shortcut_pressed(event: QKeyEvent, shortcuts: Mapping[str, str]) -> bool:
+    """화질 비교 전환 단축키 입력인지, 설정을 비웠으면 어떤 키도 해당하지 않음
+
+    - 넘패드와 그룹 전환 보조 플래그가 붙어도 같은 키로 판정
+    """
+    configured = normalize_shortcut(shortcuts.get(COMPARE_ACTION_ID, ""))
+    return bool(configured) and configured in pressed_candidates(event)
 
 
 def is_shift_space(modifiers: Qt.KeyboardModifier) -> bool:

@@ -25,6 +25,11 @@ from src.gui.styles.palettes import LIGHT_PALETTE
 _APP = QApplication.instance() or QApplication([])
 
 
+def _shortcuts() -> dict[str, str]:
+    """화질 비교 전환 기본 단축키만 담은 설정"""
+    return {"classify.compare_selected": "Ctrl+B"}
+
+
 def _done(name: str = "a.mp4") -> ResultLine:
     return ResultLine(
         name,
@@ -96,7 +101,7 @@ class ResultListTests(unittest.TestCase):
     """결과 목록의 행 내용: 이름, 상태 배지 글자, 크기 줄(변화 부분 강조), 사유 줄, 결과 경로 툴팁"""
 
     def setUp(self) -> None:
-        self.results = ResultList()
+        self.results = ResultList(_shortcuts)
         self.addCleanup(self.results.deleteLater)
 
     def test_rows_show_name_status_size_and_reason_and_keep_the_result_path_in_the_tooltip(self) -> None:
@@ -159,7 +164,7 @@ class ResultRefreshTests(unittest.TestCase):
     """갱신 때 바뀐 행만 다시 만들어 선택과 스크롤을 지키고, 폭이 바뀌면 행 높이를 다시 잼"""
 
     def setUp(self) -> None:
-        self.results = ResultList()
+        self.results = ResultList(_shortcuts)
         self.addCleanup(self.results.deleteLater)
         self.lines = [_done("a.mp4"), _done("b.mp4"), _done("c.mp4")]
         self.results.set_lines(self.lines)
@@ -220,7 +225,7 @@ class ResultFilterTests(unittest.TestCase):
     """상태 칩은 전체와 상태별 개수를 보여 주고, 고른 상태의 행만 보이게 함. 없는 상태를 고르면 전체"""
 
     def setUp(self) -> None:
-        self.results = ResultList()
+        self.results = ResultList(_shortcuts)
         self.addCleanup(self.results.deleteLater)
         self.results.set_lines(
             [
@@ -277,7 +282,7 @@ class ResultActionTests(unittest.TestCase):
     """교체 대기 행의 재시도와 교체 포기 버튼, 행 더블클릭과 스페이스바의 원본 경로 전달"""
 
     def setUp(self) -> None:
-        self.results = ResultList()
+        self.results = ResultList(_shortcuts)
         self.addCleanup(self.results.deleteLater)
         self.pending = os.path.join("work", "a.mp4")
         self.done = os.path.join("work", "b.mp4")
@@ -322,7 +327,7 @@ class ResultLeftoverActionTests(unittest.TestCase):
     """임시 파일이 남은 행은 위치 열기, 같은 자리 임시 파일 실패 행은 휴지통 이동 버튼을 주고, 누르면 원본 경로를 보냄"""
 
     def setUp(self) -> None:
-        self.list = ResultList()
+        self.list = ResultList(_shortcuts)
         self.addCleanup(self.list.deleteLater)
         self.reveal: list[str] = []
         self.trash: list[str] = []
@@ -359,7 +364,7 @@ class ResultCompareTests(unittest.TestCase):
     """완료, 교체 대기 행의 화질 비교 버튼: 표시 조건, 순서, 활성과 비활성 사유, 원본 경로 신호"""
 
     def setUp(self) -> None:
-        self.results = ResultList()
+        self.results = ResultList(_shortcuts)
         self.addCleanup(self.results.deleteLater)
 
     def _button(self, row: int) -> QPushButton:

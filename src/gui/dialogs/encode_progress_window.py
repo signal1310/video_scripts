@@ -43,6 +43,7 @@ from src.core.encode.encode_progress_view import (
     overall_remaining_sec,
 )
 from src.core.encode.encode_state import EncodeState
+from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.gui.dialogs.encode_confirm_dialogs import ask_stop
 from src.gui.dialogs.encode_pending_list import PENDING_TIP, PendingRow
 from src.gui.dialogs.encode_progress_card import (
@@ -71,8 +72,9 @@ from src.gui.dialogs.encode_progress_layout import (
     set_collapse_look,
     set_top_area_collapsed,
 )
-from src.gui.dialogs.encode_progress_panels import compare_shortcut_pressed, finished_speed_text
+from src.gui.dialogs.encode_progress_panels import finished_speed_text
 from src.gui.dialogs.encode_summary_view import EncodeStartPlan
+from src.gui.dialogs.frame_compare_shortcuts import compare_shortcut_pressed
 from src.gui.styles.icons import get_active_palette, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.styles.stylesheet import set_state_property
@@ -155,12 +157,16 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         start_requested: Callable[[frozenset[str]], None] | None = None,
         open_settings: Callable[[], None] | None = None,
         replace_confirm: Callable[[QWidget, str], bool] | None = None,
+        get_shortcuts: Callable[[], Mapping[str, str]] | None = None,
     ) -> None:
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle(WINDOW_TITLE)
         # - 높이 최소값은 두지 않음. 고정하면 글꼴이 커서 레이아웃이 더 높이를 요구할 때 카드 수치 칸이 눌림
         self.setMinimumWidth(WINDOW_MIN_WIDTH_PX)
         self.resize(WINDOW_MIN_WIDTH_PX, WINDOW_INITIAL_HEIGHT_PX)
+        self._get_shortcuts: Callable[[], Mapping[str, str]] = (
+            get_shortcuts if get_shortcuts is not None else lambda: DEFAULT_SHORTCUTS
+        )
         self._controller: ProgressController = controller
         self._book: EncodeBatchBook = book
         self._media: ProgressMedia = media
@@ -303,8 +309,8 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
         self.hide()
 
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
-        """화질 비교 전환 단축키(Ctrl+B)는 지금 보는 영상을 화질 비교 창으로 엶"""
-        if event is not None and compare_shortcut_pressed(event):
+        """화질 비교 전환 단축키는 지금 보는 영상을 화질 비교 창으로 엶"""
+        if event is not None and compare_shortcut_pressed(event, self._get_shortcuts()):
             self._compare_current()
             event.accept()
             return
@@ -346,6 +352,7 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
             ),
             self._media,
             self._toggle_top_collapsed,
+            self._get_shortcuts,
         )
         self._banner = widgets.banner
         self._header = widgets.header

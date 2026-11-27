@@ -4,7 +4,7 @@
 - 머리글 버튼은 생성 때 동작을 받아 연결함
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -220,6 +220,7 @@ def build_progress_widgets(
     actions: ProgressActions,
     media: SummaryMedia,
     toggle_collapsed: Callable[[], None],
+    get_shortcuts: Callable[[], Mapping[str, str]],
 ) -> ProgressWidgets:
     """진행 창 본문을 만들고 `parent`의 레이아웃으로 배치. 탭 전환과 상단 접기는 여기서 연결함"""
     banner = CloseBanner(parent)
@@ -263,9 +264,9 @@ def build_progress_widgets(
     timing.addWidget(remaining)
     totals = TotalsPanel(parent)
     tabs = CardChips(parent)
-    results = ResultList(parent)
-    summary = EncodeSummaryView(media, parent)
-    pending = PendingQueueList(media, parent)
+    results = ResultList(get_shortcuts, parent)
+    summary = EncodeSummaryView(media, parent, get_shortcuts=get_shortcuts)
+    pending = PendingQueueList(media, parent, get_shortcuts=get_shortcuts)
     pages = QStackedWidget(parent)
     summary_scroll = QScrollArea(pages)
     summary_scroll.setWidgetResizable(True)

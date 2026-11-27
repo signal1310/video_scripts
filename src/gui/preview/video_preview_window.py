@@ -181,7 +181,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._crop_edit.reset_auto_requested.connect(self._on_crop_reset_auto)
         self._crop_edit.keep_full_requested.connect(self._on_crop_keep_full)
 
-        self._playback = PreviewPlayback(self._video, self)
+        self._playback = PreviewPlayback(self._video, self, frame_rate=self._frame_rate)
         self._playback.position_changed.connect(self._controls.set_position)
         self._playback.duration_changed.connect(self._controls.set_duration)
         self._playback.playing_changed.connect(self._controls.set_playing)
@@ -393,6 +393,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """
         if not path:
             return
+        # - 비교 모드를 먼저 끄면 비교 뷰 시점을 잃으므로, 지금 모드의 위치를 먼저 남김
+        self._save_watched_position()
         self._modes.reset()
         volume_percent, muted = self._get_audio()
         self._controls.set_audio_state(volume_percent, muted)
@@ -568,7 +570,11 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         *,
         auto_play: bool = True,
     ) -> None:
-        """지정 시점과 창 위치로 영상을 열어 표시, 읽기 전 위치 지정은 읽은 뒤에 적용하고 auto_play가 거짓이면 멈춘 채 이어감"""
+        """지정 시점과 창 위치로 영상을 열어 표시, 읽기 전 위치 지정은 읽은 뒤에 적용하고 auto_play가 거짓이면 멈춘 채 이어감
+
+        - 새 영상의 대기 시점을 걸면 `load_path`의 저장이 건너뛰므로, 지금 영상의 위치를 먼저 남김
+        """
+        self._save_watched_position()
         self._playback.queue_position(round(position_sec * _MS_PER_SECOND))
         self._pending_for = path
         self.show_path(path, auto_play=auto_play)

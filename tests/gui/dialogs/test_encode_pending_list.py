@@ -25,6 +25,11 @@ from src.gui.table.table_actions import MSG_MISSING_REFRESH
 _APP = QApplication.instance() or QApplication([])
 
 
+def _shortcuts() -> dict[str, str]:
+    """화질 비교 전환 기본 단축키만 담은 설정"""
+    return {"classify.compare_selected": "Ctrl+B"}
+
+
 class _FakeMedia:
     """대기열 영상 행의 열기, 미리 보기, 화질 비교 요청을 기록하는 대역"""
 
@@ -55,7 +60,7 @@ class PendingQueueListTests(unittest.TestCase):
         open(self.path, "wb").close()
         self.missing = os.path.join(self.root, "gone.mp4")
         self.media = _FakeMedia()
-        self.list = PendingQueueList(self.media)
+        self.list = PendingQueueList(self.media, get_shortcuts=_shortcuts)
         self.addCleanup(self.list.deleteLater)
 
     def _items(self) -> QListWidget:

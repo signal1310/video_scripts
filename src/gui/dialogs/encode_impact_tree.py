@@ -3,11 +3,11 @@
 - 집계 항목 제목은 항목별 수를 붙이고, 변환 항목은 해당 수와 전체 대상을 함께 씀
 - 집계 항목에는 분류 배지(영상 변환, 스트림, 태그)를 붙이고 1, 2순위 항목은 기본으로 펼침
 - 영상 행은 이름과 우측 정렬 변환 내역을 두 칸으로 나누고, 메인 표와 같은 상세 툴팁, 더블클릭 재생,
-  스페이스바 미리 보기, Ctrl+B 화질 비교를 제공
+  스페이스바 미리 보기, 화질 비교 전환 단축키를 제공
 - 문구는 TERMINOLOGY.md 6.6절과 6.17절이 기준 정의
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol
 
 from PyQt6.QtCore import QModelIndex, QRectF, QSize, Qt, pyqtSignal
@@ -45,7 +45,7 @@ from src.core.encode.encode_impact import (
 )
 from src.core.models import VideoEvaluation
 from src.gui.constants import FONT_UI_FAMILY
-from src.gui.dialogs.encode_progress_panels import compare_shortcut_pressed
+from src.gui.dialogs.frame_compare_shortcuts import compare_shortcut_pressed
 from src.gui.styles.icons import get_active_palette
 from src.gui.table.table_actions import (
     count_missing_video_files,
@@ -142,14 +142,18 @@ class SummaryMedia(Protocol):
 
 
 class _ImpactItemTree(QTreeWidget):
-    """집계 목록 트리. 스페이스바는 미리 보기, Ctrl+B는 화질 비교로 넘기고 항목 줄은 한 번 클릭으로 펼치거나 접음"""
+    """집계 목록 트리. 스페이스바는 미리 보기, 화질 비교 단축키는 화질 비교로 넘기고 항목 줄은 한 번 클릭으로 펼치거나 접음"""
 
     preview_key_pressed = pyqtSignal()
     compare_key_pressed = pyqtSignal()
 
+    def __init__(self, shortcuts: Callable[[], Mapping[str, str]], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._get_shortcuts = shortcuts
+
     def keyPressEvent(self, event: QKeyEvent | None) -> None:
         if event is not None:
-            if compare_shortcut_pressed(event):
+            if compare_shortcut_pressed(event, self._get_shortcuts()):
                 self.compare_key_pressed.emit()
                 event.accept()
                 return
@@ -252,6 +256,8 @@ class EncodeImpactTree(QWidget):
         media: SummaryMedia,
         parent: QWidget | None = None,
         notice: Callable[[QWidget, str, str], None] | None = None,
+        *,
+        get_shortcuts: Callable[[], Mapping[str, str]],
     ) -> None:
         super().__init__(parent)
         self._media: SummaryMedia = media
@@ -259,7 +265,7 @@ class EncodeImpactTree(QWidget):
         self._root_dir: str = ""
         self._target_codec_label: str = ""
         self._evals: dict[str, VideoEvaluation] = {}
-        self.tree = _ImpactItemTree(self)
+        self.tree = _ImpactItemTree(get_shortcuts, self)
         self.tree.setObjectName("EncodeImpactTree")
         self.tree.setColumnCount(2)
         # - 왼쪽은 영상 이름, 오른쪽은 변환 내역. 오른쪽 칸은 내용 폭만 쓰고 남는 폭은 이름 칸이 받음
@@ -317,7 +323,7 @@ class EncodeImpactTree(QWidget):
         self._media.preview_file(path)
 
     def compare_current(self) -> None:
-        """Ctrl+B: 현재 영상 행을 화질 비교로 넘김"""
+        """화질 비교 전환 단축키: 현재 영상 행을 화질 비교로 넘김"""
         ev, path = self._current_row()
         if ev is None:
             return

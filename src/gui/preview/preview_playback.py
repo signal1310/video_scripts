@@ -7,13 +7,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PyQt6.QtCore import QFile, QObject, QUrl, pyqtSignal
-from PyQt6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer
+from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 
 from src.core.analysis.frame_compare import clamp_end_position_ms
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX
-from src.gui.preview.preview_keys import resolve_frame_rate
 from src.gui.shared_file_handle import open_shared_read_file
 
 
@@ -22,6 +23,7 @@ class PreviewPlayback(QObject):
 
     - 재생기 상태를 신호로 내보내 창의 공용 하단 바가 표시만 맞추게 함
     - 파일 핸들은 소스를 비운 뒤에만 닫아 재생기가 놓기 전에 지워지는 일을 막음
+    - 끝 여유에 쓰는 FPS는 창이 넘긴 접근자 하나를 그대로 써서, 재생 키와 이동이 같은 값을 봄
     """
 
     position_changed = pyqtSignal(int)
@@ -29,8 +31,15 @@ class PreviewPlayback(QObject):
     playing_changed = pyqtSignal(bool)
     error_changed = pyqtSignal(bool)
 
-    def __init__(self, video: QVideoWidget, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        video: QVideoWidget,
+        parent: QObject | None = None,
+        *,
+        frame_rate: Callable[[], float],
+    ) -> None:
         super().__init__(parent)
+        self._frame_rate_of = frame_rate
         self._pending_position_ms: int | None = None
         self._source_file: QFile | None = None
         self._audio = QAudioOutput(self)
@@ -119,13 +128,11 @@ class PreviewPlayback(QObject):
         """요청 위치를 [0, 길이 - 한 프레임]으로 제한, 길이를 모르면 0 이상으로만 제한
 
         - 끝에 정확히 두면 디코딩할 프레임이 없어 마지막 화면이 비므로 한 프레임 남김
+        - 한 프레임 폭은 창의 FPS 접근자를 그대로 써, 재생 키의 끝 판정과 같은 값을 봄
         """
-        return clamp_end_position_ms(position_ms, self._player.duration(), self._frame_rate())
-
-    def _frame_rate(self) -> float:
-        """재생기 메타데이터 FPS, 없으면 30fps"""
-        metadata_rate = self._player.metaData().value(QMediaMetaData.Key.VideoFrameRate)
-        return resolve_frame_rate(0.0, metadata_rate)
+        return clamp_end_position_ms(
+            position_ms, self._player.duration(), self._frame_rate_of()
+        )
 
     def set_rate(self, rate: float) -> None:
         """재생 배속을 적용"""

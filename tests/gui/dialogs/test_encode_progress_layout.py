@@ -28,6 +28,11 @@ from src.gui.styles.palettes import LIGHT_PALETTE
 _APP = QApplication.instance() or QApplication([])
 
 
+def _shortcuts() -> dict[str, str]:
+    """화질 비교 전환 기본 단축키만 담은 설정"""
+    return {"classify.compare_selected": "Ctrl+B"}
+
+
 class _FakeMedia:
     """요약 탭 영상 행이 쓰는 동작을 받기만 하는 대역"""
 
@@ -58,7 +63,9 @@ class ProgressLayoutTests(unittest.TestCase):
             stop_all=self.stop_all,
             cancel_close=self.cancel_close,
         )
-        self.widgets = build_progress_widgets(self.parent, self.actions, _FakeMedia(), self.toggle_collapsed)
+        self.widgets = build_progress_widgets(
+            self.parent, self.actions, _FakeMedia(), self.toggle_collapsed, _shortcuts
+        )
 
     def test_header_buttons_call_their_actions(self) -> None:
         """시작/일시중지, 현재 영상 후 중지, 전체 중지 버튼이 각 동작을 한 번씩 호출함"""

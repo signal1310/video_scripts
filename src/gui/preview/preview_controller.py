@@ -101,8 +101,6 @@ class PreviewController(QObject):
         self._owner_window: QWidget | None = None
         self._window_popup: PreviewSettingsPopup | None = None
         self._main_popup: PreviewSettingsPopup | None = None
-        # - 재평가로 표 모델이 초기화되면 포커스 행이 사라지므로, 보던 영상을 파일명으로 다시 찾기 위해 기억
-        self._info_filename: str | None = None
         self._build_compare_session: Callable[[str, float], CompareSession] | None = None
         self._compare_extractor: FrameExtractor | None = None
         self._apply_compare_manual_target: (
@@ -378,23 +376,17 @@ class PreviewController(QObject):
         self._table_view.move_current_row(step)
 
     def refresh_video_info(self) -> None:
-        """내장 창이 보이는 동안 표의 포커스 행 평가 결과와 선택 수를 정보 표시에 전달"""
+        """내장 창이 보이는 동안 지금 재생하는 영상의 평가 결과와 선택 수를 정보 표시에 전달
+
+        - 포커스 행이 아니라 창이 재생하는 파일로 찾아, 진행 창에서 연 다른 영상에 표 행 값을 그리지 않게 함
+        - 표에 없는 파일이면 정보와 잘라내기 도구를 끔
+        """
         window = self._window
         if window is None or not window.isVisible():
             return
         table = self._table_view
-        ev = table.get_evaluation_at(table.currentIndex())
-        if ev is not None:
-            self._info_filename = ev.video.filename
-        elif self._info_filename is not None:
-            ev = next(
-                (
-                    item
-                    for item in table.table_model.evaluations
-                    if item.video.filename == self._info_filename
-                ),
-                None,
-            )
+        path = window.current_path
+        ev = None if not path else table.evaluation_at_path(path)
         if ev is None:
             window.set_video_info(None)
             return

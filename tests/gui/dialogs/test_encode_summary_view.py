@@ -33,6 +33,11 @@ from src.service.encode.encode_job import EncodeSettings
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
+
+
+def _shortcuts() -> dict[str, str]:
+    """화질 비교 전환 기본 단축키만 담은 설정"""
+    return {"classify.compare_selected": "Ctrl+B"}
 _LARGE_FONT_PT: float = 13.0
 # - 바뀌기 전 2x2 카드의 기본 글꼴 높이와 13pt 최소 폭. 새 카드가 넘지 않아야 함
 _OLD_CARD_HEIGHT_PX: int = 170
@@ -119,7 +124,7 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.path = os.path.join(self.root, "clip.mp4")
         open(self.path, "wb").close()
         self.media = _FakeMedia()
-        self.view = EncodeSummaryView(self.media)
+        self.view = EncodeSummaryView(self.media, get_shortcuts=_shortcuts)
         self.addCleanup(self.view.deleteLater)
 
     def test_set_plan_fills_brief_tag_tree_and_settings_link(self) -> None:

@@ -216,6 +216,9 @@ class _FakeTable:
     def get_evaluation_at(self, _index: QModelIndex) -> None:
         return None
 
+    def evaluation_at_path(self, path: str) -> None:
+        return None
+
     def selectionModel(self) -> None:
         return None
 

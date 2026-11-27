@@ -22,6 +22,7 @@ from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.preview.preview_controller import PreviewPositionMemory
+from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_keys import is_close_key, remove_key_filter
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.video_preview_overlay import PreviewInfoOverlay, PreviewToast
@@ -194,6 +195,28 @@ class ShowPathAtTests(GuiTestCase):
         self.assertEqual([args.args[0] for args in set_position.call_args_list], [5000])
         self.assertIsNone(self.window._playback._pending_position_ms)
 
+    def test_show_path_at_saves_the_current_video_position_first(self) -> None:
+        """A를 보다가 B로 넘길 때 A의 위치를 잃지 않는지 검증"""
+        positions = PreviewPositionMemory()
+        window = _make_window(positions=positions)
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.hide)
+        with tempfile.TemporaryDirectory() as root:
+            first = os.path.join(root, "a.mp4")
+            second = os.path.join(root, "b.mp4")
+            for path in (first, second):
+                with open(path, "wb") as handle:
+                    handle.write(b"not a real video")
+            window._path = first
+            player = cast("object", window._player)
+            with (
+                mock.patch.object(player, "position", return_value=30000),
+                mock.patch.object(player, "duration", return_value=120000),
+            ):
+                window.show_path_at(second, 12.5)
+        self.assertEqual(positions.recall(first), 30.0)
+        self.assertEqual(window.current_path, second)
+
     def test_position_sec_reads_the_player_position(self) -> None:
         with mock.patch.object(cast("object", self.window._player), "position", return_value=2500):
             self.assertEqual(self.window.position_sec, 2.5)
@@ -313,6 +336,30 @@ class FrameStepTests(GuiTestCase):
         metadata.value.return_value = None
         with mock.patch.object(player, "metaData", return_value=metadata):
             self.assertEqual(self.window._frame_rate(), 30.0)
+
+    def test_play_at_the_clamped_end_restarts_from_the_beginning(self) -> None:
+        """표 FPS 60으로 끝 한 프레임 안쪽에 선 위치에서 재생을 누르면 처음부터 다시 트는지 검증"""
+        info = PreviewVideoInfo(
+            ev=make_eval(video=make_video(filename="clip.mp4", fps=60.0)),
+            config=ClassifierConfig(),
+            pending_tiers={},
+            selected_count=0,
+            has_frame_analysis=False,
+        )
+        self.window.set_video_info(info)
+        player = cast("object", self.window._player)
+        parked = self.window._playback.clamp_position(9000)
+        with (
+            mock.patch.object(player, "duration", return_value=5000),
+            mock.patch.object(player, "position", return_value=parked),
+            mock.patch.object(
+                player, "playbackState", return_value=QMediaPlayer.PlaybackState.PausedState
+            ),
+            mock.patch.object(player, "setPosition") as set_position,
+            mock.patch.object(player, "play"),
+        ):
+            self.window._actions.toggle_playback()
+        self.assertEqual(set_position.call_args.args[0], 0)
 
     def test_sync_shortcuts_updates_control_tooltips(self) -> None:
         """단축키 변경이 재생 버튼 툴팁에 반영되는지 검증"""
@@ -907,6 +954,19 @@ class SingleWindowCompareTests(GuiTestCase):
         _press(self.window, Qt.Key.Key_B, Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(requests, [(self.path, window.position_sec)])
         self.assertTrue(window.isVisible())
+
+    def test_leaving_compare_by_opening_another_video_saves_the_compare_position(self) -> None:
+        """비교 모드에서 다른 영상을 열 때 비교 뷰 시점을 잃지 않는지 검증"""
+        window = self.window
+        window.show_compare_session(_compare_session(self.path))
+        _APP.processEvents()
+        with tempfile.TemporaryDirectory() as root:
+            other = os.path.join(root, "other.mp4")
+            with open(other, "wb") as handle:
+                handle.write(b"not a real video")
+            window.show_path(other)
+        self.assertEqual(window.current_path, other)
+        self.assertEqual(window._positions.recall(self.path), 12.5)
 
     def test_compare_notice_uses_the_single_shared_toast(self) -> None:
         window = self.window

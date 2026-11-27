@@ -6,15 +6,71 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from src.core.workspace_paths import format_root_dirs, root_logical_prefix
+from src.gui.table import table_actions
 from src.gui.table.table_actions import (
     REVEAL_FOLDER_LIMIT,
+    EvaluationPathIndex,
     _reveal_windows_shell_many,
+    evaluation_at_path,
     open_media_path,
     reveal_path,
     reveal_paths,
     reveal_video_file,
 )
 from tests._factories import make_eval, make_video
+
+
+class EvaluationPathIndexTests(unittest.TestCase):
+    """경로 색인: 구성할 때만 경로를 계산하고 반복 조회는 사전 조회로 끝냄"""
+
+    def test_index_computes_each_row_path_once_for_repeated_lookups(self) -> None:
+        evals = [make_eval(video=make_video(filename=f"clip{index}.mp4")) for index in range(5)]
+        root = os.path.join("C:\\", "work")
+        real = table_actions.resolve_video_filepath
+        with patch(
+            "src.gui.table.table_actions.resolve_video_filepath", side_effect=real
+        ) as resolver:
+            index = EvaluationPathIndex(root, evals)
+            self.assertEqual(resolver.call_count, len(evals))
+            for _ in range(3):
+                for name in ("CLIP1.MP4", "clip3.mp4"):
+                    self.assertIsNotNone(index.find(os.path.join(root, name)))
+                self.assertIsNone(index.find(os.path.join(root, "missing.mp4")))
+            self.assertEqual(resolver.call_count, len(evals))
+
+    def test_index_finds_files_of_each_root_of_a_multi_root_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            spec = format_root_dirs([first, second])
+            evals = [
+                make_eval(video=make_video(filename=f"{root_logical_prefix(root, spec)}a.mp4"))
+                for root in (first, second)
+            ]
+            index = EvaluationPathIndex(spec, evals)
+            for root, ev in zip((first, second), evals, strict=True):
+                self.assertIs(index.find(os.path.join(root, "A.MP4")), ev)
+            self.assertIsNone(index.find(os.path.join(first, "b.mp4")))
+
+
+class EvaluationAtPathTests(unittest.TestCase):
+    """절대 경로로 표의 평가 결과를 찾는지"""
+
+    def test_finds_the_evaluation_by_file_and_ignores_case_and_separators(self) -> None:
+        evals = [
+            make_eval(video=make_video(filename="a.mp4")),
+            make_eval(video=make_video(filename="sub/b.mp4")),
+        ]
+        root = os.path.join("C:\\", "work")
+        found = evaluation_at_path(root, evals, "c:/WORK/SUB/B.MP4")
+        assert found is not None
+        self.assertEqual(found.video.filename, "sub/b.mp4")
+
+    def test_returns_none_for_a_file_the_table_does_not_hold(self) -> None:
+        evals = [make_eval(video=make_video(filename="a.mp4"))]
+        root = os.path.join("C:\\", "work")
+        self.assertIsNone(evaluation_at_path(root, evals, "C:/other/b.mp4"))
+        self.assertIsNone(evaluation_at_path("", evals, "C:/work/a.mp4"))
+        self.assertIsNone(evaluation_at_path(root, evals, ""))
 
 
 class TestRevealPath(unittest.TestCase):

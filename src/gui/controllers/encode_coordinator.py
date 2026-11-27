@@ -9,7 +9,7 @@
 
 import logging
 import os
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Protocol
 
 from PyQt6.QtGui import QCloseEvent
@@ -36,6 +36,7 @@ from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_enco
 from src.core.encode.ffmpeg_capability import FfmpegCapability, probe_ffmpeg_capability
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
 from src.core.models import SummaryReport, VideoEvaluation
+from src.core.settings.shortcuts import resolve_shortcuts
 from src.core.workspace_paths import parse_root_dirs, resolve_source_filepath
 from src.gui.constants import call_later
 from src.gui.controllers.encode_cleanup import LeftoverCleanup
@@ -159,6 +160,10 @@ class EncodeCoordinator:
         self._on_book_changed: Callable[[EncodeBatchBook], None] | None = None
         self._on_status_changed: Callable[[EncodeChipStatus], None] | None = None
         self._header_bar: HeaderBar | None = None
+        # - 진행 창도 표, 미리 보기와 같은 화질 비교 전환 단축키를 읽도록 최신 설정을 넘김
+        self._get_shortcuts: Callable[[], Mapping[str, str]] = lambda: resolve_shortcuts(
+            self._session.state.ui.shortcuts
+        )
 
     @property
     def is_running(self) -> bool:
@@ -426,6 +431,7 @@ class EncodeCoordinator:
                 None,
                 start_requested=self._start_from_window,
                 open_settings=self._open_settings,
+                get_shortcuts=self._get_shortcuts,
             )
             window.close_cancel_requested.connect(self._cancel_close)
             if self._parent.isVisible():

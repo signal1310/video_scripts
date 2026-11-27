@@ -31,7 +31,7 @@ from src.core.analysis.frame_compare import (
     frame_step_seconds,
     reached_video_end,
 )
-from src.core.settings.shortcuts import COMPARE_ACTION_ID, normalize_shortcut
+from src.core.settings.shortcuts import normalize_shortcut
 from src.core.settings.ui_state import (
     DEFAULT_PREVIEW_PLAYBACK_RATE,
     PREVIEW_LARGE_SEEK_MULTIPLIER,
@@ -61,7 +61,7 @@ from src.gui.constants import (
 from src.gui.constants import (
     seek_notice as seek_notice,
 )
-from src.gui.dialogs.frame_compare_shortcuts import pressed_candidates
+from src.gui.dialogs.frame_compare_shortcuts import compare_shortcut_pressed
 from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 ACTION_SEEK_BACKWARD: str = "preview.seek_backward"
@@ -330,10 +330,9 @@ class PreviewKeyRouter:
     def _compare_action(self, event: QKeyEvent) -> bool:
         """화질 비교 전환 단축키면 같은 창의 모드 전환을 요청
 
-        - 사용자가 Shift+Space로 직접 지정한 경우 넘패드, 그룹 전환 보조 플래그가 붙어도 같은 키로 판정
+        - 사용자가 지정한 키가 비어 있으면 전환 키를 두지 않음
         """
-        configured = normalize_shortcut(self._get_shortcuts().get(COMPARE_ACTION_ID, ""))
-        if not configured or configured not in pressed_candidates(event):
+        if not compare_shortcut_pressed(event, self._get_shortcuts()):
             return False
         self._get_actions().toggle_compare()
         return True

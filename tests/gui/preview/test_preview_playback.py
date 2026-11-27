@@ -28,7 +28,8 @@ class PreviewPlaybackTests(GuiTestCase):
             handle.write(b"not a real video")
         self.video = QVideoWidget()
         self.addCleanup(self.video.deleteLater)
-        self.playback = PreviewPlayback(self.video)
+        self.frame_rate = 30.0
+        self.playback = PreviewPlayback(self.video, frame_rate=lambda: self.frame_rate)
         self.addCleanup(self.playback.deleteLater)
         # - 소스를 쥔 채 재생기를 파괴하면 Qt FFmpeg 백엔드가 접근 위반으로 죽으므로 먼저 비움
         self.addCleanup(self.playback.stop)
@@ -76,6 +77,12 @@ class PreviewPlaybackTests(GuiTestCase):
             self.assertEqual(self.playback.clamp_position(-10), 0)
         with mock.patch.object(self.playback.player, "duration", return_value=0):
             self.assertEqual(self.playback.clamp_position(9000), 9000)
+
+    def test_clamp_uses_the_window_frame_rate_for_the_end_margin(self) -> None:
+        """60fps 영상을 표 FPS로 알면 끝 여유도 60fps 한 프레임(17ms)으로 줄이는지 검증"""
+        self.frame_rate = 60.0
+        with mock.patch.object(self.playback.player, "duration", return_value=5000):
+            self.assertEqual(self.playback.clamp_position(9000), 4983)
 
     def test_state_and_error_are_reported(self) -> None:
         states: list[bool] = []

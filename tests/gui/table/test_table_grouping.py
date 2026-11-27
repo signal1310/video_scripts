@@ -14,6 +14,8 @@ from PyQt6.QtCore import QModelIndex, Qt
 from PyQt6.QtGui import QPainter, QPixmap
 from PyQt6.QtWidgets import QAbstractItemView, QApplication, QMainWindow, QStyleOptionViewItem
 
+from src.core.analysis.frame_analysis import ActiveRegion
+from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
 from src.core.settings.state_codec import (
@@ -31,6 +33,7 @@ from src.core.settings.ui_state import (
 )
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table.column_filters import ColumnDataType
+from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_KEEP_FULL_TEXT
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.table_columns import COL_DEFS
 from src.gui.table.table_grouping import (
@@ -80,6 +83,21 @@ def _sample_evals() -> list[VideoEvaluation]:
         make_eval(video=make_video(filename="b/three.mp4", codec="h264")),
         make_eval(video=make_video(filename="four.mkv", codec="h264")),
     ]
+
+
+def _barred_result() -> FrameAnalysisResult:
+    """검은 띠가 있는 활성 화면 결과. 전체 화면 유지 상태 확인에 씀"""
+    return FrameAnalysisResult(
+        active_region=ActiveRegion(734, 444, 593, 138, True),
+        metric_used="vmaf",
+        vmaf_model="vmaf_v0.6.1",
+        tier_scores=(),
+        candidate_tier=None,
+        valid_segment_count=5,
+        total_segment_count=5,
+        unmeasurable=False,
+        is_vr_protected=False,
+    )
 
 
 def _header_row(group: VideoGroupProxyModel, prefix: str) -> int:
@@ -132,6 +150,46 @@ class VideoGroupProxyModelTests(unittest.TestCase):
             if self.group.is_group_row(row)
         ]
         self.assertTrue(any(head.startswith("h264 ") for head in headers))
+
+    def test_group_header_uses_the_keep_full_text(self) -> None:
+        """활성 화면 열로 묶으면 전체 화면 유지 행이 그 문구를 그룹 머리글로 씀을 검증"""
+        model, _proxy, group = _make_chain(
+            [make_eval(video=make_video(filename="a.mp4")), make_eval(video=make_video(filename="b.mp4"))]
+        )
+        model.set_frame_analysis_results(
+            {
+                "a.mp4": _barred_result(),
+            }
+        )
+        model.set_crop_exclusions(["a.mp4"])
+        group.set_group_by(f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_ACTIVE_FRAME}")
+        labels = [
+            str(group.index(row, 0).data(Qt.ItemDataRole.DisplayRole))
+            for row in range(group.rowCount())
+            if group.is_group_row(row)
+        ]
+        self.assertTrue(any(label.startswith(ACTIVE_FRAME_KEEP_FULL_TEXT) for label in labels))
+        self.assertFalse(any(label.startswith("734x444") for label in labels))
+
+    def test_group_header_follows_the_crop_setting(self) -> None:
+        """잘라내기 설정을 끄면 활성 화면 열로 묶은 그룹 머리글도 감지 크기로 바뀌는지 검증"""
+        model, _proxy, group = _make_chain(
+            [make_eval(video=make_video(filename="a.mp4")), make_eval(video=make_video(filename="b.mp4"))]
+        )
+        model.set_frame_analysis_results({"a.mp4": _barred_result()})
+        model.set_crop_exclusions(["a.mp4"])
+        group.set_group_by(f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_ACTIVE_FRAME}")
+        _header_row(group, ACTIVE_FRAME_KEEP_FULL_TEXT)
+        config = ClassifierConfig()
+        config.encode.crop_black_bars = False
+        model.set_config(config)
+        labels = [
+            str(group.index(row, 0).data(Qt.ItemDataRole.DisplayRole))
+            for row in range(group.rowCount())
+            if group.is_group_row(row)
+        ]
+        self.assertTrue(any(label.startswith("734x444") for label in labels))
+        self.assertFalse(any(label.startswith(ACTIVE_FRAME_KEEP_FULL_TEXT) for label in labels))
 
     def test_toggle_and_expand_collapse(self) -> None:
         self.group.set_group_by(GROUP_BY_FOLDER)

@@ -25,6 +25,7 @@ from src.gui.dialogs.exporters import (
 )
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
+    ACTIVE_FRAME_KEEP_FULL_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
     QUALITY_METRIC_COLUMN,
 )
@@ -116,6 +117,39 @@ class CsvExporterTests(unittest.TestCase):
         self.assertEqual(saved[1][ACTIVE_FRAME_COLUMN], "1920x800")
         self.assertEqual(saved[1][DOWNSCALE_CANDIDATE_COLUMN], "720p")
         self.assertEqual(saved[1][QUALITY_METRIC_COLUMN], "VMAF")
+
+    def test_keep_full_and_manual_rows_export_values_only(self) -> None:
+        """전체 화면 유지 행은 문구를, 수동 지정 행은 크기만 CSV로 내보내는지 검증"""
+        from src.core.models import ActiveFrame
+
+        model = VideoTableModel(config=ClassifierConfig())
+        model.set_data_source(
+            [
+                make_eval(video=make_video(filename="keep.mp4")),
+                make_eval(video=make_video(filename="manual.mp4")),
+            ],
+            root_dir="C:/work",
+        )
+        barred = FrameAnalysisResult(
+            active_region=ActiveRegion(734, 444, 593, 138, True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        model.set_frame_analysis_results({"keep.mp4": barred, "manual.mp4": barred})
+        model.set_crop_exclusions(["keep.mp4"])
+        model.set_manual_active_frames({"manual.mp4": ActiveFrame(132, 240, 0, 0)})
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        rows = snapshot_table_rows(proxy, resolve_csv_headers(proxy)).render_rows()
+        by_name = {row[0]: row for row in rows}
+        self.assertEqual(by_name["keep.mp4"][ACTIVE_FRAME_COLUMN], ACTIVE_FRAME_KEEP_FULL_TEXT)
+        self.assertEqual(by_name["manual.mp4"][ACTIVE_FRAME_COLUMN], "132x240")
 
     def test_proxy_snapshot_splits_action_kind_and_quality_value(self) -> None:
         """CSV가 권장 처리를 처리 종류로, 품질값을 별도 열로 저장하고 보존 행은 -로 남기는지 검증"""

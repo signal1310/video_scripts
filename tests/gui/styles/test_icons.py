@@ -49,6 +49,13 @@ class SvgTests(unittest.TestCase):
         self.assertIn("maximize-2", module.SVG_TEMPLATES)
 
 
+    def test_pencil_icon_is_registered_and_renders(self) -> None:
+        """연필 아이콘이 등록되고 두 테마 색으로 그려지는지 검증"""
+        self.assertIn("16.5 3.5", module.SVG_TEMPLATES["pencil"])
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            icon = get_icon("pencil", color=palette.accent_blue, size=12, palette=palette)
+            self.assertFalse(icon.pixmap(12, 12).toImage().isNull())
+
     def test_crop_off_icon_adds_one_diagonal_slash_to_the_crop_paths(self) -> None:
         """끈 상태 아이콘이 crop 패스에 대각선 하나를 더한 모양인지 검증"""
         crop = module.SVG_TEMPLATES["crop"]

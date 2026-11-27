@@ -126,8 +126,21 @@ def _header_text_width(view: QTableView, col: int, base_font: QFont) -> int:
 
 
 ICON_COLUMNS: frozenset[int] = frozenset(
-    {VideoTableModel.COL_ROTATE, VideoTableModel.COL_KEYFRAME}
+    {
+        VideoTableModel.COL_ROTATE,
+        VideoTableModel.COL_KEYFRAME,
+        VideoTableModel.COL_ACTIVE_FRAME,
+    }
 )
+# - 글자를 알약에 넣어 그리는 열은 좌우 알약 여백만큼 폭을 더 확보해 문구가 잘리지 않게 함(활성 화면)
+PILL_COLUMNS: frozenset[int] = frozenset({VideoTableModel.COL_ACTIVE_FRAME})
+PILL_CELL_EXTRA_PX: int = 16
+
+
+def _cell_extra_px(col: int) -> int:
+    """셀 아이콘과 알약 여백으로 더해야 하는 폭"""
+    extra = ICON_CELL_EXTRA_PX if col in ICON_COLUMNS else 0
+    return extra + PILL_CELL_EXTRA_PX if col in PILL_COLUMNS else extra
 
 
 def _displayed_content_width(
@@ -135,7 +148,7 @@ def _displayed_content_width(
 ) -> int:
     """표에 실제로 표시되는 값 중 가장 넓은 텍스트 폭, 파일명 열은 전체 행 기준
 
-    - 아이콘이 붙는 열은 아이콘과 간격만큼 폭을 더함
+    - 아이콘이 붙는 열은 아이콘과 간격만큼, 알약을 쓰는 열은 알약 좌우 여백만큼 폭을 더함
     """
     if col == VideoTableModel.COL_NAME:
         return measure_name_content_width(model, base_font, cache)
@@ -143,8 +156,7 @@ def _displayed_content_width(
     bold_font.setBold(True)
     bold_widths = cache.for_font(bold_font)
     widest = _widest_cell_text(model, col, 1, bold_widths, bold_font, cache)
-    icon_extra = ICON_CELL_EXTRA_PX if col in ICON_COLUMNS else 0
-    return widest + CELL_PADDING_PX + icon_extra
+    return widest + CELL_PADDING_PX + _cell_extra_px(col)
 
 
 def _compact_reduction() -> int:
@@ -322,7 +334,7 @@ def measure_column_content_widths(
             (bold_widths.advance(word) for word in str(header_text or "").split()),
             default=0,
         )
-        icon_extra = ICON_CELL_EXTRA_PX if col == VideoTableModel.COL_ROTATE else 0
+        icon_extra = _cell_extra_px(col)
         widths[col] = max(
             widest_text + cell_padding + icon_extra,
             widest_word + HEADER_CHROME_PX,

@@ -11,6 +11,7 @@ from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
     ACTIVE_FRAME_FAILED_TEXT,
     ACTIVE_FRAME_FULL_TEXT,
+    ACTIVE_FRAME_KEEP_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
     CROP_REVIEW_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
@@ -389,22 +390,25 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertTrue(is_frame_analysis_column(QUALITY_METRIC_COLUMN))
         self.assertFalse(is_frame_analysis_column(18))
 
-    def test_crop_excluded_active_frame_is_muted_with_reason_tooltip(self) -> None:
-        """잘라내기 제외 영상은 같은 크기 문구에 흐린 색과 제외 사유 툴팁만 붙임"""
+    def test_crop_excluded_active_frame_shows_keep_full_pill_and_tooltip(self) -> None:
+        """잘라내기 제외 영상은 전체 화면 유지 문구, 알약 아이콘, 사유 툴팁을 쓰고 흐리지 않음"""
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": _result(active=ActiveRegion(1600, 1000, 260, 40, True))})
         view.set_crop_excluded(["a.mp4"])
+        self.assertTrue(view.is_keep_full("a.mp4"))
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_KEEP_FULL_TEXT)
+        self.assertEqual(
+            view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN),
+            "이 영상은 잘라내지 않고 전체 화면을 유지합니다. "
+            "자동으로 감지한 활성 화면(1600x1000)은 쓰지 않습니다.",
+        )
+        self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
+        view.set_crop_excluded([])
+        self.assertFalse(view.is_keep_full("a.mp4"))
         self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), "1600x1000")
         self.assertEqual(
             view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN),
-            "검은 여백 잘라내기 제외됨 (원본 유지)",
-        )
-        self.assertIsNotNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
-        view.set_crop_excluded([])
-        self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
-        self.assertNotEqual(
-            view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN),
-            "검은 여백 잘라내기 제외됨 (원본 유지)",
+            "검은 띠를 뺀 활성 화면 크기입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다.",
         )
 
     def test_manual_active_frame_is_shown_with_extra_tooltip_sentence(self) -> None:
@@ -422,7 +426,25 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         view.set_crop_excluded(["a.mp4"])
         self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
         view.set_manual_frames({})
-        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), "1600x1000")
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_KEEP_FULL_TEXT)
+        self.assertEqual(view.sort_value("a.mp4", ACTIVE_FRAME_COLUMN, frame_area=1920 * 1080), (1, 1920 * 1080))
+
+    def test_keep_full_sort_uses_the_detected_size_when_crop_is_off(self) -> None:
+        """잘라내기 설정이 꺼져 셀이 감지 크기를 보여 주면 정렬도 감지 크기를 쓰는지 검증"""
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": _result(active=ActiveRegion(734, 444, 593, 138, True))})
+        view.set_crop_excluded(["a.mp4"])
+        self.assertEqual(
+            view.display("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False), "734x444"
+        )
+        self.assertEqual(
+            view.sort_value("a.mp4", ACTIVE_FRAME_COLUMN, frame_area=1920 * 1080, crop_enabled=False),
+            (1, 734 * 444),
+        )
+        self.assertEqual(
+            view.sort_value("a.mp4", ACTIVE_FRAME_COLUMN, frame_area=1920 * 1080),
+            (1, 1920 * 1080),
+        )
 
     def test_manual_active_frame_without_result_still_shows_size_and_tooltip(self) -> None:
         """분석 결과가 없어도 직접 지정 크기와 안내를 보여 줌"""
@@ -476,12 +498,17 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         """셀 글자색 계산은 화질 분석 열과 열 정의, 인코딩 상태를 같은 규칙으로 처리"""
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": _result(active=ActiveRegion(1600, 1000, 260, 40, True))})
-        view.set_crop_excluded(["a.mp4"])
         ev = make_eval(video=make_video(filename="a.mp4"))
         self.assertEqual(
             foreground_color(ev, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
-                             encode_label=None, encode_state_col=99),
+                             encode_label=None, encode_state_col=99, crop_enabled=False),
             _PALETTE.text_muted,
+        )
+        # - 잘라내기를 쓰는 동안의 제외 지정은 전체 화면 유지 알약이라 흐린 글자색을 쓰지 않음
+        view.set_crop_excluded(["a.mp4"])
+        self.assertIsNone(
+            foreground_color(ev, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
+                             encode_label=None, encode_state_col=99)
         )
         self.assertIsNone(
             foreground_color(ev, DOWNSCALE_CANDIDATE_COLUMN, _PALETTE, frame_view=view,

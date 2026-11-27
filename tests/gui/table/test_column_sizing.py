@@ -10,9 +10,11 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import QApplication, QHeaderView, QTableView
 
+from src.core.analysis.frame_analysis import ActiveRegion
+from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.evaluation.evaluator import VideoEvaluator
-from src.core.models import VideoEvaluation
+from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.smart_action import SmartAction
 from src.gui.constants import (
     COLUMN_PRESETS,
@@ -33,15 +35,18 @@ from src.gui.table.column_sizing import (
     COMPACT_ROW_HEIGHT_PX,
     CONTENT_SAMPLE_ROWS,
     DEFAULT_HIDDEN_COLS,
+    ICON_CELL_EXTRA_PX,
     NAME_COL_DEFAULT_WIDTH,
     NAME_COL_MAX_WIDTH,
     NORMAL_ROW_HEIGHT_PX,
+    PILL_CELL_EXTRA_PX,
     TextWidthCache,
     apply_compact_mode,
     auto_fit_visible_columns,
     measure_column_content_widths,
     measure_name_content_width,
 )
+from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_KEEP_FULL_TEXT
 from src.gui.table.table_model import VideoTableModel
 from tests._factories import make_video
 
@@ -89,6 +94,59 @@ class NameColumnWidthTests(unittest.TestCase):
         """행이 없는 모델의 파일명 열 폭이 기본 폭인지 검증"""
         model = VideoTableModel()
         self.assertEqual(measure_name_content_width(model, QFont(), TextWidthCache()), NAME_COL_DEFAULT_WIDTH)
+
+
+class ActiveFrameColumnWidthTests(unittest.TestCase):
+    """활성 화면 열 폭이 연필 아이콘 붙은 크기와 전체 화면 유지 알약을 자르지 않는지 검증"""
+
+    def _model_with_states(self) -> VideoTableModel:
+        """수동 크기 행과 전체 화면 유지 행, 자동 크기 행을 담은 모델"""
+        model = VideoTableModel()
+        model.set_data_source(_evaluations(3), root_dir="C:/work")
+        model.set_frame_analysis_results(
+            {
+                "clip0000.mp4": FrameAnalysisResult(
+                    active_region=ActiveRegion(1280, 720, 0, 0, False),
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segment_count=5,
+                    total_segment_count=5,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                ),
+                "clip0001.mp4": FrameAnalysisResult(
+                    active_region=ActiveRegion(734, 444, 593, 138, True),
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segment_count=5,
+                    total_segment_count=5,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                ),
+            }
+        )
+        model.set_crop_exclusions(["clip0001.mp4"])
+        model.set_manual_active_frames({"clip0000.mp4": ActiveFrame(132, 240, 0, 0)})
+        return model
+
+    def test_keep_full_pill_and_iconed_size_fit_the_measured_width(self) -> None:
+        """알약 문구와 연필 붙은 크기가 아이콘, 알약 여백을 더한 폭 안에 들어가는지 검증"""
+        model = self._model_with_states()
+        col = VideoTableModel.COL_ACTIVE_FRAME
+        widths = measure_column_content_widths(model, QFont(), TextWidthCache())
+        bold = QFont()
+        bold.setBold(True)
+        pill_width = QFontMetrics(bold).horizontalAdvance(ACTIVE_FRAME_KEEP_FULL_TEXT)
+        expected = max(
+            pill_width, QFontMetrics(bold).horizontalAdvance("132x240")
+        ) + CELL_PADDING_PX + ICON_CELL_EXTRA_PX + PILL_CELL_EXTRA_PX
+        self.assertGreaterEqual(widths[col], expected)
+        self.assertEqual(model.index(1, col).data(Qt.ItemDataRole.DisplayRole), ACTIVE_FRAME_KEEP_FULL_TEXT)
+        self.assertEqual(model.index(0, col).data(Qt.ItemDataRole.DisplayRole), "132x240")
 
 
 class ColumnPresetTests(unittest.TestCase):

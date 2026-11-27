@@ -19,7 +19,10 @@ from src.gui.table.delegates import (
     PlainTextDelegate,
     QuietDotDelegate,
 )
-from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_VR_TEXT
+from src.gui.table.frame_analysis_columns import (
+    ACTIVE_FRAME_KEEP_FULL_TEXT,
+    ACTIVE_FRAME_VR_TEXT,
+)
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 
@@ -172,16 +175,16 @@ class TestIconTextDelegate(unittest.TestCase):
         self.delegate = IconTextDelegate()
         self.index = _index("12.5", {int(Qt.ItemDataRole.DecorationRole): _solid_icon(_ICON_BLUE)})
 
-    def test_icon_is_vertically_centered_right_of_text_and_group_is_centered(self) -> None:
-        """아이콘이 글자 오른쪽에 12px로 놓이고 글자와 아이콘 묶음이 셀 중앙에 위치함을 검증"""
+    def test_icon_is_vertically_centered_left_of_text_and_group_is_centered(self) -> None:
+        """아이콘이 글자 왼쪽에 12px로 놓이고 글자와 아이콘 묶음이 셀 중앙에 위치함을 검증"""
         image = _paint(self.delegate, self.index, 200, 30)
         icon = _bbox(image, _is(_ICON_BLUE))
         text = _bbox(image, lambda c: c.name() != _WHITE and c.name() != _ICON_BLUE and c.lightness() < 128)
         assert icon is not None and text is not None
         self.assertEqual((icon[2] - icon[0] + 1, icon[3] - icon[1] + 1), (_ICON_PX, _ICON_PX))
         self.assertEqual(icon[1], (30 - _ICON_PX) // 2)
-        self.assertGreater(icon[0], text[2])
-        self.assertLessEqual(abs(text[0] - (199 - icon[2])), 3)
+        self.assertLess(icon[2], text[0])
+        self.assertLessEqual(abs(icon[0] - (199 - text[2])), 3)
 
     def test_long_text_is_elided_and_icon_stays_inside_cell(self) -> None:
         """좁은 셀에서는 글자를 말줄임하고 아이콘은 셀 밖으로 나가지 않음을 검증"""
@@ -194,7 +197,8 @@ class TestIconTextDelegate(unittest.TestCase):
         text = _bbox(image, lambda c: c.name() != _WHITE and c.name() != _ICON_BLUE and c.lightness() < 128)
         assert text is not None
         self.assertGreaterEqual(text[0], 4)
-        self.assertLess(text[2], icon[0])
+        self.assertLess(icon[2], text[0])
+        self.assertLessEqual(text[2], 69)
 
     def test_foreground_role_colors_text(self) -> None:
         """ForegroundRole 색상이 글자색으로 쓰이고, 없으면 팔레트 기본 글자색을 씀을 검증"""
@@ -357,13 +361,37 @@ class TestRowTintDelegates(unittest.TestCase):
         image = _paint(OutlineChipDelegate(), _index("", {}), 200, 30)
         self.assertIsNone(_bbox(image, _is(border)))
 
-    def test_active_frame_pill_is_drawn_only_for_vr_text(self) -> None:
-        """활성 화면 열의 VR 보호 표기만 알약으로 강조됨을 검증"""
+    def test_active_frame_pill_is_drawn_only_for_vr_and_keep_full_text(self) -> None:
+        """활성 화면 열의 VR 보호와 전체 화면 유지 표기만 알약으로 강조됨을 검증"""
         p = self.palette
         vr = _paint(ActiveFrameDelegate(), _index(ACTIVE_FRAME_VR_TEXT, {}), 200, 30)
         self.assertIsNotNone(_bbox(vr, _is(QColor(p.badge_optimal[0]).name())))
+        keep_full = _paint(
+            ActiveFrameDelegate(), _index(ACTIVE_FRAME_KEEP_FULL_TEXT, {}), 200, 30
+        )
+        self.assertIsNotNone(_bbox(keep_full, _is(QColor(p.badge_pass[0]).name())))
         other = _paint(ActiveFrameDelegate(), _index("1920x1080", {}), 200, 30)
         self.assertIsNone(_bbox(other, _is(QColor(p.badge_optimal[0]).name())))
+        self.assertIsNone(_bbox(other, _is(QColor(p.badge_pass[0]).name())))
+
+    def test_keep_full_pill_puts_the_crop_icon_left_of_the_text(self) -> None:
+        """전체 화면 유지 알약이 crop-full 아이콘을 글자 왼쪽에 두고 알약 안에 담는지 검증"""
+        index = _index(
+            ACTIVE_FRAME_KEEP_FULL_TEXT,
+            {int(Qt.ItemDataRole.DecorationRole): _solid_icon(_ICON_BLUE)},
+        )
+        image = _paint(ActiveFrameDelegate(), index, 200, 30)
+        icon = _bbox(image, _is(_ICON_BLUE))
+        pill = _bbox(image, _is(QColor(self.palette.badge_pass[0]).name()))
+        text = _bbox(
+            image,
+            lambda c: c.name() == QColor(self.palette.badge_pass[1]).name(),
+        )
+        assert icon is not None and pill is not None and text is not None
+        self.assertEqual((icon[2] - icon[0] + 1, icon[3] - icon[1] + 1), (_ICON_PX, _ICON_PX))
+        self.assertLess(icon[2], text[0])
+        self.assertGreaterEqual(icon[0], pill[0])
+        self.assertLessEqual(text[2], pill[2])
 
     def test_active_frame_delegates_ignore_missing_painter(self) -> None:
         """painter가 None이면 알약을 그리지 않음을 검증"""

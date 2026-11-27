@@ -14,7 +14,10 @@ from src.gui.constants import (
     FONT_UI_PT,
 )
 from src.gui.styles.palettes import ThemePalette
-from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_VR_TEXT
+from src.gui.table.frame_analysis_columns import (
+    ACTIVE_FRAME_KEEP_FULL_TEXT,
+    ACTIVE_FRAME_VR_TEXT,
+)
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 
@@ -338,54 +341,11 @@ class OutlineChipDelegate(_PaletteDelegateBase):
         painter.restore()
 
 
-class ActiveFrameDelegate(_PaletteDelegateBase):
-    """활성 화면 열에서 VR 보호 표기만 작은 알약으로 강조하는 델리게이트"""
-
-    def paint(
-        self,
-        painter: QPainter | None,
-        option: QStyleOptionViewItem,
-        index: QModelIndex,
-    ) -> None:
-        """VR 보호 표기는 알약으로, 나머지 값은 기본 렌더링으로 그림"""
-        if painter is None:
-            return
-        text: str | None = index.data(Qt.ItemDataRole.DisplayRole)
-        if text != ACTIVE_FRAME_VR_TEXT:
-            super().paint(painter, option, index)
-            return
-
-        p = ThemeManager().current_palette
-        bg_hex, fg_hex, border_hex = p.badge_optimal
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        self._paint_state_background(painter, option, index, p)
-        painter.setFont(QFont(FONT_UI_FAMILY, FONT_TABLE_BADGE_PT, QFont.Weight.Bold))
-        fm = painter.fontMetrics()
-
-        pill_h = min(
-            option.rect.height() - _margin_px(_CHIP_MARGIN_PX, option) * 2, _CHIP_MAX_HEIGHT_PX
-        )
-        pill_w = min(
-            fm.horizontalAdvance(text) + _CHIP_PAD_X_PX * 2,
-            option.rect.width() - _CHIP_MARGIN_PX * 2,
-        )
-        pill_rect = QRectF(
-            option.rect.x() + (option.rect.width() - pill_w) / 2.0,
-            option.rect.y() + (option.rect.height() - pill_h) / 2.0,
-            pill_w,
-            pill_h,
-        )
-        painter.setBrush(self._get_color(bg_hex))
-        painter.setPen(QPen(self._get_color(border_hex), _BADGE_BORDER_WIDTH_PX))
-        painter.drawRoundedRect(pill_rect, pill_h / 2.0, pill_h / 2.0)
-        painter.setPen(self._get_color(fg_hex))
-        painter.drawText(pill_rect, int(Qt.AlignmentFlag.AlignCenter), text)
-        painter.restore()
-
-
 class IconTextDelegate(_PaletteDelegateBase):
-    """텍스트와 우측 SVG 아이콘을 셀 중앙에 나란히 배치해 렌더링하는 델리게이트"""
+    """텍스트 왼쪽 SVG 아이콘을 셀 중앙에 나란히 배치해 렌더링하는 델리게이트
+
+    - 표 셀 아이콘은 모두 글자 왼쪽에 둠(TERMINOLOGY 6.17절)
+    """
 
     def paint(
         self,
@@ -393,7 +353,7 @@ class IconTextDelegate(_PaletteDelegateBase):
         option: QStyleOptionViewItem,
         index: QModelIndex,
     ) -> None:
-        """셀 텍스트와 DecorationRole SVG 아이콘 중앙 정렬 렌더링"""
+        """셀 DecorationRole SVG 아이콘과 텍스트 중앙 정렬 렌더링"""
         if painter is None:
             return
         icon = index.data(Qt.ItemDataRole.DecorationRole)
@@ -418,19 +378,97 @@ class IconTextDelegate(_PaletteDelegateBase):
         max_text_w = max(option.rect.width() - _CELL_ICON_PX - _ICON_TEXT_GAP_PX - _CELL_H_PADDING_PX * 2, 0)
         elided_text = fm.elidedText(text, Qt.TextElideMode.ElideRight, max_text_w)
         text_w = fm.horizontalAdvance(elided_text)
-        total_w = text_w + _ICON_TEXT_GAP_PX + _CELL_ICON_PX
+        total_w = _CELL_ICON_PX + _ICON_TEXT_GAP_PX + text_w
 
         start_x = option.rect.x() + max((option.rect.width() - total_w) // 2, _CELL_H_PADDING_PX)
-        text_rect = QRect(start_x, option.rect.y(), text_w, option.rect.height())
+        icon_y = option.rect.y() + (option.rect.height() - _CELL_ICON_PX) // 2
+        icon.paint(painter, QRect(start_x, icon_y, _CELL_ICON_PX, _CELL_ICON_PX))
+
+        text_rect = QRect(
+            start_x + _CELL_ICON_PX + _ICON_TEXT_GAP_PX,
+            option.rect.y(),
+            text_w,
+            option.rect.height(),
+        )
         painter.drawText(
             text_rect,
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             elided_text,
         )
+        painter.restore()
 
-        icon_x = start_x + text_w + _ICON_TEXT_GAP_PX
-        icon_y = option.rect.y() + (option.rect.height() - _CELL_ICON_PX) // 2
-        icon.paint(painter, QRect(icon_x, icon_y, _CELL_ICON_PX, _CELL_ICON_PX))
+
+class ActiveFrameDelegate(IconTextDelegate):
+    """활성 화면 열에서 VR 보호와 전체 화면 유지 표기를 작은 알약으로 강조하는 델리게이트
+
+    - 나머지 값은 아이콘을 글자 왼쪽에 두는 글자 렌더링을 그대로 씀(사용자 지정 연필, 여백 확인 필요 경고)
+    """
+
+    def paint(
+        self,
+        painter: QPainter | None,
+        option: QStyleOptionViewItem,
+        index: QModelIndex,
+    ) -> None:
+        """알약 표기는 알약으로, 나머지 값은 글자와 왼쪽 아이콘으로 그림"""
+        if painter is None:
+            return
+        text: str | None = index.data(Qt.ItemDataRole.DisplayRole)
+        p = ThemeManager().current_palette
+        pill_tones = {
+            ACTIVE_FRAME_VR_TEXT: p.badge_optimal,
+            ACTIVE_FRAME_KEEP_FULL_TEXT: p.badge_pass,
+        }
+        tones = pill_tones.get(text or "")
+        if tones is None:
+            super().paint(painter, option, index)
+            return
+
+        bg_hex, fg_hex, border_hex = tones
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        has_icon = isinstance(icon, QIcon) and not icon.isNull()
+        icon_w = _CELL_ICON_PX + _ICON_TEXT_GAP_PX if has_icon else 0
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._paint_state_background(painter, option, index, p)
+        painter.setFont(QFont(FONT_UI_FAMILY, FONT_TABLE_BADGE_PT, QFont.Weight.Bold))
+        fm = painter.fontMetrics()
+
+        pill_h = min(
+            option.rect.height() - _margin_px(_CHIP_MARGIN_PX, option) * 2, _CHIP_MAX_HEIGHT_PX
+        )
+        pill_w = min(
+            fm.horizontalAdvance(text or "") + icon_w + _CHIP_PAD_X_PX * 2,
+            option.rect.width() - _CHIP_MARGIN_PX * 2,
+        )
+        pill_rect = QRectF(
+            option.rect.x() + (option.rect.width() - pill_w) / 2.0,
+            option.rect.y() + (option.rect.height() - pill_h) / 2.0,
+            pill_w,
+            pill_h,
+        )
+        painter.setBrush(self._get_color(bg_hex))
+        painter.setPen(QPen(self._get_color(border_hex), _BADGE_BORDER_WIDTH_PX))
+        painter.drawRoundedRect(pill_rect, pill_h / 2.0, pill_h / 2.0)
+        painter.setPen(self._get_color(fg_hex))
+
+        elided = fm.elidedText(
+            text or "", Qt.TextElideMode.ElideRight, max(int(pill_w - _CHIP_PAD_X_PX - icon_w), 1)
+        )
+        content_w = fm.horizontalAdvance(elided) + icon_w
+        content_x = pill_rect.x() + (pill_rect.width() - content_w) / 2.0
+        if isinstance(icon, QIcon) and has_icon:
+            icon_y = pill_rect.y() + (pill_rect.height() - _CELL_ICON_PX) / 2.0
+            icon.paint(
+                painter,
+                QRect(round(content_x), round(icon_y), _CELL_ICON_PX, _CELL_ICON_PX),
+            )
+        painter.drawText(
+            QRectF(content_x + icon_w, pill_rect.y(), content_w - icon_w, pill_rect.height()),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+            elided,
+        )
         painter.restore()
 
 

@@ -28,6 +28,9 @@ from src.gui.table.column_filters import (
 )
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
+    ACTIVE_FRAME_KEEP_FULL_ICON,
+    ACTIVE_FRAME_MANUAL_ICON,
+    ACTIVE_FRAME_MANUAL_NAME,
     CROP_REVIEW_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
     FRAME_ANALYSIS_COLUMNS,
@@ -223,10 +226,23 @@ class VideoTableModel(QAbstractTableModel):
 
         - 셀 값은 data()가 매번 현재 설정으로 계산하므로 전 행 dataChanged를 내지 않고, 보이는 영역 재그리기는 뷰가 config_changed로 처리
         - 정렬 키는 설정과 무관하게 캐시되므로 정렬은 다시 계산하지 않음
+        - 검은 여백 잘라내기 설정은 활성 화면 셀 문구와 정렬 값을 바꾸므로 그 열만 캐시를 비우고 다시 그림(그룹 머리글도 이 변경으로 새 문구를 씀)
         """
+        crop_changed = (
+            config.encode.crop_black_bars != self._config.encode.crop_black_bars
+        )
         self._config = config
         self._planned_cache.clear()
         self._emit_all_headers_changed()
+        if crop_changed:
+            self._reset_active_frame_cache()
+            if self._evaluations:
+                self.dataChanged.emit(
+                    self.index(0, self.COL_ACTIVE_FRAME),
+                    self.index(len(self._evaluations) - 1, self.COL_ACTIVE_FRAME),
+                )
+            if any(col == self.COL_ACTIVE_FRAME for col, _order in self._sort_stack):
+                self.set_sort_stack(self._sort_stack)
         self.config_changed.emit()
 
     def set_data_source(
@@ -475,18 +491,42 @@ class VideoTableModel(QAbstractTableModel):
         self._frame_view.set_manual_vr(filenames)
 
     def set_crop_exclusions(self, filenames: Iterable[str]) -> None:
-        """검은 여백 잘라내기 제외 파일명 집합을 바꿔 우클릭 체크 상태를 맞춤"""
-        self._frame_view.set_crop_excluded(filenames)
+        """검은 여백 잘라내기 제외 파일명 집합을 바꿔 우클릭 체크 상태와 활성 화면 열을 맞춤
 
-    def set_manual_active_frames(self, frames: Mapping[str, ActiveFrame]) -> None:
-        """사용자 지정 활성 화면을 파일명별로 바꾸고 활성 화면 열을 다시 그림"""
-        self._frame_view.set_manual_frames(frames)
-        self._sort_keys_by_col.pop(self.COL_ACTIVE_FRAME, None)
-        self._rank_by_col.pop(self.COL_ACTIVE_FRAME, None)
+        - 제외 지정은 활성 화면 셀 문구(전체 화면 유지)와 정렬 값을 바꾸므로 활성 화면 열을 다시 그림
+        """
+        self._frame_view.set_crop_excluded(filenames)
+        self._reset_active_frame_cache()
         if self._evaluations:
             self.dataChanged.emit(
                 self.index(0, self.COL_ACTIVE_FRAME),
                 self.index(len(self._evaluations) - 1, self.COL_ACTIVE_FRAME),
+            )
+        if any(col == self.COL_ACTIVE_FRAME for col, _order in self._sort_stack):
+            self.set_sort_stack(self._sort_stack)
+
+    def _reset_active_frame_cache(self) -> None:
+        """활성 화면 열의 정렬 키와 순위 캐시를 비움"""
+        self._sort_keys_by_col.pop(self.COL_ACTIVE_FRAME, None)
+        self._rank_by_col.pop(self.COL_ACTIVE_FRAME, None)
+
+    def set_manual_active_frames(self, frames: Mapping[str, ActiveFrame]) -> None:
+        """사용자 지정 활성 화면을 파일명별로 바꾸고 활성 화면과 파일 이름 열을 다시 그림
+
+        - 여백 확인 필요 경고는 사용자 지정이 있으면 사라지므로 파일 이름 열도 함께 다시 그림
+        """
+        self._frame_view.set_manual_frames(frames)
+        self._sort_keys_by_col.pop(self.COL_ACTIVE_FRAME, None)
+        self._rank_by_col.pop(self.COL_ACTIVE_FRAME, None)
+        if self._evaluations:
+            last_row = len(self._evaluations) - 1
+            self.dataChanged.emit(
+                self.index(0, self.COL_NAME),
+                self.index(last_row, self.COL_NAME),
+            )
+            self.dataChanged.emit(
+                self.index(0, self.COL_ACTIVE_FRAME),
+                self.index(last_row, self.COL_ACTIVE_FRAME),
             )
         if any(col == self.COL_ACTIVE_FRAME for col, _order in self._sort_stack):
             self.set_sort_stack(self._sort_stack)
@@ -565,7 +605,9 @@ class VideoTableModel(QAbstractTableModel):
     def get_filter_value_for(self, ev: VideoEvaluation, col: int) -> str | float | None:
         """행과 열의 필터 값. 화질 분석 열은 파일명별 결과에서, 인코딩 상태 열은 셀 표기에서 읽음"""
         if is_frame_analysis_column(col):
-            return self._frame_view.filter_value(ev.video.filename, col)
+            return self._frame_view.filter_value(
+                ev.video.filename, col, crop_enabled=self._config.encode.crop_black_bars
+            )
         if col == self.COL_ENCODE_STATE:
             # - 셀 표기와 같은 값을 넘겨 필터 결과와 값별 행 수가 화면과 어긋나지 않게 함
             return self._encode_label(ev) or ""
@@ -580,7 +622,9 @@ class VideoTableModel(QAbstractTableModel):
         - 그 밖의 열은 값이 하나뿐인 `get_filter_value_for` 결과를 그대로 감쌈
         """
         if is_frame_analysis_column(col):
-            return self._frame_view.filter_values(ev.video.filename, col)
+            return self._frame_view.filter_values(
+                ev.video.filename, col, crop_enabled=self._config.encode.crop_black_bars
+            )
         return (self.get_filter_value_for(ev, col),)
 
     def set_previous_discard_provider(self, provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]]) -> None:
@@ -664,7 +708,12 @@ class VideoTableModel(QAbstractTableModel):
         return planned.command_line
 
     def _review_region(self, ev: VideoEvaluation) -> ActiveRegion | None:
-        """여백 확인 필요 표시를 보일 영상의 자동 감지 활성 화면, 아니면 None"""
+        """여백 확인 필요 표시를 보일 영상의 자동 감지 활성 화면, 아니면 None
+
+        - 사용자 지정 활성 화면이 있으면 확인한 것으로 보아 경고를 보이지 않음(자동 크롭도 보류하지 않음)
+        """
+        if self._manual_frame_applies(ev.video.filename):
+            return None
         if not self._frame_view.is_review_flagged(ev.video.filename):
             return None
         result = self._frame_view.result(ev.video.filename)
@@ -680,10 +729,30 @@ class VideoTableModel(QAbstractTableModel):
         return self._frame_view.review_flagged_count
 
     def _accessible_data(self, ev: VideoEvaluation, col: int) -> str | None:
-        """여백 확인 필요 셀의 접근성 이름. 그 밖의 셀은 None"""
-        if col == self.COL_ACTIVE_FRAME and self._review_region(ev) is not None:
+        """활성 화면 셀이나 여백 확인 필요 셀의 접근성 이름. 그 밖의 셀은 None
+
+        - 사용자 지정 활성 화면은 연필 아이콘의 뜻을 접근성 이름으로 알림
+        """
+        if col != self.COL_ACTIVE_FRAME:
+            return None
+        if self._review_region(ev) is not None:
             return CROP_REVIEW_TEXT
+        if self._manual_frame_applies(ev.video.filename):
+            return ACTIVE_FRAME_MANUAL_NAME
         return None
+
+    def _manual_frame_applies(self, filename: str) -> bool:
+        """사용자 지정 활성 화면이 셀 표시에 쓰이는지(VR 보호 영상은 VR 문구가 우선)"""
+        if self._frame_view.manual_frame(filename) is None:
+            return False
+        result = self._frame_view.result(filename)
+        return result is None or not result.is_vr_protected
+
+    def _keep_full_applies(self, ev: VideoEvaluation) -> bool:
+        """영상별 잘라내기 제외로 전체 화면 유지 알약을 보일 행인지(잘라내기 설정이 켜져 있을 때)"""
+        return self._config.encode.crop_black_bars and self._frame_view.is_keep_full(
+            ev.video.filename
+        )
 
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
         if col == self.COL_ENCODE_STATE:
@@ -692,12 +761,19 @@ class VideoTableModel(QAbstractTableModel):
             planned = self._planned_for(ev)
             return None if planned is None else planned.display_text
         if is_frame_analysis_column(col):
-            return self._frame_view.display(ev.video.filename, col)
+            return self._frame_view.display(
+                ev.video.filename, col, crop_enabled=self._config.encode.crop_black_bars
+            )
         return display_text_for(ev, col, self._config, self._pending_output_tiers)
 
     def _sort_data(self, ev: VideoEvaluation, col: int) -> Any:
         if is_frame_analysis_column(col):
-            return self._frame_view.sort_value(ev.video.filename, col)
+            return self._frame_view.sort_value(
+                ev.video.filename,
+                col,
+                frame_area=ev.video.width * ev.video.height,
+                crop_enabled=self._config.encode.crop_black_bars,
+            )
         col_def = COL_DEF_MAP.get(col)
         if col_def is None:
             return None
@@ -734,7 +810,14 @@ class VideoTableModel(QAbstractTableModel):
             col in (self.COL_NAME, self.COL_ACTIVE_FRAME)
             and self._review_region(ev) is not None
         ):
-            return self._warning_icon(pal.badge_pending[1], pal)
+            return self._cell_icon(REVIEW_WARNING_ICON_NAME, pal.badge_pending[1], pal)
+        if col == self.COL_ACTIVE_FRAME:
+            if self._manual_frame_applies(ev.video.filename):
+                return self._cell_icon(ACTIVE_FRAME_MANUAL_ICON, pal.accent_blue, pal)
+            if self._keep_full_applies(ev):
+                return self._cell_icon(
+                    ACTIVE_FRAME_KEEP_FULL_ICON, pal.badge_pass[1], pal
+                )
         if col == self.COL_ENCODE_STATE:
             icon_name = encode_state_icon_name(self._encode_label(ev))
         else:
@@ -754,16 +837,15 @@ class VideoTableModel(QAbstractTableModel):
                 if col_def is not None and col_def.foreground_getter is not None
                 else None
             ) or pal.text_primary
-        return self._warning_icon(hex_color, pal, icon_name=icon_name)
+        return self._cell_icon(icon_name, hex_color, pal)
 
-    def _warning_icon(
+    def _cell_icon(
         self,
+        icon_name: str,
         hex_color: str,
         palette: ThemePalette,
-        *,
-        icon_name: str = REVIEW_WARNING_ICON_NAME,
     ) -> QIcon:
-        """색과 이름에 캐시된 셀 아이콘. 여백 확인 필요와 키프레임 초과가 같은 캐시를 씀"""
+        """이름과 색에 캐시된 셀 아이콘. 여백 확인 필요, 키프레임 초과, 연필, 전체 화면 유지가 같은 캐시를 씀"""
         cache_key = (icon_name, hex_color)
         cached = self._icon_cache.get(cache_key)
         if cached is not None:

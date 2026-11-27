@@ -8,6 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
+from src.core.analysis.frame_analysis import ActiveRegion
+from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.settings.ui_state import ColumnFilterSnapshot
 from src.gui.table.column_filter_values import prune_stale_values
@@ -16,6 +18,7 @@ from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
     ACTIVE_FRAME_FAILED_TEXT,
     ACTIVE_FRAME_FULL_TEXT,
+    ACTIVE_FRAME_KEEP_FULL_TEXT,
     CROP_REVIEW_TEXT,
 )
 from src.gui.table.numeric_buckets import NumericBucketKind, build_numeric_buckets, resolve_numeric_bucket
@@ -45,6 +48,21 @@ def _ratio_filter_key(config: ClassifierConfig, ratio: float) -> str:
     )
     assert bucket is not None
     return bucket.key
+
+
+def _barred_result() -> FrameAnalysisResult:
+    """검은 띠가 있는 활성 화면 결과. 전체 화면 유지 필터 확인에 씀"""
+    return FrameAnalysisResult(
+        active_region=ActiveRegion(734, 444, 593, 138, True),
+        metric_used="vmaf",
+        vmaf_model="vmaf_v0.6.1",
+        tier_scores=(),
+        candidate_tier=None,
+        valid_segment_count=5,
+        total_segment_count=5,
+        unmeasurable=False,
+        is_vr_protected=False,
+    )
 
 
 class ConfigChangePruneTests(unittest.TestCase):
@@ -177,6 +195,53 @@ class ActiveFrameFilterValueTests(unittest.TestCase):
         kept = prune_stale_values(snapshot, ACTIVE_FRAME_COLUMN, None)
         assert kept is not None
         self.assertEqual(kept.selected_values, (CROP_REVIEW_TEXT,))
+
+    def test_keep_full_text_survives_restore(self) -> None:
+        """전체 화면 유지 값이 저장 필터 복원에서 사라지지 않는지 검증"""
+        snapshot = ColumnFilterSnapshot(selected_values=(ACTIVE_FRAME_KEEP_FULL_TEXT,))
+        kept = prune_stale_values(snapshot, ACTIVE_FRAME_COLUMN, None)
+        assert kept is not None
+        self.assertEqual(kept.selected_values, (ACTIVE_FRAME_KEEP_FULL_TEXT,))
+
+    def test_keep_full_text_is_dropped_when_crop_is_off(self) -> None:
+        """잘라내기 설정이 꺼져 전체 화면 유지 문구가 사라지면 그 값을 버리는지 검증"""
+        config = ClassifierConfig()
+        config.encode.crop_black_bars = False
+        snapshot = ColumnFilterSnapshot(selected_values=(ACTIVE_FRAME_KEEP_FULL_TEXT,))
+        self.assertIsNone(prune_stale_values(snapshot, ACTIVE_FRAME_COLUMN, config))
+
+    def test_keep_full_text_survives_while_crop_is_on(self) -> None:
+        """잘라내기 설정이 켜져 있으면 전체 화면 유지 값을 그대로 두는지 검증"""
+        snapshot = ColumnFilterSnapshot(selected_values=(ACTIVE_FRAME_KEEP_FULL_TEXT,))
+        kept = prune_stale_values(snapshot, ACTIVE_FRAME_COLUMN, ClassifierConfig())
+        assert kept is not None
+        self.assertEqual(kept.selected_values, (ACTIVE_FRAME_KEEP_FULL_TEXT,))
+
+
+class KeepFullFilterConfigChangeTests(unittest.TestCase):
+    """잘라내기 설정을 끄면 전체 화면 유지 필터가 사라져 표가 비지 않는지 검증"""
+
+    def test_keep_full_filter_is_dropped_when_crop_is_turned_off(self) -> None:
+        """전체 화면 유지 필터가 걸린 채 잘라내기를 끄면 필터를 버리고 행을 남기는지 검증"""
+        base = ClassifierConfig()
+        model = VideoTableModel(config=base)
+        model.set_data_source(
+            [make_eval(video=make_video(filename="a.mp4"))], root_dir="C:/work"
+        )
+        model.set_frame_analysis_results({"a.mp4": _barred_result()})
+        model.set_crop_exclusions(["a.mp4"])
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        proxy.set_column_filter(
+            ACTIVE_FRAME_COLUMN,
+            ColumnFilterRule(selected_values=frozenset({ACTIVE_FRAME_KEEP_FULL_TEXT})),
+        )
+        self.assertEqual(proxy.rowCount(), 1)
+        changed = replace(base, encode=replace(base.encode, crop_black_bars=False))
+        with self.assertLogs(_LOGGER_NAME, level="INFO"):
+            model.set_config(changed)
+        self.assertIsNone(proxy.get_column_filter(ACTIVE_FRAME_COLUMN))
+        self.assertEqual(proxy.rowCount(), 1)
 
     def test_unrelated_text_is_still_dropped(self) -> None:
         """여백 확인 필요가 유효 값이 되어도 다른 임의 문구는 그대로 버리는지 검증"""

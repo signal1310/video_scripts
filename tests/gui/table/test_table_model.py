@@ -17,7 +17,12 @@ from src.core.encode.encode_state import EncodeState
 from src.core.models import ActiveFrame
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
-from src.gui.table.frame_analysis_columns import crop_review_tooltip
+from src.gui.table.frame_analysis_columns import (
+    ACTIVE_FRAME_KEEP_FULL_TEXT,
+    ACTIVE_FRAME_MANUAL_NAME,
+    ACTIVE_FRAME_VR_TEXT,
+    crop_review_tooltip,
+)
 from src.gui.table.table_cell_tooltips import ratio_cell_tip
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
@@ -334,6 +339,94 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
             "사용자 지정 활성 화면입니다.", self.model.data(index, _TOOLTIP)
         )
 
+    def test_manual_active_frames_also_redraw_the_name_column(self) -> None:
+        """사용자 지정 활성 화면이 여백 확인 필요 경고를 없애므로 파일 이름 열도 다시 그리는지 검증"""
+        flagged = FrameAnalysisResult(
+            active_region=ActiveRegion(1836, 1008, 42, 36, True, dark_outliers_ignored=True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.model.set_frame_analysis_results({"a.mp4": flagged})
+        self.model.set_review_flagged(["a.mp4"])
+        name = self.model.index(0, VideoTableModel.COL_NAME)
+        self.assertIsNotNone(self.model.data(name, _DECORATION))
+        changed: list[tuple[int, int, int, int]] = []
+        self.model.dataChanged.connect(
+            lambda top, bottom, _roles: changed.append(
+                (top.row(), top.column(), bottom.row(), bottom.column())
+            )
+        )
+        self.model.set_manual_active_frames({"a.mp4": ActiveFrame(1280, 720, 0, 180)})
+        self.assertIn(
+            (0, VideoTableModel.COL_NAME, 1, VideoTableModel.COL_NAME), changed
+        )
+        self.assertIsNone(self.model.data(name, _DECORATION))
+
+    def test_crop_setting_change_redraws_the_active_frame_column(self) -> None:
+        """잘라내기 설정이 바뀌면 활성 화면 열의 문구와 정렬 캐시를 새로 만드는지 검증"""
+        from src.core.config import ClassifierConfig
+
+        barred = FrameAnalysisResult(
+            active_region=ActiveRegion(734, 444, 593, 138, True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.model.set_frame_analysis_results({"b.mp4": barred})
+        col = VideoTableModel.COL_ACTIVE_FRAME
+        video = self.evals[1].video
+        self.assertEqual(self.model.get_sort_value(1, col), (1, video.width * video.height))
+        self.model.set_sort_stack([(col, Qt.SortOrder.DescendingOrder)])
+        changed: list[tuple[int, int, int, int]] = []
+        self.model.dataChanged.connect(
+            lambda top, bottom, _roles: changed.append(
+                (top.row(), top.column(), bottom.row(), bottom.column())
+            )
+        )
+        config = ClassifierConfig()
+        config.encode.crop_black_bars = False
+        with mock.patch.object(self.model, "set_sort_stack") as re_sort:
+            self.model.set_config(config)
+        # - 활성 화면 열로 정렬 중이면 새 정렬 키로 다시 정렬
+        re_sort.assert_called_once()
+        self.assertIn((0, col, len(self.evals) - 1, col), changed)
+        b_row = next(
+            row
+            for row in range(self.model.rowCount())
+            if self.model.get_evaluation_row(row) is self.evals[1]
+        )
+        self.assertEqual(
+            self.model.data(self.model.index(b_row, col), _DISPLAY), "734x444"
+        )
+        # - 감지 크기를 보여 주므로 정렬도 그 크기를 씀
+        self.assertEqual(self.model.get_sort_value(b_row, col), (1, 734 * 444))
+
+    def test_unrelated_config_change_does_not_redraw_rows(self) -> None:
+        """잘라내기 설정이 그대로면 설정 변경이 전 행 다시 그리기를 내지 않는지 검증"""
+        from src.core.config import ClassifierConfig
+
+        changed: list[tuple[int, int, int, int]] = []
+        self.model.dataChanged.connect(
+            lambda top, bottom, _roles: changed.append(
+                (top.row(), top.column(), bottom.row(), bottom.column())
+            )
+        )
+        config = ClassifierConfig()
+        config.thresholds.over_bitrate_ratio = 3.0
+        self.model.set_config(config)
+        self.assertEqual(changed, [])
+
 
     def test_review_flag_marks_name_and_active_frame_cells(self) -> None:
         """여백 확인 필요 영상만 두 셀에 경고 아이콘, 접근성 이름, 툴팁, 셀 배경을 받는지 검증"""
@@ -372,6 +465,112 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.assertIsNone(self.model.data(self.model.index(1, VideoTableModel.COL_NAME), _BACKGROUND))
         self.assertEqual(self.model.data(active, _DISPLAY), "1836x1008")
 
+    def test_keep_full_row_shows_pill_icon_filter_and_full_frame_sort(self) -> None:
+        """잘라내기 제외에 검은 띠가 있는 행이 전체 화면 유지 문구, 아이콘, 필터, 정렬을 쓰는지 검증"""
+        barred = FrameAnalysisResult(
+            active_region=ActiveRegion(734, 444, 593, 138, True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.model.set_frame_analysis_results({"b.mp4": barred})
+        index = self.model.index(1, VideoTableModel.COL_ACTIVE_FRAME)
+        self.assertEqual(self.model.data(index, _DISPLAY), ACTIVE_FRAME_KEEP_FULL_TEXT)
+        self.assertIsInstance(self.model.data(index, _DECORATION), QIcon)
+        self.assertEqual(
+            self.model.data(index, _TOOLTIP),
+            "이 영상은 잘라내지 않고 전체 화면을 유지합니다. "
+            "자동으로 감지한 활성 화면(734x444)은 쓰지 않습니다.",
+        )
+        self.assertIsNone(self.model.data(index, _FOREGROUND))
+        self.assertEqual(
+            self.model.get_filter_values_for(self.evals[1], VideoTableModel.COL_ACTIVE_FRAME),
+            (ACTIVE_FRAME_KEEP_FULL_TEXT,),
+        )
+        # - 정렬은 감지 크기(734x444)가 아니라 영상 전체 면적을 씀
+        video = self.evals[1].video
+        self.assertEqual(
+            self.model.get_sort_value(1, VideoTableModel.COL_ACTIVE_FRAME),
+            (1, video.width * video.height),
+        )
+
+    def test_keep_full_yields_to_manual_frame_vr_and_no_bars(self) -> None:
+        """사용자 지정, VR 보호, 검은 띠 없음은 전체 화면 유지 문구 대신 각자의 표기를 씀"""
+        barred = FrameAnalysisResult(
+            active_region=ActiveRegion(734, 444, 593, 138, True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.model.set_frame_analysis_results({"a.mp4": barred, "b.mp4": self.result})
+        vr_result = FrameAnalysisResult(
+            active_region=ActiveRegion(734, 444, 593, 138, True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=True,
+        )
+        index = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
+        self.model.set_manual_active_frames({"a.mp4": ActiveFrame(132, 240, 0, 0)})
+        self.assertEqual(self.model.data(index, _DISPLAY), "132x240")
+        self.assertEqual(self.model.data(index, _ACCESSIBLE), ACTIVE_FRAME_MANUAL_NAME)
+        self.assertEqual(
+            self.model.get_filter_values_for(self.evals[0], VideoTableModel.COL_ACTIVE_FRAME),
+            ("132x240",),
+        )
+        self.model.set_manual_active_frames({})
+        self.model.set_frame_analysis_results({"a.mp4": vr_result, "b.mp4": self.result})
+        self.assertEqual(self.model.data(index, _DISPLAY), ACTIVE_FRAME_VR_TEXT)
+        # - 검은 띠가 없는 행은 제외로 지정해도 전체 화면 유지 알약이 아니라 `-` 그대로
+        self.assertEqual(
+            self.model.data(self.model.index(1, VideoTableModel.COL_ACTIVE_FRAME), _DISPLAY),
+            "-",
+        )
+
+    def test_keep_full_returns_to_muted_size_when_crop_setting_is_off(self) -> None:
+        """검은 여백 잘라내기 설정을 끄면 전체 화면 유지 대신 크기와 흐린 글자색을 씀"""
+        from src.core.config import ClassifierConfig
+
+        barred = FrameAnalysisResult(
+            active_region=ActiveRegion(734, 444, 593, 138, True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.model.set_frame_analysis_results({"b.mp4": barred})
+        index = self.model.index(1, VideoTableModel.COL_ACTIVE_FRAME)
+        config = ClassifierConfig()
+        config.encode.crop_black_bars = False
+        self.model.set_config(config)
+        self.assertEqual(self.model.data(index, _DISPLAY), "734x444")
+        self.assertEqual(
+            self.model.data(index, _FOREGROUND), QColor(ThemeManager().current_palette.text_muted)
+        )
+        self.assertIsNone(self.model.data(index, _DECORATION))
+        self.assertEqual(
+            self.model.get_filter_values_for(self.evals[1], VideoTableModel.COL_ACTIVE_FRAME),
+            ("734x444",),
+        )
+
     def test_review_flag_clears_when_the_service_drops_it(self) -> None:
         """서비스가 확인한 영상을 표시 집합에서 빼면 두 셀의 경고가 모두 사라지는지 검증"""
         flagged = FrameAnalysisResult(
@@ -392,10 +591,16 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.model.set_review_flagged(["a.mp4"])
         self.model.set_manual_active_frames({"a.mp4": ActiveFrame(1280, 720, 0, 180)})
         self.model.set_review_flagged([])
-        for col in (VideoTableModel.COL_NAME, VideoTableModel.COL_ACTIVE_FRAME):
+        for col in (VideoTableModel.COL_NAME,):
             self.assertIsNone(self.model.data(self.model.index(0, col), _DECORATION), col)
-        self.assertIsNone(
-            self.model.data(self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME), _ACCESSIBLE)
+        # - 남은 사용자 지정 활성 화면은 연필 아이콘이 붙고 경고 아이콘은 사라짐
+        active_icon = self.model.data(
+            self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME), _DECORATION
+        )
+        self.assertIsInstance(active_icon, QIcon)
+        self.assertEqual(
+            self.model.data(self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME), _ACCESSIBLE),
+            ACTIVE_FRAME_MANUAL_NAME,
         )
         self.assertEqual(self.model.review_flagged_count, 0)
 

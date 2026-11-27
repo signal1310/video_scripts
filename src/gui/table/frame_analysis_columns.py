@@ -30,6 +30,13 @@ FRAME_ANALYSIS_COLUMNS: frozenset[int] = frozenset(
 ACTIVE_FRAME_FULL_TEXT: str = "-"
 ACTIVE_FRAME_VR_TEXT: str = "VR 보호"
 ACTIVE_FRAME_FAILED_TEXT: str = "감지 실패"
+# - 영상별 잘라내기 제외로 전체 화면을 쓰는 행의 표시 문구. 미리 보기 창의 같은 버튼 문구와 같지만
+#   gui.table이 gui.preview를 임포트하지 않도록 표 층에 따로 둠(TERMINOLOGY 6.17절)
+ACTIVE_FRAME_KEEP_FULL_TEXT: str = "전체 화면 유지"
+ACTIVE_FRAME_KEEP_FULL_ICON: str = "crop-full"
+# - 사용자 지정 활성 화면의 연필 아이콘과 접근성 이름
+ACTIVE_FRAME_MANUAL_ICON: str = "pencil"
+ACTIVE_FRAME_MANUAL_NAME: str = "사용자 지정 활성 화면"
 # - 활성 화면을 직접 지정할 때까지 자동 잘라내기를 보류한 영상의 표시 이름. 셀 아이콘, 툴팁 제목,
 #   필터 바 칩, 활성 화면 열 필터 값이 같은 이름을 씀(TERMINOLOGY 4.5절)
 CROP_REVIEW_TEXT: str = "여백 확인 필요"
@@ -65,6 +72,11 @@ _ACTIVE_FRAME_FAILED_TIP: str = (
     "다시 감지하면 재시도합니다."
 )
 _ACTIVE_FRAME_EXCLUDED_TIP: str = "검은 여백 잘라내기 제외됨 (원본 유지)"
+# - 영상별 잘라내기 제외로 전체 화면을 쓰는 행의 툴팁. 감지한 크기를 쓰지 않는다는 사실까지 알림
+_ACTIVE_FRAME_KEEP_FULL_TIP: str = (
+    "이 영상은 잘라내지 않고 전체 화면을 유지합니다. "
+    "자동으로 감지한 활성 화면({size})은 쓰지 않습니다."
+)
 # - 설정이 꺼져 있으면 감지한 크기를 보고하되 잘라내지는 않음을 같은 사유 툴팁으로 알림
 _ACTIVE_FRAME_CROP_OFF_TIP: str = (
     "검은 여백 잘라내기 설정이 꺼져 있어 인코딩할 때 검은 띠를 자르지 않습니다."
@@ -410,43 +422,71 @@ class FrameAnalysisResults:
                 found[ev.video.filename] = tier
         return found
 
-    def display(self, filename: str, col: int) -> str:
+    def is_keep_full(self, filename: str) -> bool:
+        """영상별 잘라내기 제외로 전체 화면을 쓰는 행인지 여부
+
+        - 검은 띠가 있고 사용자 지정 활성 화면이 없으며 VR 보호가 아닌 영상만 해당
+        - 설정 끔은 표시 문구에서 따로 판정하므로 여기서는 보지 않음(정렬 키가 설정과 무관하게 유지됨)
+        """
+        result = self._results.get(filename)
+        if result is None or filename not in self._crop_excluded:
+            return False
+        if result.is_vr_protected or is_failed_crop_scan(result):
+            return False
+        if filename in self._manual_frames:
+            return False
+        return result.active_region.has_black_bars
+
+    def display(self, filename: str, col: int, *, crop_enabled: bool = True) -> str:
         """화질 분석 열의 표시 문구
 
         - 사용자 지정 활성 화면은 자동 감지 결과 대신 지정 크기를 그대로 보여 줌
+        - 잘라내기 제외로 전체 화면을 쓰는 영상은 전체 화면 유지 문구를 보여 줌(설정 끔이면 크기 그대로)
         """
         result = self._results.get(filename)
         manual = self._manual_frames.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
             if manual is not None and (result is None or not result.is_vr_protected):
                 return f"{manual.width}x{manual.height}"
+            if crop_enabled and self.is_keep_full(filename):
+                return ACTIVE_FRAME_KEEP_FULL_TEXT
             return active_frame_text(result)
         if col == DOWNSCALE_CANDIDATE_COLUMN:
             return downscale_candidate_text(result)
         return quality_metric_text(result)
 
-    def filter_value(self, filename: str, col: int) -> str:
+    def filter_value(self, filename: str, col: int, *, crop_enabled: bool = True) -> str:
         """화질 분석 열의 필터 값(표시 문구와 같음)
 
         - 활성 화면 열은 크기 문구에 더해 여백 확인 필요 영상을 따로 고를 수 있게 같은 이름 값을 둠
         - 목록 중 하나만 골라도 그 행을 남기도록 표 모델이 값마다 겹쳐 셈
         """
-        return self.display(filename, col)
+        return self.display(filename, col, crop_enabled=crop_enabled)
 
-    def filter_values(self, filename: str, col: int) -> tuple[str, ...]:
+    def filter_values(
+        self, filename: str, col: int, *, crop_enabled: bool = True
+    ) -> tuple[str, ...]:
         """화질 분석 열의 필터 값 목록. 활성 화면 열은 여백 확인 필요 영상에 이름 값을 하나 더 둠"""
-        value = self.display(filename, col)
+        value = self.display(filename, col, crop_enabled=crop_enabled)
         if col == ACTIVE_FRAME_COLUMN and self.is_review_flagged(filename):
             return (value, CROP_REVIEW_TEXT)
         return (value,)
 
-    def sort_value(self, filename: str, col: int) -> object:
-        """화질 분석 열의 정렬 값"""
+    def sort_value(
+        self, filename: str, col: int, *, frame_area: int = 0, crop_enabled: bool = True
+    ) -> object:
+        """화질 분석 열의 정렬 값
+
+        - 전체 화면 유지 문구가 표시될 때만 전체 화면 면적으로 정렬해 전체 화면 행과 나란히 둠
+        - 잘라내기 설정이 꺼져 셀이 감지 크기를 보여 주면 표시 값과 같이 감지 크기로 정렬
+        """
         result = self._results.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
             manual = self._manual_frames.get(filename)
             if manual is not None:
                 return (1, manual.width * manual.height)
+            if crop_enabled and self.is_keep_full(filename):
+                return (1, frame_area)
             return active_frame_sort_value(result)
         if col == DOWNSCALE_CANDIDATE_COLUMN:
             return downscale_candidate_sort_value(result)
@@ -462,6 +502,9 @@ class FrameAnalysisResults:
                 if not crop_enabled:
                     return f"{tip}\n{_ACTIVE_FRAME_CROP_OFF_TIP}"
                 return tip
+            if crop_enabled and self.is_keep_full(filename) and result is not None:
+                region = result.active_region
+                return _ACTIVE_FRAME_KEEP_FULL_TIP.format(size=f"{region.width}x{region.height}")
             return active_frame_tooltip(
                 result,
                 excluded=self.is_crop_excluded(filename),
@@ -483,11 +526,12 @@ class FrameAnalysisResults:
         """활성 화면 글자색. 검은 여백 잘라내기를 쓰지 않는 영상은 흐리게 표시
 
         - 사용자 지정 활성 화면은 제외 지정보다 우선하므로 흐리게 표시하지 않음
+        - 잘라내기를 쓰는 동안 제외 지정 행은 전체 화면 유지 알약으로 바뀌므로 흐리게 두지 않음
         - 잘라내기 설정이 꺼져 있으면 검은 띠가 있는 행을 같은 사유 툴팁과 함께 흐리게 표시
         """
         if col != ACTIVE_FRAME_COLUMN or self.manual_frame(filename) is not None:
             return None
-        if not self.is_crop_excluded(filename) and crop_enabled:
+        if crop_enabled:
             return None
         result = self._results.get(filename)
         if result is None or not result.active_region.has_black_bars:

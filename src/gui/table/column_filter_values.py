@@ -19,6 +19,7 @@ from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
     ACTIVE_FRAME_FAILED_TEXT,
     ACTIVE_FRAME_FULL_TEXT,
+    ACTIVE_FRAME_KEEP_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
     CROP_REVIEW_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
@@ -40,6 +41,7 @@ _COLS_WITHOUT_FILTER_VALUE: frozenset[int] = frozenset(
 # - 활성 화면 크기 표기(예: 1920x800). 분석 결과가 있으면 닫힌 문구나 크기 표기만 표시 값이 됨
 _ACTIVE_FRAME_SIZE_PATTERN: re.Pattern[str] = re.compile(r"\d+x\d+")
 # - 여백 확인 필요는 크기와 함께 쓰는 추가 값이라 복원 때 버리지 않고 유효한 값으로 봄
+# - 전체 화면 유지 문구는 잘라내기 설정이 켜져 있을 때만 표시 값이 되므로 판정 때 설정을 함께 봄
 _ACTIVE_FRAME_VALUE_SET: frozenset[str] = frozenset(
     {
         "",
@@ -55,19 +57,34 @@ _ENCODE_STATE_VALUE_SET: frozenset[str] = frozenset(
 )
 
 
-def _is_active_frame_value(value: str) -> bool:
-    """활성 화면 열의 현재 표시 값인지: 닫힌 문구이거나 가로x세로 표기"""
+def _is_active_frame_value(value: str, config: ClassifierConfig | None) -> bool:
+    """활성 화면 열의 현재 표시 값인지: 닫힌 문구이거나 가로x세로 표기
+
+    - 전체 화면 유지 문구는 잘라내기 설정이 켜져 있을 때만 표시 값이 되므로, 꺼져 있으면 버림
+    - 설정을 모르는 복원 시점에는 기본값(켜짐)으로 보아 값을 남김
+    """
+    if value == ACTIVE_FRAME_KEEP_FULL_TEXT:
+        return config is None or config.encode.crop_black_bars
     return value in _ACTIVE_FRAME_VALUE_SET or (
         _ACTIVE_FRAME_SIZE_PATTERN.fullmatch(value) is not None
     )
 
 
+def _contains(values: frozenset[str]) -> Callable[[str, ClassifierConfig | None], bool]:
+    """닫힌 값 집합에 드는지 판정하는 함수(설정을 보지 않는 열)"""
+
+    def matcher(value: str, _config: ClassifierConfig | None) -> bool:
+        return value in values
+
+    return matcher
+
+
 # - 필터 값이 분석 결과에서 오지만 표시 값 집합은 정해진 열의 값 판정. 없는 열은 정리하지 않음
-_COLUMN_VALUE_MATCHERS: dict[int, Callable[[str], bool]] = {
+_COLUMN_VALUE_MATCHERS: dict[int, Callable[[str, ClassifierConfig | None], bool]] = {
     ACTIVE_FRAME_COLUMN: _is_active_frame_value,
-    DOWNSCALE_CANDIDATE_COLUMN: DOWNSCALE_CANDIDATE_VALUE_SET.__contains__,
-    QUALITY_METRIC_COLUMN: QUALITY_METRIC_VALUE_SET.__contains__,
-    VideoTableModel.COL_ENCODE_STATE: _ENCODE_STATE_VALUE_SET.__contains__,
+    DOWNSCALE_CANDIDATE_COLUMN: _contains(DOWNSCALE_CANDIDATE_VALUE_SET),
+    QUALITY_METRIC_COLUMN: _contains(QUALITY_METRIC_VALUE_SET),
+    VideoTableModel.COL_ENCODE_STATE: _contains(_ENCODE_STATE_VALUE_SET),
 }
 
 
@@ -81,6 +98,7 @@ def prune_stale_values(
     - 사라진 값은 현재 표기로 옮기지 않고 버림
     - 열거형 열은 스펙의 값 집합으로 판정
     - 필터 값을 계산하지 않는 열은 표시 값 집합을 따로 정의한 열(활성 화면, 축소 후보, 측정 지표, 인코딩 상태)만 판정
+    - 활성 화면 열의 전체 화면 유지 문구는 잘라내기 설정이 꺼져 있으면 표시되지 않으므로 그 값도 버림
     - 수치형 열의 구간 키는 설정에서 만들어지므로 현재 설정의 버킷 키 집합으로 판정
     - 구간 키를 모두 버려도 수치 범위나 미측정 포함 여부가 남아 있으면 선택 값만 지움
     - 문자열, 범주형 열은 값이 데이터에서 오므로 그대로 둠
@@ -133,7 +151,7 @@ def _display_value_predicate(
     """선택 값이 지금도 열에 표시될 수 있는 값인지 판정하는 함수, 판정할 수 없는 열은 None"""
     matcher = _COLUMN_VALUE_MATCHERS.get(col)
     if matcher is not None:
-        return matcher
+        return lambda value: matcher(value, config)
     if col in _COLS_WITHOUT_FILTER_VALUE:
         return None
     allowed = _closed_value_set(spec, config)

@@ -8,7 +8,12 @@ import unittest
 from unittest import mock
 
 from src.core.diagnostics.runtime import DiagnosticsRuntime
-from src.core.logging_setup import FILE_HANDLER_NAME, ensure_file_logging
+from src.core.logging_setup import (
+    FILE_HANDLER_NAME,
+    ensure_file_logging,
+    flush_file_logging,
+    shutdown_file_logging,
+)
 from src.gui import (
     MULTIMEDIA_HW_DECODE_ENV,
     bootstrap_diagnostics,
@@ -61,13 +66,9 @@ class BootstrapDiagnosticsTests(unittest.TestCase):
         self.addCleanup(self._remove_file_handlers)
 
     def _remove_file_handlers(self) -> None:
-        """테스트가 붙인 파일 핸들러를 닫고 제거해 다른 테스트로 새지 않게 함"""
+        """테스트가 붙인 파일 핸들러와 큐 리스너를 닫아 다른 테스트로 새지 않게 함"""
         diagnostics_qt.stop_gui_diagnostics()
-        pkg_logger = logging.getLogger("src")
-        for handler in list(pkg_logger.handlers):
-            if handler.get_name() == FILE_HANDLER_NAME:
-                pkg_logger.removeHandler(handler)
-                handler.close()
+        shutdown_file_logging()
 
     def test_file_logging_is_ready_before_diagnostics_start(self) -> None:
         """진단을 시작하는 시점에 파일 핸들러가 이미 붙어 있는지 검증"""
@@ -93,8 +94,7 @@ class BootstrapDiagnosticsTests(unittest.TestCase):
         ):
             bootstrap_diagnostics(developer_mode=False)
         logging.getLogger("src.diagnostics").warning("시작 직후 기록 확인")
-        for handler in logging.getLogger("src").handlers:
-            handler.flush()
+        flush_file_logging()
         with open(self.log_path, encoding="utf-8") as handle:
             written = handle.read()
         self.assertIn("시작 직후 기록 확인", written)

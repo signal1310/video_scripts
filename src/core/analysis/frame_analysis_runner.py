@@ -49,7 +49,7 @@ from src.core.analysis.frame_fast_metrics import (
     ssim_log_name,
     vmaf_log_name,
 )
-from src.core.analysis.frame_scan import scan_keyframe_points
+from src.core.analysis.frame_scan import FrameStatsRunner, luma_frame_stats, scan_keyframe_points
 from src.core.command_history import (
     STAGE_FRAME_ANALYSIS,
     command_scope,
@@ -455,6 +455,7 @@ def analyze_frames(
     crop_only: bool = False,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
+    scan_stats_runner: FrameStatsRunner = luma_frame_stats,
 ) -> FrameAnalysisResult:
     """영상 한 개의 활성 화면과 축소 후보 규격을 고속 측정
 
@@ -466,6 +467,7 @@ def analyze_frames(
     - VMAF는 SSIM 통과 규격 중 가장 낮은 규격부터 재고 탈락하면 바로 위 규격으로 역상승
     - 유효 구간이 없으면 측정 불가로 표시하고 후보는 두지 않음
     - scale_algorithm은 인코딩 축소와 같은 보간 방식을 넘겨 받아 예측과 실제 결과를 맞춤
+    - scan_stats_runner는 1단계 픽셀 판정만 대신하게 해, 순수 파이썬 픽셀 루프를 GUI 프로세스 밖에서 돌림
     """
     params = frame_analysis_params(mode)
     analysis_version = analysis_version_for_mode(mode, scale_algorithm)
@@ -494,6 +496,7 @@ def analyze_frames(
         cancel_event=cancel_event,
         on_point=_on_scan_point,
         prefer_pyav=use_pyav,
+        stats_runner=scan_stats_runner,
     )
     active_region = merge_crop_union(
         list(scan.boxes),

@@ -9,12 +9,23 @@ from __future__ import annotations
 import os
 import threading
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    Future,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+)
+from concurrent.futures import (
+    TimeoutError as FutureTimeoutError,
+)
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from multiprocessing import get_context
 
 from src.core.analysis.frame_analysis import (
     DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+    CropBox,
+    EdgeDarkness,
     FrameAnalysisThresholds,
     analysis_version_for_mode,
     apply_no_bars_ratio,
@@ -34,6 +45,7 @@ from src.core.analysis.frame_analysis_runner import (
     StderrCommandRunner,
     analyze_frames,
 )
+from src.core.analysis.frame_scan import FrameStatsRunner, luma_frame_stats, luma_stats_task
 from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
@@ -53,6 +65,9 @@ VIDEO_ANALYSIS_WORKERS: int = 4
 INNER_ROUND_WORKERS_SINGLE: int = 4
 INNER_ROUND_WORKERS_FEW: int = 2
 FEW_VIDEO_LIMIT: int = 3
+# - 풀 결과를 기다리는 단위 시간. 대기 중에는 GIL을 놓으므로 GUI 스레드가 멈추지 않음
+POOL_POLL_INTERVAL_SEC: float = 0.05
+PROCESS_START_METHOD: str = "spawn"
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +186,63 @@ def _rejudged_result(
     )
 
 
+class _ScanStatsPool:
+    """Y 평면 판정을 자식 프로세스에서 실행하는 풀
+
+    - 순수 파이썬 픽셀 루프가 GUI 프로세스의 GIL을 붙잡지 않게 별도 프로세스로 옮김
+    - 호출 스레드는 결과 큐를 기다리며 GIL을 놓으므로, 다른 스레드와 GUI가 계속 돎
+    - 사용할 때 처음 만들고 배치가 끝나거나 취소되면 닫아 워커 프로세스를 남기지 않음
+    """
+
+    def __init__(self, workers: int, *, cancel_event: threading.Event | None = None) -> None:
+        self._workers: int = max(1, workers)
+        self._cancel_event: threading.Event | None = cancel_event
+        self._executor: ProcessPoolExecutor | None = None
+        self._lock: threading.Lock = threading.Lock()
+
+    def __call__(
+        self, data: bytes, line_size: int, width: int, height: int
+    ) -> tuple[CropBox | None, float, EdgeDarkness]:
+        """Y 평면 한 장의 판정을 자식 프로세스에 맡기고 결과를 기다림"""
+        _check_cancel(self._cancel_event)
+        executor = self._live_executor()
+        future: Future[tuple[CropBox | None, float, EdgeDarkness]] = executor.submit(
+            luma_stats_task, (data, line_size, width, height)
+        )
+        return self._wait(future)
+
+    def close(self) -> None:
+        """대기 중인 작업을 버리고 워커 프로세스를 닫음. 두 번 불러도 안전"""
+        with self._lock:
+            executor, self._executor = self._executor, None
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
+
+    def _live_executor(self) -> ProcessPoolExecutor:
+        with self._lock:
+            if self._executor is None:
+                self._executor = ProcessPoolExecutor(
+                    max_workers=self._workers,
+                    mp_context=get_context(PROCESS_START_METHOD),
+                )
+            return self._executor
+
+    def _wait(self, future: Future[tuple[CropBox | None, float, EdgeDarkness]]) -> tuple[
+        CropBox | None, float, EdgeDarkness
+    ]:
+        while True:
+            try:
+                return future.result(timeout=POOL_POLL_INTERVAL_SEC)
+            except FutureTimeoutError:
+                _check_cancel(self._cancel_event)
+
+
+def _check_cancel(cancel_event: threading.Event | None) -> None:
+    """취소 신호가 서 있으면 `InterruptedError`"""
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError("화질 분석이 취소되었습니다")
+
+
 def _inner_round_workers(video_count: int, *, runner_injected: bool) -> int:
     """영상 수와 실행기 주입 여부로 영상 내부 라운드 병렬 워커 수 결정
 
@@ -208,6 +280,7 @@ class FrameAnalysisService:
         scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
         video_workers: int = VIDEO_ANALYSIS_WORKERS,
         thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+        use_process_scan: bool | None = None,
     ) -> None:
         self._store: FrameAnalysisStore = store
         self._work_dir: str = work_dir
@@ -221,6 +294,8 @@ class FrameAnalysisService:
         self._analysis_version: int = analysis_version_for_mode(mode, self._scale_algorithm)
         self._video_workers: int = max(1, video_workers)
         self._thresholds: FrameAnalysisThresholds = thresholds
+        # - 실행기를 주입한 테스트는 스캔도 같은 프로세스에서 돌려 실제 FFmpeg 없이 결과를 맞춤
+        self._use_process_scan: bool = runner is None if use_process_scan is None else use_process_scan
 
     def analyze_batch(
         self,
@@ -237,6 +312,7 @@ class FrameAnalysisService:
 
         - crop_only면 1단계 검은 여백 스캔만 실행하고, 이미 있는 전체 화질 분석 행은 그대로 재사용
         - crop_only_names에 든 영상은 전체 실행에서도 검은 여백만 감지
+        - 픽셀 판정은 배치 동안만 사는 프로세스 풀에서 돌리고, 끝나거나 취소되면 풀을 닫음
         """
         unique = _unique_requests(requests)
         total = len(unique)
@@ -249,6 +325,12 @@ class FrameAnalysisService:
         runner_injected = self._runner is not None
         inner_workers = _inner_round_workers(total, runner_injected=runner_injected)
         exec_runner = self._runner_for(cancel_event)
+        pool: _ScanStatsPool | None = (
+            _ScanStatsPool(self._video_workers, cancel_event=cancel_event)
+            if self._use_process_scan
+            else None
+        )
+        stats_runner: FrameStatsRunner = luma_frame_stats if pool is None else pool
 
         def _stage_progress(filename: str, stage: str, done: int, stage_total: int) -> None:
             if on_stage is not None:
@@ -295,36 +377,41 @@ class FrameAnalysisService:
                 crop_only=request_crop_only,
                 thresholds=self._thresholds,
                 scale_algorithm=self._scale_algorithm,
+                scan_stats_runner=stats_runner,
             )
             self._store.save(record_from_result(request, result, measured_at=self._now()))
             return request, result
 
         items = list(enumerate(unique, start=1))
-        if self._video_workers <= 1 or total <= 1:
-            for completed, item in enumerate(items, start=1):
-                request, result = _analyze_one(item)
-                results[request.filename] = result
-                if on_progress is not None:
-                    on_progress(completed, total, request.filename, result)
-                if cancel_event is not None and cancel_event.is_set():
-                    raise InterruptedError("화질 분석이 취소되었습니다")
-            return results
-        with ThreadPoolExecutor(self._video_workers) as pool:
-            futures = [pool.submit(_analyze_one, item) for item in items]
-            completed = 0
-            try:
-                for future in as_completed(futures):
-                    request, result = future.result()
-                    completed += 1
+        try:
+            if self._video_workers <= 1 or total <= 1:
+                for completed, item in enumerate(items, start=1):
+                    request, result = _analyze_one(item)
                     results[request.filename] = result
                     if on_progress is not None:
                         on_progress(completed, total, request.filename, result)
                     if cancel_event is not None and cancel_event.is_set():
                         raise InterruptedError("화질 분석이 취소되었습니다")
-            except BaseException:
-                for future in futures:
-                    future.cancel()
-                raise
+                return results
+            with ThreadPoolExecutor(self._video_workers) as threads:
+                futures = [threads.submit(_analyze_one, item) for item in items]
+                completed = 0
+                try:
+                    for future in as_completed(futures):
+                        request, result = future.result()
+                        completed += 1
+                        results[request.filename] = result
+                        if on_progress is not None:
+                            on_progress(completed, total, request.filename, result)
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise InterruptedError("화질 분석이 취소되었습니다")
+                except BaseException:
+                    for future in futures:
+                        future.cancel()
+                    raise
+        finally:
+            if pool is not None:
+                pool.close()
         return results
 
     def count_cached(

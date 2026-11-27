@@ -15,6 +15,8 @@ from src.core.diagnostics.dev_logging import (
     UNKNOWN_ELAPSED_TEXT,
     UNKNOWN_TARGET,
     CommandLogMirror,
+    DevLogSession,
+    flush_dev_log,
     format_command_record,
     format_elapsed,
     install_dev_log,
@@ -24,8 +26,9 @@ from src.core.diagnostics.dev_logging import (
 APP_LOGGER_NAME = "src"
 
 
-def flush_app_handlers() -> None:
-    """앱 루트 로거 핸들러의 버퍼를 비워 파일에 확실히 기록되게 함"""
+def flush_app_handlers(session: "DevLogSession") -> None:
+    """앱 루트 로거 핸들러와 개발 로그 큐의 버퍼를 비워 파일에 확실히 기록되게 함"""
+    flush_dev_log(session)
     for handler in logging.getLogger(APP_LOGGER_NAME).handlers:
         handler.flush()
 
@@ -135,7 +138,7 @@ class InstallDevLogTests(unittest.TestCase):
                 self.assertTrue(os.path.isfile(session.path))
                 logging.getLogger("src.some.module").debug("상세 기록")
                 logging.getLogger("outside.module").debug("외부 기록")
-                flush_app_handlers()
+                flush_app_handlers(session)
                 with open(session.path, encoding="utf-8") as handle:
                     text = handle.read()
                 self.assertIn("상세 기록", text)
@@ -150,7 +153,7 @@ class InstallDevLogTests(unittest.TestCase):
             try:
                 handle = record_start("화질 분석", ["ffmpeg", "-i", "clip.mp4"], target="clip.mp4")
                 record_finish(handle, 0, elapsed_sec=0.5)
-                flush_app_handlers()
+                flush_app_handlers(session)
                 with open(session.path, encoding="utf-8") as file_handle:
                     text = file_handle.read()
                 self.assertIn("clip.mp4", text)
@@ -199,7 +202,7 @@ class InstallDevLogTests(unittest.TestCase):
                 self.assertIsNone(second.listener)
                 handle = record_start("화질 분석", ["ffmpeg", "-i", "clip.mp4"], target="clip.mp4")
                 record_finish(handle, 0, elapsed_sec=0.5)
-                flush_app_handlers()
+                flush_app_handlers(first)
                 with open(first.path, encoding="utf-8") as file_handle:
                     text = file_handle.read()
                 # - 명령 하나는 시작과 종료 두 줄을 남기므로, 리스너가 둘이면 네 줄이 됨
@@ -229,6 +232,21 @@ class InstallDevLogTests(unittest.TestCase):
                 remove_dev_log(second)
             # - 잃어버린 세션이 올려 둔 DEBUG가 아니라 최초 설치 전 레벨로 돌아와야 함
             self.assertEqual(root.level, original)
+
+    def test_debug_line_reaches_the_file_only_after_the_queue_flush(self) -> None:
+        """개발 로그 DEBUG가 큐 flush 뒤 파일에 닿고, 정리할 때 남은 줄까지 쓰는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            session = install_dev_log(tmp)
+            try:
+                logging.getLogger("src.some.module").debug("큐 대기 기록")
+                flush_dev_log(session)
+                with open(session.path, encoding="utf-8") as handle:
+                    self.assertIn("큐 대기 기록", handle.read())
+                logging.getLogger("src.some.module").debug("정리 직전 기록")
+            finally:
+                remove_dev_log(session)
+            with open(session.path, encoding="utf-8") as handle:
+                self.assertIn("정리 직전 기록", handle.read())
 
     def test_unwritable_directory_returns_session_without_handler(self) -> None:
         """폴더를 만들 수 없으면 핸들러 없이 세션만 돌려주고 예외를 내지 않는지 검증"""

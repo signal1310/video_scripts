@@ -44,6 +44,7 @@ from src.core.diagnostics.session import (
     read_session,
     write_session,
 )
+from src.core.logging_setup import flush_file_logging
 
 logger = logging.getLogger("src.diagnostics")
 
@@ -231,6 +232,8 @@ def shutdown_diagnostics(
                 write_session(path, session.close_session(info, now=now))
             except OSError:
                 logger.warning("정상 종료 표식을 기록하지 못했습니다", exc_info=True)
+    # - 큐 로그는 종료 직전 줄까지 파일에 써야 마지막 기록이 남으므로 맨 끝에서 비움
+    flush_file_logging()
 
 
 def _owns_session_marker(path: str, pid: int) -> bool:

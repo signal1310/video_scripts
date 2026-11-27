@@ -12,7 +12,9 @@ from unittest import mock
 
 from src.core.analysis.frame_analysis import ActiveRegion, CropBox, EdgeDarkness, merge_crop_union
 from src.core.analysis.frame_scan import (
+    _BLACK_LUMA_TABLE,
     BLACK_FRAME_PIXEL_RATIO,
+    FrameStatsRunner,
     KeyframeScanResult,
     ScanCommandRunner,
     _declared_rotation,
@@ -20,6 +22,7 @@ from src.core.analysis.frame_scan import (
     _scan_with_pyav,
     build_scan_command,
     luma_frame_stats,
+    luma_stats_task,
     parse_gray_frame,
     scan_keyframe_points,
     scan_with_cli,
@@ -92,6 +95,32 @@ class TestLumaStats(unittest.TestCase):
         self.assertEqual(box, CropBox(8, 2, 0, 1))
         self.assertEqual(luma_frame_stats(b"", 0, 0, 0), (None, 1.0, EdgeDarkness(0, 0, 0, 0)))
         self.assertEqual(luma_frame_stats(b"\x00", 4, 8, 8), (None, 1.0, EdgeDarkness(0, 0, 0, 0)))
+
+    def test_black_pixel_count_matches_the_memoryview_sum(self) -> None:
+        """행별 bytes.count 세기가 예전 memoryview 슬라이스 합과 같은 검은 픽셀 수를 내는지 검증"""
+        width, height, line_size = 12, 6, 16
+        rows = [
+            [16] * width,
+            [16] * 6 + [120] * 6,
+            [0, 25, 26, 27, 40, 90, 16, 16, 16, 200, 250, 255],
+            [16] * width,
+            [30] * width,
+            [16] * 4 + [100] * 8,
+        ]
+        plane = _plane(rows, line_size=line_size)
+        translated = plane.translate(_BLACK_LUMA_TABLE)
+        black_view = memoryview(translated)
+        expected = sum(
+            sum(black_view[row_index * line_size : row_index * line_size + width])
+            for row_index in range(height)
+        )
+        counted = sum(
+            translated.count(1, row_index * line_size, row_index * line_size + width)
+            for row_index in range(height)
+        )
+        self.assertEqual(counted, expected)
+        _box, ratio, _edges = luma_frame_stats(plane, line_size, width, height)
+        self.assertAlmostEqual(ratio, expected / (width * height))
 
     def test_dark_edges_covering_everything_returns_no_box(self) -> None:
         box, _ratio, _edges = luma_frame_stats(bytes([25] * 64), 8, 8, 8)
@@ -585,6 +614,7 @@ class TestScanWithCli(unittest.TestCase):
         *,
         points: Sequence[float] = (0.0,),
         cancel_event: threading.Event | None = None,
+        stats_runner: FrameStatsRunner = luma_frame_stats,
     ) -> KeyframeScanResult:
         return scan_with_cli(
             source_path="movie.mp4",
@@ -595,6 +625,7 @@ class TestScanWithCli(unittest.TestCase):
             fast_keyframe_seek=True,
             cancel_event=cancel_event,
             on_point=None,
+            stats_runner=stats_runner,
         )
 
     def test_cli_scan_collects_boxes_and_black_points(self) -> None:
@@ -712,6 +743,21 @@ class TestScanWithCli(unittest.TestCase):
                 prefer_pyav=False,
             )
         self.assertEqual(runner.count_commands("pgm"), 1)
+
+    def test_stats_runner_is_used_for_every_scanned_point(self) -> None:
+        """주입한 픽셀 판정 함수가 지점마다 불리고 결과가 같은 스캔으로 이어지는지 검증"""
+        runner = FakeStderrRunner(boxes=[(1280, 720, 0, 0)])
+        seen: list[tuple[int, int, int]] = []
+
+        def counting(
+            data: bytes, line_size: int, width: int, height: int
+        ) -> tuple[CropBox | None, float, EdgeDarkness]:
+            seen.append((line_size, width, height))
+            return luma_stats_task((data, line_size, width, height))
+
+        result = self._scan(runner, points=(0.0, 5.0), stats_runner=counting)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(result.boxes, (CropBox(1280, 720, 0, 0),) * 2)
 
     def test_scan_result_keeps_order(self) -> None:
         result = KeyframeScanResult([CropBox(1, 1, 0, 0), CropBox(2, 2, 0, 0)], [1, 1, 2])

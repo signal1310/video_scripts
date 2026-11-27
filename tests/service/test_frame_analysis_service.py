@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from dataclasses import replace
+from unittest import mock
 
 from src.core.analysis.frame_analysis import (
     CROP_SCAN_VERSION,
@@ -16,13 +17,16 @@ from src.core.analysis.frame_analysis import (
     analysis_version_for_mode,
 )
 from src.core.analysis.frame_analysis_runner import ProcessStderrRunner, StderrCommandRunner
+from src.core.analysis.frame_scan import luma_frame_stats
 from src.core.models import ActiveFrame
+from src.service import frame_analysis_service as service_module
 from src.service.frame_analysis_record import FrameAnalysisRecord, FrameAnalysisRequest
 from src.service.frame_analysis_service import (
     INNER_ROUND_WORKERS_FEW,
     INNER_ROUND_WORKERS_SINGLE,
     FrameAnalysisService,
     _inner_round_workers,
+    _ScanStatsPool,
 )
 from src.service.frame_analysis_store import FrameAnalysisStore
 from tests._frame_analysis_fakes import FakeStderrRunner, make_frame_record
@@ -69,6 +73,7 @@ class _ServiceTestCase(unittest.TestCase):
         scale_algorithm: str = "bicubic",
         video_workers: int = 1,
         thresholds: FrameAnalysisThresholds | None = None,
+        use_process_scan: bool = False,
     ) -> FrameAnalysisService:
         service = FrameAnalysisService(
             self.store,
@@ -79,6 +84,7 @@ class _ServiceTestCase(unittest.TestCase):
             scale_algorithm=scale_algorithm,
             video_workers=video_workers,
             thresholds=thresholds or DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+            use_process_scan=use_process_scan,
         )
         self.addCleanup(service.close)
         return service
@@ -715,6 +721,99 @@ class TestFrameAnalysisService(_ServiceTestCase):
         results = service.analyze_batch([_request("a.mp4"), _request("b.mp4")])
         self.assertEqual(set(results), {"a.mp4", "b.mp4"})
         self.assertEqual(self.store.count(), 2)
+
+
+class RecordingScanStatsPool(_ScanStatsPool):
+    """종료 여부를 기록하는 스캔 풀. 테스트가 배치 뒤 풀이 닫혔는지 봄"""
+
+    def __init__(self, workers: int, *, cancel_event: threading.Event | None = None) -> None:
+        super().__init__(workers, cancel_event=cancel_event)
+        self.closed: bool = False
+
+    def close(self) -> None:
+        self.closed = True
+        super().close()
+
+
+class TestProcessScanPool(_ServiceTestCase):
+    """Y 평면 판정 프로세스 풀이 같은 결과를 내고 취소, 종료에 풀을 닫는지 검증"""
+
+    def _payloads(self) -> list[tuple[bytes, int, int, int]]:
+        letterbox = b"".join(
+            [bytes([16] * 32) for _ in range(3)]
+            + [bytes([120] * 32) for _ in range(18)]
+            + [bytes([16] * 32) for _ in range(3)]
+        )
+        padded = b"".join(bytes([16] * 24) + bytes([0, 0, 0, 0, 0, 0, 0, 0]) for _ in range(16))
+        return [
+            (letterbox, 32, 32, 24),
+            (bytes([16] * 64), 8, 8, 8),
+            (padded, 32, 24, 16),
+        ]
+
+    def test_pool_and_in_process_stats_are_identical(self) -> None:
+        """프로세스 풀을 거친 판정이 같은 프로세스의 판정과 완전히 같은지 검증"""
+        pool = _ScanStatsPool(2)
+        self.addCleanup(pool.close)
+        for payload in self._payloads():
+            with self.subTest(line_size=payload[1], width=payload[2]):
+                self.assertEqual(pool(*payload), luma_frame_stats(*payload))
+
+    def test_cancel_raises_and_close_releases_the_workers(self) -> None:
+        """취소 신호가 서면 대기를 끊고, 종료하면 워커 풀 참조를 놓는지 검증"""
+        cancel = threading.Event()
+        pool = _ScanStatsPool(1, cancel_event=cancel)
+        payload = self._payloads()[0]
+        self.assertEqual(pool(*payload), luma_frame_stats(*payload))
+        cancel.set()
+        with self.assertRaises(InterruptedError):
+            pool(*payload)
+        pool.close()
+        self.assertIsNone(pool._executor)
+        pool.close()
+
+    def test_closed_pool_is_safe_to_close_again(self) -> None:
+        """한 번도 쓰지 않은 풀을 여러 번 닫아도 예외가 없는지 검증"""
+        pool = _ScanStatsPool(1)
+        pool.close()
+        pool.close()
+        self.assertIsNone(pool._executor)
+
+    def test_service_cancel_stops_the_batch_and_closes_the_pool(self) -> None:
+        """배치 도중 취소되면 스캔을 끊고 만든 풀을 닫는지 검증"""
+        pool = self.make_service_with_process_scan()
+        cancel = threading.Event()
+        runner = FakeStderrRunner(on_call=lambda _args: cancel.set())
+        service = self.make_service(runner, use_process_scan=True)
+        with self.assertRaises(InterruptedError):
+            service.analyze_batch(
+                [_request("a.mp4")], crop_only=True, cancel_event=cancel
+            )
+        self.assertTrue(pool[0].closed)
+
+    def make_service_with_process_scan(self) -> list[RecordingScanStatsPool]:
+        """서비스가 만드는 스캔 풀을 기록하는 팩토리를 설치하고 만들어진 풀 목록을 돌려줌"""
+        created: list[RecordingScanStatsPool] = []
+
+        def factory(workers: int, *, cancel_event: threading.Event | None = None) -> RecordingScanStatsPool:
+            created.append(RecordingScanStatsPool(workers, cancel_event=cancel_event))
+            return created[-1]
+
+        patcher = mock.patch.object(service_module, "_ScanStatsPool", factory)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return created
+
+    def test_service_with_process_scan_matches_in_process_results(self) -> None:
+        """프로세스 풀 스캔이 같은 프로세스 스캔과 같은 감지 결과를 내는지 검증"""
+        runner = FakeStderrRunner(boxes=[(1280, 720, 0, 0)])
+        in_process = self.make_service(runner).analyze_batch([_request("a.mp4")], crop_only=True)
+        in_pool = self.make_service(runner, use_process_scan=True).analyze_batch(
+            [_request("a.mp4")], crop_only=True
+        )
+        self.assertEqual(in_pool["a.mp4"].active_region, in_process["a.mp4"].active_region)
+        self.assertEqual(in_pool["a.mp4"].crop_scan_failed, in_process["a.mp4"].crop_scan_failed)
+        self.assertEqual(in_pool["a.mp4"].metric_used, METRIC_CROP_ONLY)
 
 
 class TestInnerRoundWorkers(unittest.TestCase):

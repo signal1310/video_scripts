@@ -1,7 +1,7 @@
 """화질 분석 1단계 9지점 키프레임 휘도(Y) 스캔 모듈
 
 - `PyAV` 컨테이너를 한 번만 열어 키프레임의 Y 평면을 직접 읽어 외부 프로세스 없이 검은 화면과 검은 여백을 찾음
-- `numpy` 없이 `bytes.translate` 룩업 테이블과 `memoryview`/`bytes` 슬라이스 합만으로 픽셀 비율과 줄, 열 평균을 계산
+- `numpy` 없이 `bytes.translate` 룩업 테이블과 `bytes.count`, 슬라이스 합만으로 픽셀 비율과 줄, 열 평균을 계산
 - PyAV 열기나 디코딩이 실패하거나 테스트가 실행기를 주입하면 FFmpeg CLI 9지점 키프레임 스캔으로 폴백
 - CLI 폴백도 지점마다 8-bit 회색조 한 장을 받아 같은 `luma_frame_stats` 규칙으로 판정해 두 경로의 여백 정의를 하나로 유지
 """
@@ -30,6 +30,8 @@ ScanCommandRunner = Callable[[list[str], str], tuple[int, str]]
 PointCallback = Callable[[int, int], None]
 LineStats = tuple[float, float]
 LineProbe = Callable[[int], LineStats]
+# - Y 평면 한 장의 판정 함수. 서비스가 프로세스 풀로 넘겨 GUI 프로세스의 GIL 점유를 없앰
+FrameStatsRunner = Callable[[bytes, int, int, int], tuple[CropBox | None, float, EdgeDarkness]]
 
 # - 검은 프레임 판정: Y < 26 픽셀 비율 98% 이상(12.19절), 여백 줄, 열 평균 24 이하
 BLACK_LUMA_THRESHOLD: int = 26
@@ -197,13 +199,14 @@ def _median_deviation(samples: Sequence[int], mean: float) -> float:
     return float(deviations[len(deviations) // 2])
 
 
-def _row_stats(view: memoryview, offset: int, width: int) -> LineStats:
+def _row_stats(plane: bytes, offset: int, width: int) -> LineStats:
     """Y 평면 행 하나의 평균과 편차 중앙값"""
     if width <= 0:
         return (0.0, 0.0)
-    mean = sum(view[offset : offset + width]) / width
+    row = plane[offset : offset + width]
+    mean = sum(row) / width
     stride = max(1, width // SPREAD_SAMPLE_LIMIT)
-    return (mean, _median_deviation(view[offset : offset + width : stride], mean))
+    return (mean, _median_deviation(row[::stride], mean))
 
 
 def _column_stats(plane: bytes, x: int, top: int, bottom: int, line_size: int) -> LineStats:
@@ -398,18 +401,17 @@ def luma_frame_stats(
     if len(plane) < line_size * height:
         return (None, 1.0, EdgeDarkness(0, 0, 0, 0))
     translated = plane.translate(_BLACK_LUMA_TABLE)
-    black_view = memoryview(translated)
-    view = memoryview(plane)
     black_pixels = 0
     for row_index in range(height):
         offset = row_index * line_size
-        black_pixels += sum(black_view[offset : offset + width])
+        # - 1로 바꾼 자리만 세는 C 루프라 행당 파이썬 반복 대신 한 번의 호출로 끝남
+        black_pixels += translated.count(1, offset, offset + width)
     black_ratio = black_pixels / (width * height)
     if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
         return (None, black_ratio, EdgeDarkness(0, 0, 0, 0))
 
     def row_probe(index: int) -> LineStats:
-        return _row_stats(view, index * line_size, width)
+        return _row_stats(plane, index * line_size, width)
 
     row_island_lines = _island_max_lines(height)
     top, top_dark = _bar_scan(height, row_probe, from_end=False, island_max_lines=row_island_lines)
@@ -515,6 +517,7 @@ def _scan_with_pyav(
     *,
     cancel_event: threading.Event | None,
     on_point: PointCallback | None,
+    stats_runner: FrameStatsRunner = luma_frame_stats,
 ) -> KeyframeScanResult:
     """PyAV 컨테이너를 한 번 열고 9지점 키프레임의 Y 평면을 직접 스캔"""
     import av
@@ -544,7 +547,7 @@ def _scan_with_pyav(
             except StopIteration as error:
                 raise ScanDecodeError("요청한 시점의 키프레임이 없습니다.") from error
             data, line_size, width, height = _luma_bytes(frame)
-            box, black_ratio, edges = luma_frame_stats(data, line_size, width, height)
+            box, black_ratio, edges = stats_runner(data, line_size, width, height)
             if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
                 black_points.append(index)
             elif box is not None:
@@ -610,6 +613,7 @@ def scan_with_cli(
     fast_keyframe_seek: bool,
     cancel_event: threading.Event | None,
     on_point: PointCallback | None,
+    stats_runner: FrameStatsRunner = luma_frame_stats,
 ) -> KeyframeScanResult:
     """FFmpeg CLI 9지점 키프레임 스캔. 키프레임을 받지 못한 지점은 실패 지점으로 따로 모음
 
@@ -637,7 +641,7 @@ def scan_with_cli(
             failed_points.append(index)
         else:
             data, width, height = frame
-            box, black_ratio, edges = luma_frame_stats(data, width, width, height)
+            box, black_ratio, edges = stats_runner(data, width, width, height)
             if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
                 black_points.append(index)
             elif box is not None:
@@ -659,11 +663,21 @@ def scan_keyframe_points(
     cancel_event: threading.Event | None = None,
     on_point: PointCallback | None = None,
     prefer_pyav: bool = True,
+    stats_runner: FrameStatsRunner = luma_frame_stats,
 ) -> KeyframeScanResult:
-    """PyAV 직독을 먼저 시도하고 실패하면 CLI 9지점 스캔으로 폴백"""
+    """PyAV 직독을 먼저 시도하고 실패하면 CLI 9지점 스캔으로 폴백
+
+    - stats_runner는 픽셀 판정만 대신하는 함수라 PyAV 디코딩과 CLI 폴백 순서는 그대로임
+    """
     if prefer_pyav:
         try:
-            return _scan_with_pyav(source_path, points, cancel_event=cancel_event, on_point=on_point)
+            return _scan_with_pyav(
+                source_path,
+                points,
+                cancel_event=cancel_event,
+                on_point=on_point,
+                stats_runner=stats_runner,
+            )
         except InterruptedError:
             raise
         except Exception:
@@ -677,7 +691,13 @@ def scan_keyframe_points(
         fast_keyframe_seek=fast_keyframe_seek,
         cancel_event=cancel_event,
         on_point=on_point,
+        stats_runner=stats_runner,
     )
+
+
+def luma_stats_task(payload: tuple[bytes, int, int, int]) -> tuple[CropBox | None, float, EdgeDarkness]:
+    """프로세스 풀 워커가 부르는 Y 평면 판정. 모듈 수준이어야 spawn 자식이 pickle로 복원할 수 있음"""
+    return luma_frame_stats(*payload)
 
 
 def _check_cancel(cancel_event: threading.Event | None) -> None:

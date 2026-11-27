@@ -2,6 +2,7 @@
 
 - 앱 모듈(`src.*`)의 DEBUG 기록만 `data/logs/dev.log`에 남기고 Qt, 라이브러리 잡음은 넣지 않음
 - 순환 파일 핸들러로 크기를 제한해 개발자 모드를 오래 켜 두어도 디스크를 채우지 않음
+- 파일 기록은 큐로 넘겨 전용 스레드가 해, GUI 스레드가 순환 검사나 seek를 하지 않게 함
 - 명령 기록 링 버퍼의 변경을 로거 한 줄로 옮겨, 사고 보고서에 마지막에 실행한 명령이 남게 함
 """
 
@@ -11,11 +12,12 @@ import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
-from logging.handlers import RotatingFileHandler
+from logging.handlers import QueueHandler, RotatingFileHandler
 
 from src.core import command_history
 from src.core.command_history import CommandRecord
 from src.core.diagnostics.paths import DEV_LOG_NAME, diagnostics_file
+from src.core.logging_setup import RAW_MESSAGE_FORMAT, FlushingQueueListener
 
 DEV_LOG_MAX_BYTES: int = 2 * 1024 * 1024
 DEV_LOG_BACKUP_COUNT: int = 2
@@ -86,14 +88,18 @@ class DevLogSession:
     """개발 로그 핸들러와 명령 기록 리스너를 함께 들고 다니는 세션"""
 
     path: str
-    handler: RotatingFileHandler | None
+    handler: QueueHandler | None
     mirror: CommandLogMirror | None
     listener: Callable[[], None] | None
     previous_level: int | None = None
+    # - 파일 기록과 그 스레드를 들고 있어야 정리할 때 남은 줄을 다 쓰고 닫을 수 있음
+    queue_listener: FlushingQueueListener | None = None
 
 
 # - 지금 붙어 있는 미러: 리스너는 동등 비교가 안 되므로 설치 쪽에서 보관해 중복 설치를 막음
 _installed_mirror: CommandLogMirror | None = None
+# - 지금 도는 큐 리스너: 핸들러만 떨어진 채 남아 파일을 붙잡고 있으면 새로 설치할 때 멈춤
+_installed_listener: FlushingQueueListener | None = None
 # - 설치 전 레벨: 세션을 잃어버려 핸들러만 떨어진 뒤 다시 설치해도, 이미 올려 둔 DEBUG가 아니라
 #   최초 설치 전 레벨로 되돌리도록 모듈에서 한 번만 기억함
 _saved_level: int | None = None
@@ -104,12 +110,19 @@ def _dev_log_handler_attached(root: logging.Logger) -> bool:
     return any(item.get_name() == DEV_LOG_HANDLER_NAME for item in root.handlers)
 
 
-def _drop_stale_mirror() -> None:
-    """핸들러가 사라진 뒤 남은 미러 표식과 리스너를 지워 다음 설치가 새로 붙이게 함"""
-    global _installed_mirror
+def _drop_stale_resources() -> None:
+    """핸들러가 사라진 뒤 남은 미러와 큐 리스너를 지워 다음 설치가 새로 붙이게 함
+
+    - 세션을 잃어버려 정리되지 않은 리스너가 파일을 붙잡고 있으면 먼저 멈춰야
+      새 순환 핸들러가 같은 파일을 열 수 있음
+    """
+    global _installed_mirror, _installed_listener
     if _installed_mirror is not None:
         command_history.remove_listener(_installed_mirror)
         _installed_mirror = None
+    if _installed_listener is not None:
+        _installed_listener.stop()
+        _installed_listener = None
 
 
 def install_dev_log(directory: str | None = None) -> DevLogSession:
@@ -124,15 +137,23 @@ def install_dev_log(directory: str | None = None) -> DevLogSession:
       다시 설치하는 경우에는 지금 레벨(이전 세션이 올려 둔 DEBUG)이 아니라 최초 설치 전
       레벨을 기억해 정리 뒤 DEBUG가 남지 않게 함
     """
-    global _installed_mirror, _saved_level
+    global _installed_mirror, _installed_listener, _saved_level
     path = diagnostics_file(DEV_LOG_NAME, directory)
     root = logging.getLogger(APP_LOGGER_NAME)
-    handler: RotatingFileHandler | None = None
+    handler: QueueHandler | None = None
+    queue_listener: FlushingQueueListener | None = None
     previous_level: int | None = None
     if not _dev_log_handler_attached(root):
-        _drop_stale_mirror()
-        handler = _create_handler(path)
-        if handler is not None:
+        _drop_stale_resources()
+        created = _create_handler(path)
+        if created is not None:
+            queue_listener = FlushingQueueListener(created)
+            queue_listener.start()
+            _installed_listener = queue_listener
+            handler = queue_listener.queue_handler
+            handler.set_name(DEV_LOG_HANDLER_NAME)
+            handler.setLevel(logging.DEBUG)
+            handler.setFormatter(logging.Formatter(RAW_MESSAGE_FORMAT))
             if _saved_level is None:
                 _saved_level = root.level
             previous_level = _saved_level
@@ -149,11 +170,12 @@ def install_dev_log(directory: str | None = None) -> DevLogSession:
         mirror=mirror,
         listener=mirror,
         previous_level=previous_level,
+        queue_listener=queue_listener,
     )
 
 
 def _create_handler(path: str) -> RotatingFileHandler | None:
-    """개발 로그 순환 핸들러 생성. 만들지 못하면 None"""
+    """개발 로그 순환 파일 핸들러 생성. 만들지 못하면 None"""
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         handler = RotatingFileHandler(
@@ -165,15 +187,23 @@ def _create_handler(path: str) -> RotatingFileHandler | None:
     except OSError:
         logger.warning("개발자 모드 로그 파일을 준비하지 못했습니다", exc_info=True)
         return None
-    handler.set_name(DEV_LOG_HANDLER_NAME)
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(logging.Formatter(DEV_LOG_FORMAT))
     return handler
 
 
+def flush_dev_log(session: DevLogSession | None) -> None:
+    """개발 로그 큐에 쌓인 줄이 파일에 기록될 때까지 기다림. 세션이 없으면 무시"""
+    if session is not None and session.queue_listener is not None:
+        session.queue_listener.flush()
+
+
 def remove_dev_log(session: DevLogSession | None) -> None:
-    """설치한 개발 로그 핸들러와 명령 기록 리스너를 떼고 파일을 닫음. 중복 호출 안전"""
-    global _installed_mirror, _saved_level
+    """설치한 개발 로그 핸들러와 명령 기록 리스너를 떼고 파일을 닫음. 중복 호출 안전
+
+    - 큐 리스너를 먼저 멈춰 남은 줄을 다 쓴 뒤 파일 핸들러를 닫음(닫힌 파일에 쓰지 않게)
+    """
+    global _installed_mirror, _installed_listener, _saved_level
     if session is None:
         return
     if session.listener is not None:
@@ -184,11 +214,16 @@ def remove_dev_log(session: DevLogSession | None) -> None:
     if session.handler is not None:
         root = logging.getLogger(APP_LOGGER_NAME)
         root.removeHandler(session.handler)
-        session.handler.close()
         session.handler = None
-        if session.previous_level is not None:
-            root.setLevel(session.previous_level)
-            if _saved_level == session.previous_level:
-                _saved_level = None
-            session.previous_level = None
+    if session.queue_listener is not None:
+        session.queue_listener.stop()
+        if _installed_listener is session.queue_listener:
+            _installed_listener = None
+        session.queue_listener = None
+    if session.previous_level is not None:
+        root = logging.getLogger(APP_LOGGER_NAME)
+        root.setLevel(session.previous_level)
+        if _saved_level == session.previous_level:
+            _saved_level = None
+        session.previous_level = None
     session.mirror = None

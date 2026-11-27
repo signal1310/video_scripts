@@ -32,8 +32,10 @@ from src.core.logging_setup import (
     UserLogFormatter,
     ensure_console_logging,
     ensure_file_logging,
+    flush_file_logging,
     get_app_logger,
     level_tag,
+    shutdown_file_logging,
 )
 from src.gui.logging_bridge import GuiLogBridge
 
@@ -173,7 +175,7 @@ class TestLogTagsAndFileLogging(unittest.TestCase):
         self.assertEqual(text, f"[{expected}] [INFO] 시각 확인")
 
     def test_file_logging_records_debug_and_traceback_once(self) -> None:
-        """파일 핸들러가 DEBUG와 전체 스택을 기록하고 중복 연결하지 않음을 검증"""
+        """큐 파일 핸들러가 DEBUG와 전체 스택을 기록하고 중복 연결하지 않음을 검증"""
         pkg_logger = logging.getLogger(APP_LOGGER_NAME)
         previous_level = pkg_logger.level
         self.addCleanup(pkg_logger.setLevel, previous_level)
@@ -190,17 +192,49 @@ class TestLogTagsAndFileLogging(unittest.TestCase):
                     raise RuntimeError("파일 실패")
                 except RuntimeError:
                     child.exception("예외 상세 기록")
-                for h in handlers:
-                    h.flush()
+                flush_file_logging()
                 with open(log_path, encoding="utf-8") as f:
                     content = f.read()
             finally:
-                for h in handlers:
-                    pkg_logger.removeHandler(h)
-                    h.close()
+                shutdown_file_logging()
+                pkg_logger.setLevel(previous_level)
         self.assertIn("디버그 메시지", content)
         self.assertIn("예외 상세 기록", content)
         self.assertIn("Traceback (most recent call last)", content)
+
+    def test_log_record_reaches_the_file_after_the_listener_flush(self) -> None:
+        """GUI 스레드 로그 호출이 파일에 바로 쓰지 않고, 리스너 flush 뒤에 파일에 닿는지 검증"""
+        pkg_logger = logging.getLogger(APP_LOGGER_NAME)
+        previous_level = pkg_logger.level
+        self.addCleanup(pkg_logger.setLevel, previous_level)
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "logs", "app.log")
+            ensure_file_logging(log_path)
+            try:
+                logging.getLogger("src.test_queue_logging").info("큐를 거친 기록")
+                flush_file_logging()
+                with open(log_path, encoding="utf-8") as f:
+                    self.assertIn("큐를 거친 기록", f.read())
+            finally:
+                shutdown_file_logging()
+
+    def test_shutdown_flushes_pending_lines(self) -> None:
+        """종료할 때 큐에 남아 있던 줄까지 파일에 쓴 뒤 핸들러를 닫는지 검증"""
+        pkg_logger = logging.getLogger(APP_LOGGER_NAME)
+        previous_level = pkg_logger.level
+        self.addCleanup(pkg_logger.setLevel, previous_level)
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "logs", "app.log")
+            ensure_file_logging(log_path)
+            for index in range(50):
+                logging.getLogger("src.test_queue_logging").info("종료 직전 기록 %d", index)
+            shutdown_file_logging()
+            with open(log_path, encoding="utf-8") as f:
+                content = f.read()
+        self.assertIn("종료 직전 기록 49", content)
+        self.assertIn("종료 직전 기록 0", content)
+        self.assertFalse(any(h.get_name() == FILE_HANDLER_NAME for h in pkg_logger.handlers))
+        shutdown_file_logging()
 
     def test_file_logging_falls_back_to_console_when_directory_fails(self) -> None:
         """로그 폴더를 만들 수 없으면 파일 핸들러 없이 로거를 반환함을 검증"""

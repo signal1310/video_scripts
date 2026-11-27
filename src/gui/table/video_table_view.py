@@ -153,6 +153,8 @@ class VideoTableView(QTableView):
         self._active_popover: ColumnFilterPopover | None = None
         self._user_resized_name_col: bool = False
         self._user_resized_cols: set[int] = set()
+        # - 숨긴 열은 Qt가 폭을 0으로 보고하므로, 저장과 복원에 쓸 마지막 0 초과 폭을 따로 기억
+        self._last_col_widths: dict[int, int] = {}
         self._content_widths: dict[int, int] = {}
         self._programmatic_col_resize: bool = False
         self._in_fit_name_col: bool = False
@@ -303,17 +305,46 @@ class VideoTableView(QTableView):
         self.fit_name_column_to_contents()
 
     def _set_col_width_programmatic(self, col_idx: int, width: int) -> None:
+        if width > 0:
+            self._last_col_widths[col_idx] = width
+        if self.isColumnHidden(col_idx):
+            return
         self._programmatic_col_resize = True
         try:
             self.setColumnWidth(col_idx, width)
         finally:
             self._programmatic_col_resize = False
 
-    def _on_header_section_resized(
-        self, logical_col: int, _old_w: int, _new_w: int
-    ) -> None:
+    def column_width_for_state(self, col_idx: int) -> int:
+        """저장, 복원에 쓸 열 폭, 숨긴 열은 숨기기 전에 기억한 0 초과 폭"""
+        return self._last_col_widths.get(col_idx, 0) if self.isColumnHidden(col_idx) else self.columnWidth(col_idx)
+
+    def restore_column_width(self, col_idx: int, width: int) -> None:
+        """저장된 0 초과 열 폭을 적용하고, 숨긴 열은 다시 펼 때 쓸 폭으로 기억"""
+        if width <= 0:
+            return
+        if self.isColumnHidden(col_idx):
+            self._last_col_widths[col_idx] = width
+        elif self.columnWidth(col_idx) != width:
+            self._set_col_width_programmatic(col_idx, width)
+
+    def setColumnHidden(self, col_idx: int, hidden: bool) -> None:
+        """열 숨김 전환 시 숨기기 전 폭을 기억하고 다시 펼 때 복원(Qt는 숨긴 열 폭을 0으로 보고함)"""
+        was_hidden = self.isColumnHidden(col_idx)
+        remembered = self._last_col_widths.get(col_idx, 0)
+        if hidden and not was_hidden and (width := self.columnWidth(col_idx)) > 0:
+            self._last_col_widths[col_idx] = width
+        super().setColumnHidden(col_idx, hidden)
+        if not hidden and was_hidden and remembered > 0 and self.columnWidth(col_idx) != remembered:
+            self._set_col_width_programmatic(col_idx, remembered)
+            if col_idx != VideoTableModel.COL_NAME:
+                self.fit_name_column_to_contents()
+
+    def _on_header_section_resized(self, logical_col: int, _old_w: int, _new_w: int) -> None:
         if self._programmatic_col_resize:
             return
+        if _new_w > 0:
+            self._last_col_widths[logical_col] = _new_w
         if logical_col == VideoTableModel.COL_NAME:
             self._user_resized_name_col = True
         else:
@@ -345,7 +376,7 @@ class VideoTableView(QTableView):
             if col == VideoTableModel.COL_NAME:
                 continue
             floor = max(self.MIN_COL_WIDTHS.get(col, 0), self._content_widths.get(col, 0))
-            target = max(floor, self.columnWidth(col)) if col in self._user_resized_cols else floor
+            target = max(floor, self.column_width_for_state(col)) if col in self._user_resized_cols else floor
             if self.columnWidth(col) != target:
                 self._set_col_width_programmatic(col, target)
 
@@ -395,6 +426,8 @@ class VideoTableView(QTableView):
         """열 순서, 표시 여부를 기본값으로 되돌리고 열 폭을 내용 기준으로 재설정"""
         self._user_resized_name_col = False
         self._user_resized_cols.clear()
+        # - 폭도 기본으로 되돌리므로 숨긴 열에 기억해 둔 이전 조절 폭을 버림
+        self._last_col_widths.clear()
         header = self.filter_header
         self._programmatic_col_resize = True
         try:
@@ -499,9 +532,7 @@ class VideoTableView(QTableView):
                 result.append(ev)
         return result
 
-    def _on_selection_changed(
-        self, _selected: QItemSelection, _deselected: QItemSelection
-    ) -> None:
+    def _on_selection_changed(self, _selected: QItemSelection, _deselected: QItemSelection) -> None:
         if self._selection_sync_depth == 0:
             curr = frozenset(self.get_selected_filenames())
             prev = self._last_recorded_selection
@@ -532,22 +563,14 @@ class VideoTableView(QTableView):
     def _resolve_root_dir(self) -> str:
         return self._root_dir_provider() if self._root_dir_provider else ""
 
-    def _resolve_target_evals(
-        self, evals: list[VideoEvaluation] | None
-    ) -> list[VideoEvaluation]:
+    def _resolve_target_evals(self, evals: list[VideoEvaluation] | None) -> list[VideoEvaluation]:
         return evals if evals is not None else self.get_selected_evaluations()
 
-    def _resolve_root_and_targets(
-        self, evals: list[VideoEvaluation] | None
-    ) -> tuple[str, list[VideoEvaluation]]:
+    def _resolve_root_and_targets(self, evals: list[VideoEvaluation] | None) -> tuple[str, list[VideoEvaluation]]:
         root_dir = self._resolve_root_dir()
-        if not root_dir:
-            return "", []
-        return root_dir, self._resolve_target_evals(evals)
+        return (root_dir, self._resolve_target_evals(evals)) if root_dir else ("", [])
 
-    def _split_exception_stems(
-        self, evals: list[VideoEvaluation]
-    ) -> tuple[list[str], list[str]]:
+    def _split_exception_stems(self, evals: list[VideoEvaluation]) -> tuple[list[str], list[str]]:
         tokens = self._exceptions_provider() if self._exceptions_provider else []
         return split_exception_stems(evals, tokens)
 
@@ -598,40 +621,27 @@ class VideoTableView(QTableView):
         return self.video_path_at_row(self.currentIndex().row())
 
     def evaluation_at_path(self, path: str) -> VideoEvaluation | None:
-        """절대 경로가 가리키는 영상의 평가 결과, 표에 없으면 None
-
-        - 포커스 행과 무관하게 파일 자체로 찾아, 다른 창에서 연 영상의 정보를 맞출 때 씀
-        - 표 갱신마다 불리므로 목록과 작업 폴더가 같으면 만든 색인을 다시 씀
-        """
-        root_dir = self._resolve_root_dir()
-        evals = self.table_model.evaluations
+        """절대 경로가 가리키는 영상의 평가 결과, 목록과 작업 폴더가 같으면 만든 색인을 재사용"""
+        root_dir, evals = self._resolve_root_dir(), self.table_model.evaluations
         index = self._eval_path_index
         if index is None or self._eval_path_root != root_dir or self._eval_path_evals is not evals:
             index = EvaluationPathIndex(root_dir, evals)
-            self._eval_path_root = root_dir
-            self._eval_path_evals = evals
-            self._eval_path_index = index
+            self._eval_path_root, self._eval_path_evals, self._eval_path_index = root_dir, evals, index
         return index.find(path)
 
     def set_current_row(self, row: int) -> None:
         """선택 범위는 그대로 두고 포커스 행만 옮김"""
         sel_model = self.selectionModel()
-        if sel_model is None or not (0 <= row < self.group_model.rowCount()):
-            return
-        sel_model.setCurrentIndex(
-            self.group_model.index(row, 0), QItemSelectionModel.SelectionFlag.NoUpdate
-        )
+        if sel_model is not None and 0 <= row < self.group_model.rowCount():
+            sel_model.setCurrentIndex(self.group_model.index(row, 0), QItemSelectionModel.SelectionFlag.NoUpdate)
 
     def move_current_row(self, step: int) -> None:
         """포커스 행을 step만큼 옮기고 그 행 하나만 선택, 파일이 없는 행은 건너뜀"""
         move_current_video_row(self, step)
 
-    def moveCursor(
-        self, cursor_action: QAbstractItemView.CursorAction, modifiers: Qt.KeyboardModifier
-    ) -> QModelIndex:
+    def moveCursor(self, cursor_action: QAbstractItemView.CursorAction, modifiers: Qt.KeyboardModifier) -> QModelIndex:
         """키보드 이동 결과가 그룹 머리글 행이면 같은 방향의 영상 행으로 넘김"""
-        target = super().moveCursor(cursor_action, modifiers)
-        return cursor_index(self, target, cursor_action.value)
+        return cursor_index(self, super().moveCursor(cursor_action, modifiers), cursor_action.value)
 
     def reveal_selected(self, target: VideoEvaluation | None = None) -> bool:
         """선택된 첫 번째 영상(또는 지정 항목)의 위치를 탐색기에서 열어 표시"""
@@ -803,22 +813,14 @@ class VideoTableView(QTableView):
         return self._step_selection_history(forward=True)
 
     def top_visible_row_key(self) -> tuple[str, int] | None:
-        """뷰포트 맨 위 영상 행의 (파일명, 행 번호), 표가 비었으면 None
-
-        - 복원 기준이 살아 있는 동안에는 화면 위치가 아니라 기준 영상의 지금 행을 반환해
-          중간 행 재구성으로 스크롤이 어긋나도 저장 값이 다른 영상으로 바뀌지 않게 함
-        """
-        if (anchored := self.top_restore.current_key()) is not None:
-            return anchored
-        return top_row_key(self)
+        """뷰포트 맨 위 영상 행의 (파일명, 행 번호), 복원 기준이 살아 있으면 기준 영상의 현재 행 반환"""
+        return anchored if (anchored := self.top_restore.current_key()) is not None else top_row_key(self)
 
     def request_top_restore(self, filename: str, row: int) -> None:
         """다음 행 재구성 때 filename을 맨 위에 놓도록 예약하고, 이후 재구성도 같은 영상을 붙잡게 함"""
         self.top_restore.request(filename, row)
 
-    def set_manual_target_for(
-        self, evals: list[VideoEvaluation] | None = None, value: str | None = None
-    ) -> int:
+    def set_manual_target_for(self, evals: list[VideoEvaluation] | None = None, value: str | None = None) -> int:
         """대상 영상의 출력 해상도 직접 지정 변경을 시그널로 전달하고 대상 수 반환"""
         target = self._resolve_target_evals(evals)
         if not target:

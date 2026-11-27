@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
+from src.core.messages import ColumnId
 from src.core.settings.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
 from src.core.settings.ui_state import UiLayoutState
 from src.gui.constants import (
@@ -25,6 +26,7 @@ from src.gui.table.column_history import (
     COLUMN_PRESET_RESET_HISTORY_LABEL,
 )
 from src.gui.table.column_layout_state import (
+    NO_STORED_WIDTH,
     capture_column_layouts,
     decode_column_layouts,
     encode_column_layouts,
@@ -233,13 +235,102 @@ class PresetApplyTests(unittest.TestCase):
         self.assertEqual(_visual_columns(self.view), user_order)
         self.assertEqual(_hidden_columns(self.view), user_hidden)
         self.assertEqual(layout.column_preset, PRESET_QUALITY)
+        stored = decode_column_layouts(layout.column_preset_layouts[PRESET_QUALITY])
+        assert stored is not None
         self.assertEqual(
-            layout.table_header_state, layout.column_preset_layouts[PRESET_QUALITY]
+            {cid: (lay.order, lay.hidden) for cid, lay in stored.items()},
+            {
+                cid: (lay.order, lay.hidden)
+                for cid, lay in capture_column_layouts(self.view).items()
+            },
         )
-        self.assertEqual(
-            decode_column_layouts(layout.column_preset_layouts[PRESET_QUALITY]),
-            capture_column_layouts(self.view),
+        # - 프리셋 배치는 공용 열 폭을 담지 않으므로 폭 자리는 비워 둠
+        self.assertEqual({lay.width for lay in stored.values()}, {NO_STORED_WIDTH})
+        shared = decode_column_layouts(layout.table_header_state)
+        assert shared is not None
+        current = capture_column_layouts(self.view)
+        for cid, lay in current.items():
+            if not lay.hidden:
+                self.assertEqual(shared[cid].width, lay.width)
+
+    def test_switching_presets_keeps_the_shared_column_width(self) -> None:
+        """프리셋을 오가도 각 프리셋의 순서, 표시는 복원되고 사용자가 조절한 공용 열 폭은 유지되는지 검증"""
+        layout = UiLayoutState()
+        header = self.view.filter_header
+        header.moveSection(header.visualIndex(VideoTableModel.COL_REASON), 1)
+        self.view.setColumnHidden(VideoTableModel.COL_KEYFRAME, True)
+        store_preset_layout(self.view, layout, PRESET_DEFAULT)
+        default_order = _visual_columns(self.view)
+        default_hidden = _hidden_columns(self.view)
+
+        load_preset_layout(self.view, layout, PRESET_QUALITY)
+        self.view.setColumnWidth(VideoTableModel.COL_SAVED_SIZE, 155)
+        store_preset_layout(self.view, layout, PRESET_QUALITY)
+
+        load_preset_layout(self.view, layout, PRESET_DEFAULT)
+        self.assertEqual(_visual_columns(self.view), default_order)
+        self.assertEqual(_hidden_columns(self.view), default_hidden)
+        # - 저장된 기본 프리셋 배치는 폭을 담지 않으므로 화면의 공용 폭이 그대로 남음
+        default_layout = decode_column_layouts(
+            layout.column_preset_layouts[PRESET_DEFAULT]
         )
+        assert default_layout is not None
+        self.assertEqual(default_layout[ColumnId.SAVED_SIZE].width, NO_STORED_WIDTH)
+        self.assertEqual(self.view.columnWidth(VideoTableModel.COL_SAVED_SIZE), 155)
+
+    def test_switching_presets_keeps_the_width_of_a_column_the_other_preset_hides(self) -> None:
+        """열을 숨기는 프리셋을 거쳐 돌아와도 그 열의 사용자 폭이 유지되는지 검증"""
+        layout = UiLayoutState()
+        self.view.setColumnWidth(VideoTableModel.COL_CODEC, 220)
+        header = self.view.filter_header
+        header.moveSection(header.visualIndex(VideoTableModel.COL_REASON), 1)
+        store_preset_layout(self.view, layout, PRESET_DEFAULT)
+
+        # - 품질 프리셋은 CODEC 열을 숨기므로 거쳐 오는 동안 Qt가 그 폭을 0으로 보고함
+        load_preset_layout(self.view, layout, PRESET_QUALITY)
+        self.assertTrue(self.view.isColumnHidden(VideoTableModel.COL_CODEC))
+
+        load_preset_layout(self.view, layout, PRESET_DEFAULT)
+        self.assertFalse(self.view.isColumnHidden(VideoTableModel.COL_CODEC))
+        self.assertEqual(self.view.columnWidth(VideoTableModel.COL_CODEC), 220)
+
+    def test_storing_while_a_preset_hides_the_column_keeps_the_shared_width(self) -> None:
+        """숨긴 열이 있는 프리셋에서 저장해도 공용 열 상태의 폭이 0으로 덮이지 않는지 검증"""
+        layout = UiLayoutState()
+        self.view.setColumnWidth(VideoTableModel.COL_CODEC, 220)
+        load_preset_layout(self.view, layout, PRESET_QUALITY)
+        self.assertTrue(self.view.isColumnHidden(VideoTableModel.COL_CODEC))
+
+        store_preset_layout(self.view, layout, PRESET_QUALITY)
+
+        shared = decode_column_layouts(layout.table_header_state)
+        assert shared is not None
+        self.assertEqual(shared[ColumnId.CODEC].width, 220)
+        self.assertTrue(shared[ColumnId.CODEC].hidden)
+
+    def test_preset_layout_does_not_overwrite_the_shared_width(self) -> None:
+        """예전에 폭까지 저장한 프리셋 배치를 불러와도 공용 열 폭으로 덮어쓰지 않는지 검증"""
+        table = self.view
+        header = table.filter_header
+        header.moveSection(header.visualIndex(VideoTableModel.COL_REASON), 1)
+        table.setColumnHidden(VideoTableModel.COL_ROTATE, True)
+        table.setColumnWidth(VideoTableModel.COL_SAVED_SIZE, 60)
+        stale = capture_column_layouts(table)
+        expected_order = _visual_columns(table)
+
+        table.setColumnWidth(VideoTableModel.COL_SAVED_SIZE, 155)
+        layout = UiLayoutState(
+            table_header_state=encode_column_layouts(capture_column_layouts(table)),
+            column_preset=PRESET_SPECS,
+            column_preset_layouts={
+                PRESET_SPECS: encode_column_layouts(stale, include_widths=True)
+            },
+        )
+        load_preset_layout(table, layout, PRESET_SPECS)
+
+        self.assertEqual(_visual_columns(table), expected_order)
+        self.assertTrue(table.isColumnHidden(VideoTableModel.COL_ROTATE))
+        self.assertEqual(table.columnWidth(VideoTableModel.COL_SAVED_SIZE), 155)
 
     def test_load_without_stored_layout_falls_back_to_the_preset_default(self) -> None:
         """저장된 배치가 없는 프리셋을 불러오면 그 프리셋의 기본 배치가 되는지 검증"""
@@ -329,7 +420,32 @@ class LayoutMigrationAndStateTests(unittest.TestCase):
         self.assertFalse(table.isColumnHidden(VideoTableModel.COL_CODEC))
         self.assertEqual(layout.column_preset_layouts, {PRESET_DEFAULT: current})
 
-    def test_unreadable_layout_restores_the_active_preset_default(self) -> None:
+    def test_restore_uses_the_preset_order_and_the_shared_widths(self) -> None:
+        """창 복원이 프리셋 배치의 순서, 표시와 공용 열 상태의 폭을 함께 적용하는지 검증"""
+        window, table = self._window_and_table()
+        table.setColumnWidth(VideoTableModel.COL_CODEC, 155)
+        shared = encode_column_layouts(capture_column_layouts(table))
+        header = table.filter_header
+        header.moveSection(header.visualIndex(VideoTableModel.COL_REASON), 1)
+        table.setColumnHidden(VideoTableModel.COL_ROTATE, True)
+        preset = encode_column_layouts(
+            capture_column_layouts(table), include_widths=False
+        )
+        expected_order = _visual_columns(table)
+
+        layout = UiLayoutState(
+            table_header_state=shared,
+            column_preset=PRESET_SPECS,
+            column_preset_layouts={PRESET_SPECS: preset},
+        )
+        table.setColumnWidth(VideoTableModel.COL_CODEC, 60)
+        restore_window_ui_state(window, layout, table)
+
+        self.assertEqual(_visual_columns(table), expected_order)
+        self.assertTrue(table.isColumnHidden(VideoTableModel.COL_ROTATE))
+        self.assertEqual(table.columnWidth(VideoTableModel.COL_CODEC), 155)
+
+    def test_restore_falls_back_to_the_preset_default_for_an_unreadable_layout(self) -> None:
         """저장 배치를 해석할 수 없으면 활성 프리셋 기본 배치로 복원하는지 검증"""
         window, table = self._window_and_table()
         layout = UiLayoutState(
@@ -339,6 +455,33 @@ class LayoutMigrationAndStateTests(unittest.TestCase):
         self.assertEqual(_visual_columns(table), list(PRESET_COL_ORDERS[PRESET_SPECS]))
         self.assertEqual(_hidden_columns(table), hidden_columns_for_preset(PRESET_SPECS))
         self.assertEqual(layout.column_preset_layouts, {})
+
+    def test_restore_keeps_the_width_of_a_column_the_active_preset_hides(self) -> None:
+        """활성 프리셋이 숨긴 열의 공용 폭도 재시작 복원에 살아남는지 검증
+
+        - 복원 직후에는 그 프리셋이 열을 숨기므로 폭이 보이지 않지만, 다른 프리셋으로
+          돌아오면 사용자 폭이 그대로 나와야 함
+        """
+        _window, table = self._window_and_table()
+        table.setColumnWidth(VideoTableModel.COL_CODEC, 220)
+        shared = encode_column_layouts(capture_column_layouts(table))
+        apply_preset_default(table, PRESET_QUALITY)
+        quality_preset = encode_column_layouts(
+            capture_column_layouts(table), include_widths=False
+        )
+        layout = UiLayoutState(
+            table_header_state=shared,
+            column_preset=PRESET_QUALITY,
+            column_preset_layouts={PRESET_QUALITY: quality_preset},
+        )
+
+        restored_window, restored = self._window_and_table()
+        restore_window_ui_state(restored_window, layout, restored)
+        self.assertTrue(restored.isColumnHidden(VideoTableModel.COL_CODEC))
+
+        load_preset_layout(restored, layout, PRESET_DEFAULT)
+        self.assertFalse(restored.isColumnHidden(VideoTableModel.COL_CODEC))
+        self.assertEqual(restored.columnWidth(VideoTableModel.COL_CODEC), 220)
 
     def test_preset_layouts_round_trip_through_the_state_file(self) -> None:
         """프리셋 키별 배치와 활성 프리셋이 저장 문자열을 거쳐 그대로 복원되는지 검증"""
@@ -445,6 +588,25 @@ class PresetUserLayoutWindowTests(GuiTestCase):
         self.assertEqual(_visual_columns(view), user_order)
         self.assertEqual(mw._app_state.ui.layout.column_preset, PRESET_DEFAULT)
         self.assertEqual(mw.filter_bar.btn_column_preset.text(), "열: 기본")
+
+    def test_switching_presets_keeps_a_user_resized_shared_width(self) -> None:
+        """프리셋 A의 순서를 바꾼 뒤 프리셋 B에서 열 폭을 조절하고 A로 돌아오면 순서는 복원되고 폭은 공용으로 유지되는지 검증"""
+        mw = self._build_window()
+        view = mw.table_view
+        mw.table_display.apply_preset(PRESET_DEFAULT)
+        self._edit_layout(view, VideoTableModel.COL_REASON, 1)
+        user_order = _visual_columns(view)
+
+        mw.table_display.apply_preset(PRESET_SPECS)
+        view.setColumnWidth(VideoTableModel.COL_SIZE, 155)
+        view.filter_header.layout_edit_finished.emit()
+        shared = decode_column_layouts(mw._app_state.ui.layout.table_header_state)
+        assert shared is not None
+        self.assertEqual(shared[ColumnId.SIZE].width, 155)
+
+        mw.table_display.apply_preset(PRESET_DEFAULT)
+        self.assertEqual(_visual_columns(view), user_order)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_SIZE), 155)
 
     def test_window_sync_preset_updates_the_filter_bar_label(self) -> None:
         """숨김 열이 바뀐 뒤 창의 프리셋 동기화가 필터 바 열 프리셋 표시를 현재 배치에 맞추는지 검증"""

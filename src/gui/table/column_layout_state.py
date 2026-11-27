@@ -9,6 +9,8 @@ from src.gui.table.table_model import VideoTableModel
 from src.gui.table.video_table_view import VideoTableView
 
 COLUMN_STATE_VERSION: int = 2
+# - 프리셋별 배치는 폭을 담지 않으므로 폭 자리에 이 값을 기록하고 복원 때 건너뜀
+NO_STORED_WIDTH: int = 0
 
 # 저장 키는 ColumnId 값을 사용. 열 개수나 순서가 바뀌어도 열 단위로 대응해 기존 설정이 어긋나지 않음
 COL_INDEX_TO_ID: dict[int, ColumnId] = {
@@ -54,22 +56,34 @@ class ColumnLayout:
 
 
 def capture_column_layouts(table_view: VideoTableView) -> dict[ColumnId, ColumnLayout]:
-    """현재 테이블의 열 상태를 열 식별자별로 수집"""
+    """현재 테이블의 열 상태를 열 식별자별로 수집
+
+    - 숨긴 열은 Qt가 폭을 0으로 보고하므로 숨기기 전 폭을 써서 저장 폭이 지워지지 않게 함
+    """
     header = table_view.filter_header
     return {
         cid: ColumnLayout(
             order=header.visualIndex(col),
-            width=table_view.columnWidth(col),
+            width=table_view.column_width_for_state(col),
             hidden=table_view.isColumnHidden(col),
         )
         for col, cid in COL_INDEX_TO_ID.items()
     }
 
 
-def encode_column_layouts(layouts: dict[ColumnId, ColumnLayout]) -> str:
-    """열 상태를 열 키별 JSON 문자열로 직렬화"""
+def encode_column_layouts(
+    layouts: dict[ColumnId, ColumnLayout], *, include_widths: bool = True
+) -> str:
+    """열 상태를 열 키별 JSON 문자열로 직렬화
+
+    - 프리셋별 배치는 순서와 표시만 담으므로 include_widths를 끄면 폭 자리에 0을 기록
+    """
     columns = {
-        cid.value: {"order": lay.order, "width": lay.width, "hidden": lay.hidden}
+        cid.value: {
+            "order": lay.order,
+            "width": lay.width if include_widths else NO_STORED_WIDTH,
+            "hidden": lay.hidden,
+        }
         for cid, lay in layouts.items()
     }
     return json.dumps(
@@ -145,13 +159,17 @@ def apply_column_layouts(
     layouts: dict[ColumnId, ColumnLayout],
     *,
     reset_sort: bool = True,
+    apply_widths: bool = True,
 ) -> None:
     """저장된 열 상태를 테이블에 적용하고 저장되지 않은 열은 기본값으로 둠
 
     - 기본값 초기화를 먼저 수행해 누락된 열의 순서, 숨김, 폭을 채움
+    - apply_widths가 거짓이면 초기화로 바뀐 폭을 적용 전 폭으로 되돌려, 프리셋별 배치를 적용해도
+      공용 열 폭이 유지됨
     - 복원한 폭은 사용자 조절 폭으로 간주하고 이름 열 정책을 재적용
     - reset_sort가 참이면 정렬도 기본값으로 되돌림, 되돌리기는 정렬을 건드리지 않도록 거짓으로 호출
     """
+    kept_widths = None if apply_widths else _current_column_widths(table_view)
     table_view.reset_columns()
     header = table_view.filter_header
     for target_visual, col in enumerate(_ordered_columns(layouts)):
@@ -164,14 +182,47 @@ def apply_column_layouts(
     ]
     for col, layout in saved_cols:
         table_view.setColumnHidden(col, layout.hidden)
-    # 다른 열 폭 변경 시 이름 열 자동 맞춤이 재계산되므로 이름 열 폭은 마지막에 적용
-    for col, layout in sorted(saved_cols, key=lambda item: item[0] == VideoTableModel.COL_NAME):
-        table_view.setColumnWidth(col, layout.width)
 
     header.setSectionsMovable(True)
     header.setSectionsClickable(True)
     if reset_sort:
         table_view.reset_table_sort()
+    if kept_widths is not None:
+        _apply_width_values(table_view, kept_widths)
+    else:
+        apply_column_widths(table_view, layouts)
+
+
+def apply_column_widths(
+    table_view: VideoTableView, layouts: dict[ColumnId, ColumnLayout]
+) -> None:
+    """저장된 열 폭만 적용하고 복원한 폭을 사용자 조절 폭으로 간주
+
+    - 프리셋별 배치에는 폭이 없으므로, 폭은 공용 열 상태에서 따로 적용할 때 씀
+    """
+    _apply_width_values(
+        table_view,
+        {
+            col: layouts[cid].width
+            for col, cid in COL_INDEX_TO_ID.items()
+            if cid in layouts
+        },
+    )
+
+
+def _current_column_widths(table_view: VideoTableView) -> dict[int, int]:
+    """지금 화면의 열 폭, 숨긴 열은 숨기기 전 폭을 써서 공용 폭이 0으로 지워지지 않게 함"""
+    return {
+        col: table_view.column_width_for_state(col)
+        for col in range(table_view.table_model.columnCount())
+    }
+
+
+def _apply_width_values(table_view: VideoTableView, widths: dict[int, int]) -> None:
+    # - 이름 열 폭 변경 시 다른 열의 자동 맞춤이 재계산되므로 이름 열은 마지막에 적용
+    visible_widths = {col: width for col, width in widths.items() if width > 0}
+    for col in sorted(visible_widths, key=lambda item: item == VideoTableModel.COL_NAME):
+        table_view.restore_column_width(col, visible_widths[col])
     table_view.sync_name_column_user_resize_from_current()
     table_view.keep_restored_column_widths()
 

@@ -9,7 +9,9 @@ from src.core.config import ClassifierConfig
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.models import VideoEvaluation
 from src.core.settings.ui_state import UiLayoutState
+from src.gui.table.table_grouping import filename_at_row
 from src.gui.table.table_viewport_restore import (
+    FOCUS_RESTORE_SETTLE_MS,
     VIEWPORT_RESTORE_DEADLINE_MS,
     TableViewportRestoreController,
     attach_viewport_restore,
@@ -164,6 +166,74 @@ class TableViewportRestoreTests(GuiTestCase):
         fresh.release()
         self.assertIsNone(fresh.pending_left)
         self.assertEqual(self.view.currentIndex().row(), -1)
+
+    def test_focus_restores_when_saved_video_arrives_in_a_later_rebuild(self) -> None:
+        """저장한 포커스 영상이 첫 행 집합에 없다가 뒤 재구성에서 들어오면 그때 포커스를 옮김을 검증"""
+        self.controller.request(0, "f100.mp4")
+        self.view.table_model.set_data_source(self.evals[:10], root_dir=_ROOT_DIR)
+        _APP.processEvents()
+        self.assertNotEqual(self._current_filename(), "f100.mp4")
+
+        self.view.table_model.set_data_source(self.evals, root_dir=_ROOT_DIR)
+        _APP.processEvents()
+
+        self.assertEqual(self._current_filename(), "f100.mp4")
+
+    def test_focus_reservation_is_dropped_when_the_settle_timer_fires(self) -> None:
+        """정착 시간 타이머가 울리면 예약을 버려 뒤에 그 영상이 들어와도 포커스를 옮기지 않음을 검증"""
+        self.controller.request(0, "f100.mp4")
+        # - 저장한 영상이 없는 행 집합을 넣어 예약을 살린 채 정착 대기를 시작
+        self.view.table_model.set_data_source(self.evals[:10], root_dir=_ROOT_DIR)
+        _APP.processEvents()
+        deadline = self.controller._focus_deadline
+        self.assertTrue(deadline.isActive())
+        self.assertTrue(deadline.isSingleShot())
+        self.assertEqual(deadline.interval(), FOCUS_RESTORE_SETTLE_MS)
+
+        deadline.timeout.emit()
+
+        self.assertFalse(deadline.isActive())
+        self.view.table_model.set_data_source(self.evals, root_dir=_ROOT_DIR)
+        _APP.processEvents()
+
+        self.assertNotEqual(self._current_filename(), "f100.mp4")
+
+    def test_user_focus_change_drops_the_focus_reservation(self) -> None:
+        """포커스 예약이 남은 채 사용자가 다른 행을 고르면 그 예약을 버림을 검증
+
+        - 행이 이미 있으면 request가 곧바로 예약을 소비하므로, 저장한 영상이 없는 행 집합을
+          먼저 넣어 예약을 살려 둔 채 사용자 선택을 흉내 냄
+        """
+        self.controller.request(0, "f100.mp4")
+        self.view.table_model.set_data_source(self.evals[:10], root_dir=_ROOT_DIR)
+        _APP.processEvents()
+        self.assertNotEqual(self._current_filename(), "f100.mp4")
+        self.assertTrue(self.controller._focus_deadline.isActive())
+
+        self.view.set_current_row(3)
+
+        self.assertFalse(self.controller._focus_deadline.isActive())
+        self.view.table_model.set_data_source(self.evals, root_dir=_ROOT_DIR)
+        _APP.processEvents()
+
+        self.assertNotEqual(self._current_filename(), "f100.mp4")
+
+    def test_focus_settle_time_is_bounded(self) -> None:
+        """포커스 예약을 버리는 시각이 시작 복원 분석 간격보다 여유 있게 길지 않음을 검증"""
+        self.assertLessEqual(FOCUS_RESTORE_SETTLE_MS, 10_000)
+        self.assertGreater(FOCUS_RESTORE_SETTLE_MS, VIEWPORT_RESTORE_DEADLINE_MS)
+
+    def test_release_drops_the_focus_reservation(self) -> None:
+        """해제가 포커스 예약까지 버려 이후 재구성에서 포커스를 옮기지 않음을 검증"""
+        self.controller.request(0, "f042.mp4")
+        self.controller.release()
+
+        self._load()
+
+        self.assertNotEqual(self._current_filename(), "f042.mp4")
+
+    def _current_filename(self) -> str:
+        return filename_at_row(self.view, self.view.currentIndex().row())
 
 
 if __name__ == "__main__":

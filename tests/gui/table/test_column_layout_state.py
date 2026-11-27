@@ -7,14 +7,18 @@ import unittest
 from PyQt6.QtWidgets import QApplication
 
 from src.core.messages import ColumnId
+from src.gui.constants import PRESET_SPECS
 from src.gui.table.column_layout_state import (
     COL_INDEX_TO_ID,
+    NO_STORED_WIDTH,
     ColumnLayout,
     apply_column_layouts,
+    apply_column_widths,
     capture_column_layouts,
     decode_column_layouts,
     encode_column_layouts,
 )
+from src.gui.table.column_presets import apply_preset_default
 from src.gui.table.column_sizing import DEFAULT_COL_ORDER
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.video_table_view import VideoTableView
@@ -106,6 +110,64 @@ class ColumnLayoutApplyTests(GuiTestCase):
         self.assertEqual(
             view.isColumnHidden(VideoTableModel.COL_ROTATE),
             VideoTableModel.COL_ROTATE in VideoTableView.DEFAULT_HIDDEN_COLS,
+        )
+
+    def test_encode_without_widths_records_the_placeholder(self) -> None:
+        """폭을 빼고 직렬화하면 순서와 표시는 남고 폭은 자리 표시 값이 됨을 검증"""
+        layouts = _sample_layouts()
+        decoded = decode_column_layouts(
+            encode_column_layouts(layouts, include_widths=False)
+        )
+        assert decoded is not None
+        self.assertEqual(set(decoded), set(layouts))
+        for cid, layout in layouts.items():
+            self.assertEqual(decoded[cid].order, layout.order)
+            self.assertEqual(decoded[cid].hidden, layout.hidden)
+            self.assertEqual(decoded[cid].width, NO_STORED_WIDTH)
+
+    def test_apply_without_widths_keeps_the_current_column_widths(self) -> None:
+        """폭을 빼고 적용하면 저장된 순서, 표시만 바뀌고 지금 열 폭은 그대로임을 검증"""
+        view = VideoTableView()
+        view.setColumnWidth(VideoTableModel.COL_CODEC, 155)
+        name_width = view.columnWidth(VideoTableModel.COL_NAME)
+        view.filter_header.moveSection(
+            view.filter_header.visualIndex(VideoTableModel.COL_ACTION), 0
+        )
+        layouts = {
+            ColumnId.NAME: ColumnLayout(order=0, width=310, hidden=False),
+            ColumnId.SAVED_SIZE: ColumnLayout(order=1, width=120, hidden=True),
+        }
+        apply_column_layouts(view, layouts, apply_widths=False)
+        header = view.filter_header
+        self.assertEqual(header.visualIndex(VideoTableModel.COL_NAME), 0)
+        self.assertEqual(header.visualIndex(VideoTableModel.COL_SAVED_SIZE), 1)
+        self.assertTrue(view.isColumnHidden(VideoTableModel.COL_SAVED_SIZE))
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_CODEC), 155)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), name_width)
+        # - 되돌린 폭은 사용자 조절 폭으로 간주해 내용 폭 재계산에서 줄이지 않음
+        self.assertIn(VideoTableModel.COL_CODEC, view._user_resized_cols)
+
+    def test_apply_widths_only_changes_column_widths(self) -> None:
+        """폭만 적용하면 지금 열 순서와 표시는 그대로이고 저장된 폭만 반영됨을 검증"""
+        view = VideoTableView()
+        apply_preset_default(view, PRESET_SPECS)
+        order = [
+            view.filter_header.logicalIndex(index)
+            for index in range(view.table_model.columnCount())
+        ]
+        layouts = {
+            ColumnId.NAME: ColumnLayout(order=0, width=310, hidden=False),
+            ColumnId.ACTION: ColumnLayout(order=1, width=120, hidden=False),
+        }
+        apply_column_widths(view, layouts)
+        self.assertEqual(view.columnWidth(VideoTableModel.COL_NAME), 310)
+        self.assertFalse(view.isColumnHidden(VideoTableModel.COL_CODEC))
+        self.assertEqual(
+            [
+                view.filter_header.logicalIndex(index)
+                for index in range(view.table_model.columnCount())
+            ],
+            order,
         )
 
     def test_capture_apply_round_trip_restores_table_state(self) -> None:

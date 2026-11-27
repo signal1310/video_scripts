@@ -16,8 +16,8 @@ from tests._factories import make_eval, make_video
 _ROOT_DIR: str = "C:/work"
 
 
-def _make_group_model() -> VideoGroupProxyModel:
-    """폴더와 코덱이 다른 표본으로 연결한 그룹 프록시"""
+def _make_chain() -> tuple[VideoSortFilterProxyModel, VideoGroupProxyModel]:
+    """폴더와 코덱이 다른 표본으로 연결한 필터 프록시와 그룹 프록시"""
     model = VideoTableModel(config=ClassifierConfig())
     model.set_data_source(
         [
@@ -31,14 +31,14 @@ def _make_group_model() -> VideoGroupProxyModel:
     proxy.setSourceModel(model)
     group = VideoGroupProxyModel()
     group.setSourceModel(proxy)
-    return group
+    return proxy, group
 
 
 class CollapsedGroupStoreTests(unittest.TestCase):
     """접힘 저장소가 묶기 키별 이름을 주고받고 초기화에 저장값까지 비우는지 검증"""
 
     def setUp(self) -> None:
-        self.group = _make_group_model()
+        self.proxy, self.group = _make_chain()
         self.ui = UiState()
         self.store = CollapsedGroupStore(self.group, self.ui)
 
@@ -53,6 +53,20 @@ class CollapsedGroupStoreTests(unittest.TestCase):
         self.group.expand_all_groups()
         self.store.store()
         self.assertEqual(self.ui.filters.collapsed_groups, {})
+
+    def test_store_keeps_a_group_hidden_by_search_when_another_is_toggled(self) -> None:
+        """검색으로 숨은 그룹의 접힘이 다른 그룹을 접었을 때 저장에서 빠지지 않는지 검증"""
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        self.ui.filters.collapsed_groups = {GROUP_BY_FOLDER: ["a"]}
+        # - 검색으로 a 그룹 행이 없으면 a의 접힘은 예약으로만 남음
+        self.proxy.set_search_text("three")
+        self.store.restore()
+        self.assertEqual(self.group.collapsed_labels, [])
+
+        self.group.toggle_group(0)
+        self.store.store()
+
+        self.assertEqual(self.ui.filters.collapsed_groups, {GROUP_BY_FOLDER: ["a", "b"]})
 
     def test_store_does_not_touch_other_group_keys(self) -> None:
         """다른 묶기 키에 남은 이름을 지우지 않고 이번 키만 다시 쓰는지 검증"""

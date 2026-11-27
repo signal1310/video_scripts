@@ -255,7 +255,7 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         layouts = decode_column_layouts(mw._app_state.ui.layout.table_header_state)
         assert layouts is not None
         for col, cid in COL_INDEX_TO_ID.items():
-            self.assertEqual(layouts[cid].width, mw.table_view.columnWidth(col))
+            self.assertEqual(layouts[cid].width, mw.table_view.column_width_for_state(col))
 
     def test_startup_restores_persisted_compact_table(self) -> None:
         """저장된 좁게 보기 설정을 시작 시 표, 필터 바, 보기 메뉴에 함께 복원하는지 검증"""

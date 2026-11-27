@@ -143,13 +143,16 @@ def apply_preset_default(table_view: VideoTableView, preset_key: str) -> None:
 def load_preset_layout(
     table_view: VideoTableView, layout: UiLayoutState, preset_key: str
 ) -> None:
-    """프리셋에 저장된 사용자 배치를 적용하고, 없으면 프리셋 기본 배치를 적용"""
+    """프리셋에 저장된 사용자 배치를 적용하고, 없으면 프리셋 기본 배치를 적용
+
+    - 프리셋 배치는 순서와 표시만 담으므로 열 폭은 지금 화면의 공용 폭을 그대로 둠
+    """
     stored = layout.column_preset_layouts.get(preset_key)
     layouts = decode_column_layouts(stored) if stored else None
     if layouts is None:
         apply_preset_default(table_view, preset_key)
         return
-    apply_column_layouts(table_view, layouts, reset_sort=False)
+    apply_column_layouts(table_view, layouts, reset_sort=False, apply_widths=False)
 
 
 def store_preset_layout(
@@ -160,11 +163,13 @@ def store_preset_layout(
     - 순서와 표시가 프리셋 기본 배치와 같으면 사용자 배치를 지워, 기본 배치로 되돌린 뒤 저장 키가 되살아나지 않게 함
     - 열 폭은 프리셋마다 따로 두지 않고 이전 형식 호환용 열 상태에만 남김
     """
-    encoded = encode_column_layouts(capture_column_layouts(table_view))
+    layouts = capture_column_layouts(table_view)
     layout.column_preset = preset_key
-    layout.table_header_state = encoded
+    layout.table_header_state = encode_column_layouts(layouts)
     if is_preset_default_layout(table_view, preset_key):
         layout.column_preset_layouts.pop(preset_key, None)
         return
-    layout.column_preset_layouts[preset_key] = encoded
+    layout.column_preset_layouts[preset_key] = encode_column_layouts(
+        layouts, include_widths=False
+    )
 

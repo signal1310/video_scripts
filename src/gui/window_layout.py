@@ -43,6 +43,7 @@ from src.gui.table.column_history import (
 )
 from src.gui.table.column_layout_state import (
     apply_column_layouts,
+    apply_column_widths,
     capture_column_layouts,
     decode_column_layouts,
     encode_column_layouts,
@@ -328,16 +329,32 @@ def restore_window_ui_state(
             window.restoreGeometry(geom)
     table_view.request_top_restore(layout.table_top_filename, layout.table_top_row)
     # - 열 상태 복원이 열 폭을 바꾸므로 가로 스크롤과 포커스 복원은 그 뒤에 연결
-    saved = layout.column_preset_layouts.get(layout.column_preset) or layout.table_header_state
-    layouts = decode_column_layouts(saved) if saved else None
-    if layouts is None:
-        table_view.reset_columns()
-        apply_preset_default(table_view, layout.column_preset)
-    else:
-        apply_column_layouts(table_view, layouts, reset_sort=False)
+    saved = layout.column_preset_layouts.get(layout.column_preset)
+    preset_layouts = decode_column_layouts(saved) if saved else None
+    shared_layouts = (
+        decode_column_layouts(layout.table_header_state)
+        if layout.table_header_state
+        else None
+    )
+    if preset_layouts is not None:
+        # - 프리셋 배치는 순서와 표시만 담으므로 폭은 공용 열 상태에서 따로 적용하고,
+        #   공용 열 상태가 없으면 예전 형식처럼 프리셋 배치의 폭을 씀
+        apply_column_layouts(
+            table_view,
+            preset_layouts,
+            reset_sort=False,
+            apply_widths=shared_layouts is None,
+        )
+        if shared_layouts is not None:
+            apply_column_widths(table_view, shared_layouts)
+    elif shared_layouts is not None:
+        apply_column_layouts(table_view, shared_layouts, reset_sort=False)
         if not layout.column_preset_layouts:
             # - 이전 형식의 열 상태를 활성 프리셋 사용자 배치로 옮겨 저장 배치를 잃지 않게 함
-            layout.column_preset_layouts[layout.column_preset] = saved
+            layout.column_preset_layouts[layout.column_preset] = layout.table_header_state
+    else:
+        table_view.reset_columns()
+        apply_preset_default(table_view, layout.column_preset)
     attach_viewport_restore(table_view, layout)
 
 

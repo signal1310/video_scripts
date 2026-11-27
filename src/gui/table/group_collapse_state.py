@@ -28,10 +28,13 @@ class CollapsedGroupStore:
         )
 
     def store(self) -> None:
-        """지금 묶기 키의 접힌 그룹 이름만 갱신하고 다른 키의 이름은 그대로 둠"""
+        """지금 묶기 키의 접힌 그룹 이름만 갱신하고 다른 키의 이름은 그대로 둠
+
+        - 아직 행이 없어 적용하지 못한 예약 이름도 저장해, 그사이 다른 그룹을 접어도 남게 함
+        """
         filters = self._ui.filters
         key = self._model.group_by
-        labels = [] if key == GROUP_BY_NONE else self._model.collapsed_labels
+        labels = [] if key == GROUP_BY_NONE else self._model.saved_collapsed_labels
         store = {group_key: list(names) for group_key, names in filters.collapsed_groups.items()}
         if labels:
             store[key] = labels

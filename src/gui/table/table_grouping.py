@@ -188,6 +188,17 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         """
         return sorted(self._collapsed)[:MAX_COLLAPSED_GROUP_LABELS]
 
+    @property
+    def saved_collapsed_labels(self) -> list[str]:
+        """저장할 접힌 그룹 이름, 아직 행이 없어 적용하지 못한 예약 이름도 포함
+
+        - 검색으로 숨겨진 그룹의 이름을 저장 목록에서 빠뜨리면, 그사이 다른 그룹을 접었을 때
+          그 접힘이 저장에서 사라져 검색을 풀면 펼쳐진 채로 나타남
+        """
+        labels = set(self._collapsed)
+        labels.update(self._pending_collapsed or ())
+        return sorted(labels)[:MAX_COLLAPSED_GROUP_LABELS]
+
     def set_collapsed_labels(self, labels: Sequence[str]) -> None:
         """저장한 접힌 그룹 이름을 적용하고 아직 없는 이름은 다음 그룹 구성 때 반영
 
@@ -527,12 +538,16 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         return self._groups[self._rows[row][1]].label in self._collapsed
 
     def toggle_group(self, row: int) -> None:
-        """그룹 머리글 행의 접힘 상태를 뒤집고 행 구성을 다시 만듦"""
+        """그룹 머리글 행의 접힘 상태를 뒤집고 행 구성을 다시 만듦
+
+        - 사용자가 직접 접고 펴는 그룹만 바꾸고, 아직 행이 없어 적용하지 못한 다른 그룹의
+          복원 예약은 그대로 두어 저장 목록에서 사라지지 않게 함
+        """
         if not self.is_group_row(row):
             return
-        # - 사용자가 직접 접고 펴면 복원 예약은 끝난 것으로 보고 남은 이름을 버림
-        self._pending_collapsed = None
         label = self._groups[self._rows[row][1]].label
+        if self._pending_collapsed is not None:
+            self._pending_collapsed.discard(label)
         if label in self._collapsed:
             self._collapsed.discard(label)
         else:

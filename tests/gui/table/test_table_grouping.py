@@ -82,6 +82,16 @@ def _sample_evals() -> list[VideoEvaluation]:
     ]
 
 
+def _header_row(group: VideoGroupProxyModel, prefix: str) -> int:
+    """그룹 머리글 행 중 표시 이름이 prefix로 시작하는 첫 행"""
+    for row in range(group.rowCount()):
+        if group.is_group_row(row):
+            text = str(group.index(row, 0).data(Qt.ItemDataRole.DisplayRole))
+            if text.startswith(prefix):
+                return row
+    raise AssertionError(f"그룹 머리글을 찾지 못함: {prefix}")
+
+
 class VideoGroupProxyModelTests(unittest.TestCase):
     """묶기 없음 통과, 폴더와 열 묶기, 접기와 공개 동작 검증"""
 
@@ -325,6 +335,34 @@ class VideoGroupProxyModelTests(unittest.TestCase):
             root_dir=_ROOT_DIR,
         )
         self.assertEqual(self.group.collapsed_labels, ["b", "나중에 생길 그룹"])
+
+    def test_toggle_keeps_the_reservation_of_a_group_hidden_by_search(self) -> None:
+        """검색으로 행이 없는 그룹의 접힘 예약이 다른 그룹을 접어도 남는지 검증"""
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        self.proxy.set_search_text("three")
+        self.group.set_collapsed_labels(["a"])
+        self.assertEqual(self.group.saved_collapsed_labels, ["a"])
+
+        self.group.toggle_group(0)
+
+        self.assertEqual(self.group.saved_collapsed_labels, ["a", "b"])
+        self.proxy.set_search_text("")
+        self.assertEqual(self.group.collapsed_labels, ["a", "b"])
+
+    def test_toggle_of_a_reserved_group_clears_its_reservation(self) -> None:
+        """예약으로 남은 그룹을 사용자가 직접 펼치면 그 예약이 사라지는지 검증"""
+        self.group.set_group_by(GROUP_BY_FOLDER)
+        self.proxy.set_search_text("three")
+        self.group.set_collapsed_labels(["a"])
+        self.proxy.set_search_text("")
+        # - 검색을 풀면 예약이 적용되어 a 그룹 머리글이 접힌 채로 나타남
+        header_row = _header_row(self.group, "a ")
+        self.assertTrue(self.group.is_collapsed_row(header_row))
+
+        self.group.toggle_group(header_row)
+
+        self.assertEqual(self.group.collapsed_labels, [])
+        self.assertEqual(self.group.saved_collapsed_labels, [])
 
     def test_filtering_and_sorting_keep_group_order(self) -> None:
         self.group.set_group_by(f"{GROUP_BY_COLUMN_PREFIX}{VideoTableModel.COL_CODEC}")
@@ -747,16 +785,19 @@ class CollapsedGroupPersistenceTests(unittest.TestCase):
         self.view.table_model.set_data_source(_sample_evals(), root_dir="C:/other")
         self.assertEqual(self.view.group_model.collapsed_labels, [])
 
-    def test_user_toggle_drops_pending_restore_names(self) -> None:
-        """사용자가 그룹을 직접 접으면 남은 복원 예약을 버리는지 검증"""
+    def test_user_toggle_keeps_other_pending_restore_names(self) -> None:
+        """사용자가 한 그룹을 직접 접거나 펴도 다른 그룹의 복원 예약은 남는지 검증"""
         self.ui.filters.group_by = GROUP_BY_FOLDER
         self.ui.filters.collapsed_groups = {GROUP_BY_FOLDER: ["a", "b"]}
         self.view.table_model.set_data_source([], root_dir=_ROOT_DIR)
         self.coordinator.sync_from_state()
         self.view.table_model.set_data_source(_sample_evals()[:2], root_dir=_ROOT_DIR)
+        self.assertEqual(self.view.group_model.collapsed_labels, ["a"])
+
         self.view.group_model.toggle_group(0)
+
         self.view.table_model.set_data_source(_sample_evals(), root_dir=_ROOT_DIR)
-        self.assertEqual(self.view.group_model.collapsed_labels, [])
+        self.assertEqual(self.view.group_model.collapsed_labels, ["b"])
 
     def test_switching_group_by_does_not_apply_other_labels(self) -> None:
         """폴더 묶기에서 접은 이름이 열 묶기 그룹에 적용되지 않는지 검증"""

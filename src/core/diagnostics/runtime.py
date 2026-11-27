@@ -191,7 +191,7 @@ def _build_pending_report(
             target, previous, breadcrumbs=read_breadcrumb_lines(breadcrumbs_path(target)), now=now
         )
     except OSError:
-        logger.warning("이전 실행 진단 보고서를 만들지 못했습니다", exc_info=True)
+        logger.warning("이전 실행 비정상 종료 보고서를 만들지 못했습니다", exc_info=True)
         return None
 
 

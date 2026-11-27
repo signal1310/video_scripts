@@ -17,10 +17,10 @@ from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
 
-NOTICE_TEXT: str = "이전 실행이 정상적으로 끝나지 않았습니다. 진단 보고서를 저장했습니다."
-NOTICE_TOOLTIP: str = "마지막 실행의 로그와 스택을 모아 둔 진단 보고서입니다."
-OPEN_FOLDER_TOOLTIP: str = "이전 실행 진단 보고서 폴더를 엽니다."
-OPEN_FOLDER_NAME: str = "진단 보고서 폴더 열기"
+NOTICE_TEXT: str = "이전 실행이 정상적으로 끝나지 않았습니다. 비정상 종료 보고서를 저장했습니다."
+NOTICE_TOOLTIP: str = "마지막 실행의 로그와 스택을 모아 둔 비정상 종료 보고서입니다."
+OPEN_FOLDER_TOOLTIP: str = "이전 실행 비정상 종료 보고서 폴더를 엽니다."
+OPEN_FOLDER_NAME: str = "비정상 종료 보고서 폴더 열기"
 DISMISS_TOOLTIP: str = "이 안내를 닫습니다."
 DISMISS_NAME: str = "안내 닫기"
 _NOTICE_ICON_SIZE: int = 16

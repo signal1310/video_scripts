@@ -222,6 +222,8 @@ class TestCrashReportAssembly(unittest.TestCase):
             ),
         )
         self.assertIn("이전 실행이 정상적으로 끝나지 않아", report_text)
+        self.assertIn("비정상 종료 보고서", report_text)
+        self.assertNotIn("진단 보고서", report_text)
         self.assertIn("로컬 파일 경로", report_text)
         self.assertIn("이전 실행 PID: 1234", report_text)
         self.assertIn("[마지막 앱 로그]", report_text)

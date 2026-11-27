@@ -27,7 +27,7 @@ DEVELOPER_MODE_CHOICES: tuple[tuple[str, bool], ...] = (
 )
 ACTION_BUTTON_SIZE: int = 26
 ACTION_BUTTON_SPACING: int = 6
-OPEN_FOLDER_TOOLTIP: str = "진단 로그와 진단 보고서가 저장된 data/logs 폴더를 엽니다."
+OPEN_FOLDER_TOOLTIP: str = "진단 로그와 비정상 종료 보고서, 진단 보고서 zip이 저장된 data/logs 폴더를 엽니다."
 OPEN_FOLDER_ACCESSIBLE_NAME: str = "진단 폴더 열기"
 CREATE_REPORT_TOOLTIP: str = (
     "지금까지의 로그와 실행 환경을 모아 data/logs에 진단 보고서 zip을 만듭니다. "

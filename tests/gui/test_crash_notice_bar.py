@@ -34,6 +34,16 @@ class TestCrashNoticeBar(unittest.TestCase):
         self.assertEqual(open_button.toolTip(), OPEN_FOLDER_TOOLTIP)
         self.assertEqual(open_button.text(), "")
 
+    def test_notice_text_uses_crash_report_term_only(self) -> None:
+        """안내 막대 문구가 비정상 종료 보고서만 가리키고 진단 보고서를 쓰지 않는지 검증"""
+        bar = CrashNoticeBar()
+        self.addCleanup(bar.deleteLater)
+        text = bar._label.text()
+        self.assertIn("비정상 종료 보고서", text)
+        self.assertNotIn("진단 보고서", text)
+        self.assertEqual(OPEN_FOLDER_NAME, "비정상 종료 보고서 폴더 열기")
+        self.assertIn("비정상 종료 보고서", OPEN_FOLDER_TOOLTIP)
+
     def test_open_button_emits_folder_request(self) -> None:
         """폴더 열기 버튼이 신호를 내보내는지 검증"""
         bar = CrashNoticeBar()

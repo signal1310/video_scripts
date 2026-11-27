@@ -111,6 +111,122 @@ class ProxyModelTests(unittest.TestCase):
         self.assertEqual(counts[STATUS_DONE], 1)
         self.assertEqual(counts[""], 1)
 
+    def test_review_only_chip_filters_flagged_rows(self) -> None:
+        """여백 확인 필요 칩이 켜지면 표시된 영상만 남기고 검색과 함께 AND로 거르는지 검증"""
+        from src.core.analysis.frame_analysis import ActiveRegion
+        from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
+
+        flagged = FrameAnalysisResult(
+            active_region=ActiveRegion(1836, 1008, 42, 36, True, dark_outliers_ignored=True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        model = VideoTableModel(config=ClassifierConfig())
+        model.set_data_source(
+            [make_eval(video=make_video(filename="a.mp4")), make_eval(video=make_video(filename="b.mp4"))],
+            root_dir="C:/work",
+        )
+        model.set_frame_analysis_results({"a.mp4": flagged})
+        model.set_review_flagged(["a.mp4"])
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        proxy.set_review_only(True)
+        self.assertEqual([ev.video.filename for ev in proxy.iter_visible_evaluations()], ["a.mp4"])
+        self.assertTrue(proxy.is_any_filter_active())
+        proxy.set_search_text("b.mp4")
+        self.assertEqual(proxy.iter_visible_evaluations(), [])
+        proxy.set_search_text("")
+        proxy.set_review_only(False)
+        self.assertEqual(
+            [ev.video.filename for ev in proxy.iter_visible_evaluations()], ["a.mp4", "b.mp4"]
+        )
+        self.assertFalse(proxy.review_only)
+
+    def test_active_frame_filter_matches_size_or_review_name(self) -> None:
+        """활성 화면 열 필터가 크기와 여백 확인 필요 값 중 하나만 골라도 그 행을 남기는지 검증"""
+        from src.core.analysis.frame_analysis import ActiveRegion
+        from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
+
+        flagged = FrameAnalysisResult(
+            active_region=ActiveRegion(1836, 1008, 42, 36, True, dark_outliers_ignored=True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        model = VideoTableModel(config=ClassifierConfig())
+        model.set_data_source(
+            [make_eval(video=make_video(filename="a.mp4")), make_eval(video=make_video(filename="b.mp4"))],
+            root_dir="C:/work",
+        )
+        model.set_frame_analysis_results({"a.mp4": flagged})
+        model.set_review_flagged(["a.mp4"])
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        proxy.set_column_filter(
+            VideoTableModel.COL_ACTIVE_FRAME,
+            ColumnFilterRule(selected_values=frozenset({"여백 확인 필요"})),
+        )
+        self.assertEqual([ev.video.filename for ev in proxy.iter_visible_evaluations()], ["a.mp4"])
+        proxy.set_column_filter(
+            VideoTableModel.COL_ACTIVE_FRAME,
+            ColumnFilterRule(selected_values=frozenset({"1836x1008"})),
+        )
+        self.assertEqual([ev.video.filename for ev in proxy.iter_visible_evaluations()], ["a.mp4"])
+        proxy.set_column_filter(
+            VideoTableModel.COL_ACTIVE_FRAME,
+            ColumnFilterRule(selected_values=frozenset({"1836x1008", ""})),
+        )
+        self.assertEqual(
+            [ev.video.filename for ev in proxy.iter_visible_evaluations()], ["a.mp4", "b.mp4"]
+        )
+
+
+    def test_refilter_reapplies_the_review_chip_after_flags_change(self) -> None:
+        """표시 집합이 바뀐 뒤 refilter를 부르면 칩 필터가 새 집합으로 다시 거르는지 검증"""
+        model = VideoTableModel(config=ClassifierConfig())
+        model.set_data_source(
+            [make_eval(video=make_video(filename="a.mp4")), make_eval(video=make_video(filename="b.mp4"))],
+            root_dir="C:/work",
+        )
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        proxy.set_review_only(True)
+        self.assertEqual(proxy.iter_visible_evaluations(), [])
+        # - 표 모델의 신호가 프록시 refilter를 부르는 경로를 직접 재현
+        model.review_flags_changed.connect(proxy.refilter)
+        model.set_review_flagged(["b.mp4"])
+        self.assertEqual(
+            [ev.video.filename for ev in proxy.iter_visible_evaluations()], ["b.mp4"]
+        )
+
+
+class ProxyModelFilterHintTests(unittest.TestCase):
+    """필터 활성 여부가 검색, 열 필터, 여백 확인 필요 칩을 모두 반영하는지 검증"""
+
+    def test_any_filter_active_counts_the_review_chip(self) -> None:
+        model = VideoTableModel(config=ClassifierConfig())
+        model.set_data_source(
+            [make_eval(video=make_video(filename="a.mp4"))], root_dir="C:/work"
+        )
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        self.assertFalse(proxy.is_any_filter_active())
+        proxy.set_review_only(True)
+        self.assertTrue(proxy.is_any_filter_active())
+        proxy.set_review_only(False)
+        self.assertFalse(proxy.is_any_filter_active())
+
 
 if __name__ == "__main__":
     unittest.main()

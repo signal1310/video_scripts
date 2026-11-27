@@ -159,14 +159,21 @@ class _ProxyModel:
         self.sort_stack: list[object] = []
         self.filter_active: bool = False
         self.cleared: int = 0
+        self.review_only: bool = False
+        self.review_calls: list[bool] = []
 
     def is_any_filter_active(self) -> bool:
-        """열 필터 사용 여부"""
-        return self.filter_active
+        """검색어, 열 필터, 여백 확인 필요 칩 중 하나라도 켜졌는지"""
+        return self.filter_active or self.review_only
 
     def clear_all_column_filters(self) -> None:
         """열 필터 지우기 횟수 기록"""
         self.cleared += 1
+
+    def set_review_only(self, enabled: bool) -> None:
+        """여백 확인 필요 보기 필터 적용 기록"""
+        self.review_only = enabled
+        self.review_calls.append(enabled)
 
 
 class _FilterBar:
@@ -178,6 +185,11 @@ class _FilterBar:
         self.exception_tokens: list[str] = []
         self.disabled_exception_count: int = -1
         self.row_group: tuple[str, str, int] | None = None
+        self.review_filter_cleared: int = 0
+
+    def clear_review_filter(self) -> None:
+        """여백 확인 필요 칩 해제 횟수 기록"""
+        self.review_filter_cleared += 1
 
     def set_row_group(self, group_by: str, *, label: str, count: int) -> None:
         """행 묶기 버튼 글자 반영"""
@@ -933,18 +945,23 @@ class UiResetsTest(unittest.TestCase):
         self.assertEqual(self.window.table_view.hidden, specs_hidden)
 
     def test_sort_group_filters_are_cleared(self) -> None:
-        """정렬, 그룹, 필터, 검색어와 저장 상태를 모두 지우는지 검증"""
+        """정렬, 그룹, 필터, 검색어, 여백 확인 필요 칩과 저장 상태를 모두 지우는지 검증"""
         state = self.window._session.state
         state.ui.filters.search = "clip"
         state.ui.filters.columns = {"name": ColumnFilterSnapshot(text_query="a")}
         state.ui.filters.sort_keys = [("name", True)]
         self.window.table_view.group_model.group_by = "folder"
+        self.window.proxy_model.set_review_only(True)
         self.controller._reset_sort_group()
         self.assertEqual(self.window.table_view.reset_calls, 1)
         self.assertEqual(self.window.table_view.group_model.group_by, "")
         self.assertEqual(self.window.table_view.group_model.expanded, 1)
         self.assertEqual(self.window.filter_bar.row_group, ("", "", 0))
         self.assertEqual(self.window.proxy_model.cleared, 1)
+        # - 칩은 시그널 없이 꺼지므로 프록시 보기 필터도 함께 풀려야 표가 걸러진 채 남지 않음
+        self.assertEqual(self.window.filter_bar.review_filter_cleared, 1)
+        self.assertFalse(self.window.proxy_model.review_only)
+        self.assertFalse(self.controller._sort_group_changed())
         self.assertEqual(self.window.filter_bar.search_edit.text(), "")
         self.assertEqual(state.ui.filters.search, "")
         self.assertEqual(state.ui.filters.columns, {})

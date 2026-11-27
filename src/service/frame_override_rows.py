@@ -16,7 +16,7 @@ import os
 import sqlite3
 from collections.abc import Mapping, Sequence
 
-from src.core.analysis.frame_analysis import normalize_manual_active_frame
+from src.core.analysis.frame_analysis import ActiveRegion, normalize_manual_active_frame
 from src.core.models import ActiveFrame
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,16 @@ MANUAL_FRAME_MATCH_COLUMNS: tuple[str, ...] = (
     "manual_height",
     "manual_x",
     "manual_y",
+    "filesize_bytes",
+    "mtime_ns",
+)
+# - 여백 확인 표시에서 지울 행을 고를 때 비교할 열. 값 순서는 `validated_review_ack_rows`가 돌려주는 값과 같음
+REVIEW_ACK_MATCH_COLUMNS: tuple[str, ...] = (
+    "source_path",
+    "region_width",
+    "region_height",
+    "region_x",
+    "region_y",
     "filesize_bytes",
     "mtime_ns",
 )
@@ -222,6 +232,54 @@ def validated_crop_exclusion_rows(
         if stamp is not None and override is None:
             stamped.append(stamp)
     return kept, stamped
+
+
+def review_region_box(region: ActiveRegion) -> tuple[int, int, int, int]:
+    """확인 표시를 비교할 활성 화면 사각형(너비, 높이, x, y)
+
+    - 플래그(margins_vary, dark_outliers_ignored)는 비교에서 빼고 자리만 봄
+    """
+    return (region.width, region.height, region.x, region.y)
+
+
+def validated_review_ack_rows(
+    rows: Sequence[Sequence[object]],
+    regions: Mapping[str, tuple[int, int, int, int]],
+    *,
+    identity_overrides: Mapping[str, tuple[int, int]] | None = None,
+) -> tuple[list[str], list[Sequence[object]], list[tuple[int, int, str]]]:
+    """저장된 여백 확인 표시 행 중 지금도 유효한 경로만 남김
+
+    - 반환: 유지할 경로, 지울 행(조회 때 읽은 값 그대로), 지금 식별 값을 채울 (크기, 수정 시각, 경로)
+    - 확인 표시는 파일이 바뀌면 되돌려야 하므로, 식별 값이 지금 파일과 다른 행은 그 조회에서 건너뛰고 지움
+    - 자동 감지 영역이 저장 값과 달라졌으면 새 분석이 다른 영역으로 같은 경고를 냈다는 뜻이므로 지움
+    - 영역을 모르는 경로(분석 결과 없음)는 비교할 수 없어 지움
+    - `identity_overrides`의 처리는 `validated_manual_rows`와 같음. 다른 파일을 띄우는 조회에서 식별 값이
+      맞지 않는 행은 결과 파일용 확인 표시일 수 있어 지우지 않고 그 조회에서만 건너뜀
+    """
+    kept: list[str] = []
+    dropped: list[Sequence[object]] = []
+    stamped: list[tuple[int, int, str]] = []
+    for row in rows:
+        path = str(row[0])
+        stored = (row_int(row[1]), row_int(row[2]), row_int(row[3]), row_int(row[4]))
+        override = None if identity_overrides is None else identity_overrides.get(path)
+        stale, stamp, _readable = identity_check(
+            path, optional_int(row[5]), optional_int(row[6]), override
+        )
+        if stale or regions.get(path) != stored:
+            # - 다른 파일을 띄우는 조회는 행 소유 파일과 맞춰 보는 것이 아니므로 지우지 않고 건너뜀
+            if override is None:
+                dropped.append(row)
+            else:
+                logger.debug(
+                    "여백 확인 표시를 건너뜁니다. 띄우는 파일과 저장 값이 다릅니다: %s", path
+                )
+            continue
+        kept.append(path)
+        if stamp is not None and override is None:
+            stamped.append(stamp)
+    return kept, dropped, stamped
 
 
 def _match_clause(columns: Sequence[str]) -> str:

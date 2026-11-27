@@ -1,6 +1,6 @@
 """통합 데이터 정리 및 초기화 허브의 백엔드 서비스 모듈
 
-- 4범주 19개 정리 항목의 범위(현재 작업 폴더/전체 저장 데이터)를 정하고, 저장 데이터(범주 1, 2)를 실제로 지움
+- 4범주 21개 정리 항목의 범위(현재 작업 폴더/전체 저장 데이터)를 정하고, 저장 데이터(범주 1, 2)를 실제로 지움
 - 미리보기는 아무것도 지우지 않고 항목별 건수와 임시 파일 용량만 셈
 - 화면 배치와 설정(범주 3, 4)은 항목 구분만 하고 실제 초기화는 허브 화면(5c-6c-2)이 메모리 상태와 저장 파일로 수행
 - 원본 영상 파일은 어떤 항목에서도 지우지 않으며, 남은 임시 파일은 주입한 휴지통 함수로만 옮김
@@ -37,6 +37,7 @@ CleanupItemKey = Literal[
     "frame_cache",
     "manual_targets",
     "crop_exclusions",
+    "crop_review_acks",
     "manual_active_frames",
     "vr_overrides",
     "column_order",
@@ -73,6 +74,7 @@ CATEGORY_CLEANUP_ITEM_KEYS: dict[CleanupCategory, tuple[CleanupItemKey, ...]] = 
         "frame_cache",
         "manual_targets",
         "crop_exclusions",
+        "crop_review_acks",
         "manual_active_frames",
         "vr_overrides",
     ),
@@ -100,6 +102,7 @@ CLEANUP_ITEM_LABELS: dict[CleanupItemKey, str] = {
     "frame_cache": "화질 분석/검은 여백 캐시",
     "manual_targets": "영상별 출력 해상도 직접 지정",
     "crop_exclusions": "검은 여백 제외 지정",
+    "crop_review_acks": "여백 확인 필요 표시",
     "manual_active_frames": "사용자 지정 활성 화면",
     "vr_overrides": "수동 VR 보호 지정",
     "column_order": "표 열 순서",
@@ -354,6 +357,8 @@ class DataCleanupService:
             return self._frame_store.count_for_roots(roots)
         if key == "crop_exclusions":
             return self._frame_store.count_crop_exclusions(roots)
+        if key == "crop_review_acks":
+            return self._frame_store.count_crop_review_acks(roots)
         if key == "manual_active_frames":
             return self._frame_store.count_manual_active_frames(roots)
         return self._frame_store.count_vr_overrides(roots)
@@ -402,6 +407,8 @@ class DataCleanupService:
             return self._frame_store.clear_for_roots(roots)
         if key == "crop_exclusions":
             return self._frame_store.clear_crop_exclusions(roots)
+        if key == "crop_review_acks":
+            return self._frame_store.clear_crop_review_acks(roots)
         if key == "manual_active_frames":
             return self._frame_store.clear_manual_active_frames(roots)
         return self._frame_store.clear_vr_overrides(roots)

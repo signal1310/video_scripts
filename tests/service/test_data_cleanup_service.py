@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
+from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.volume_identity import volume_location
 from src.core.encode.encode_state import EncodeState
 from src.core.encode_fingerprint import EncodeFingerprint
@@ -45,7 +46,7 @@ from src.service.frame_analysis_record import FrameAnalysisRecord
 from src.service.frame_analysis_store import FrameAnalysisStore
 from src.service.session import normalize_root_key
 
-_CATEGORY_SIZES: dict[str, int] = {"encode": 3, "analysis": 6, "layout": 6, "settings": 5}
+_CATEGORY_SIZES: dict[str, int] = {"encode": 3, "analysis": 7, "layout": 6, "settings": 5}
 _ROW_SIZE: int = 100
 _ROW_MTIME: int = 1
 
@@ -186,6 +187,8 @@ class _CleanupCase(unittest.TestCase):
             "crop_b": self.write_file(os.path.join(self.root_b, "crop.mp4"), 5),
             "vr_a": self.write_file(os.path.join(self.root_a, "vr.mp4"), 5),
             "vr_b": self.write_file(os.path.join(self.root_b, "vr.mp4"), 5),
+            "ack_a": self.write_file(os.path.join(self.root_a, "ack.mp4"), 5),
+            "ack_b": self.write_file(os.path.join(self.root_b, "ack.mp4"), 5),
             "output_a": self.write_file(os.path.join(self.root_a, "out.mp4"), 5),
             "output_b": self.write_file(os.path.join(self.root_b, "out.mp4"), 5),
         }
@@ -211,6 +214,10 @@ class _CleanupCase(unittest.TestCase):
         self.frame_store.set_vr_override(
             source_path=paths["vr_b"], filename="root_dir_b/vr.mp4", manual_vr=True
         )
+        # - 여백 확인 필요 표시를 확인한 기록도 분석 캐시를 지울 때 함께 지우는 대상
+        acknowledged = ActiveRegion(1600, 1000, 260, 40, True, dark_outliers_ignored=True)
+        self.frame_store.set_crop_review_acknowledged(paths["ack_a"], acknowledged)
+        self.frame_store.set_crop_review_acknowledged(paths["ack_b"], acknowledged)
         self.frame_store.save(_frame_record("a.mp4"))
         self.frame_store.save(_frame_record("root_dir_b/b.mp4", size=200))
         for name, path in (("output_a", paths["output_a"]), ("output_b", paths["output_b"])):
@@ -243,11 +250,11 @@ class _CleanupCase(unittest.TestCase):
 
 
 class TestCleanupItemCatalog(unittest.TestCase):
-    """4범주 19개 항목과 4개 프리셋 구성, 항목 분류와 나누기"""
+    """4범주 21개 항목과 6개 프리셋 구성, 항목 분류와 나누기"""
 
-    def test_catalog_covers_twenty_keys_in_four_categories(self) -> None:
-        self.assertEqual(len(ALL_CLEANUP_ITEM_KEYS), 20)
-        self.assertEqual(len(set(ALL_CLEANUP_ITEM_KEYS)), 20)
+    def test_catalog_covers_twenty_one_keys_in_four_categories(self) -> None:
+        self.assertEqual(len(ALL_CLEANUP_ITEM_KEYS), 21)
+        self.assertEqual(len(set(ALL_CLEANUP_ITEM_KEYS)), 21)
         self.assertEqual(
             {category: len(keys) for category, keys in CATEGORY_CLEANUP_ITEM_KEYS.items()}, _CATEGORY_SIZES
         )
@@ -271,7 +278,7 @@ class TestCleanupItemCatalog(unittest.TestCase):
         self.assertEqual(set(CLEANUP_PRESETS["reanalyze_fresh"]), set(CATEGORY_CLEANUP_ITEM_KEYS["analysis"]))
         self.assertEqual(set(CLEANUP_PRESETS["reset_layout"]), set(CATEGORY_CLEANUP_ITEM_KEYS["layout"]))
         self.assertEqual(set(CLEANUP_PRESETS["reset_all"]), set(ALL_CLEANUP_ITEM_KEYS))
-        self.assertEqual(len(CLEANUP_PRESETS["reset_all"]), 20)
+        self.assertEqual(len(CLEANUP_PRESETS["reset_all"]), 21)
         self.assertEqual(
             {preset: CLEANUP_PRESET_LABELS[preset] for preset in CLEANUP_PRESETS},
             {
@@ -318,6 +325,7 @@ class TestPreviewCounts(_CleanupCase):
             "manual_targets": 1,
             "frame_cache": 1,
             "crop_exclusions": 1,
+            "crop_review_acks": 1,
             "manual_active_frames": 1,
             "vr_overrides": 1,
         }
@@ -337,6 +345,7 @@ class TestPreviewCounts(_CleanupCase):
             "manual_targets": 2,
             "frame_cache": 2,
             "crop_exclusions": 2,
+            "crop_review_acks": 2,
             "manual_active_frames": 2,
             "vr_overrides": 2,
         }
@@ -435,6 +444,7 @@ class TestExecuteStorageCleanup(_CleanupCase):
                 "manual_targets": 1,
                 "frame_cache": 1,
                 "crop_exclusions": 1,
+                "crop_review_acks": 1,
                 "manual_active_frames": 1,
                 "vr_overrides": 1,
             },
@@ -451,6 +461,7 @@ class TestExecuteStorageCleanup(_CleanupCase):
         self.assertEqual(self.encode_history.count_completed_history(), 1)
         self.assertEqual(self.frame_store.count(), 1)
         self.assertEqual(self.frame_store.count_crop_exclusions(), 1)
+        self.assertEqual(self.frame_store.count_crop_review_acks(), 1)
         self.assertEqual(self.frame_store.count_manual_active_frames(), 1)
         self.assertEqual(self.frame_store.count_vr_overrides(), 1)
 
@@ -473,6 +484,7 @@ class TestExecuteStorageCleanup(_CleanupCase):
         self.assertEqual(result.cleared_counts["manual_targets"], 2)
         self.assertEqual(result.cleared_counts["frame_cache"], 2)
         self.assertEqual(result.cleared_counts["crop_exclusions"], 2)
+        self.assertEqual(result.cleared_counts["crop_review_acks"], 2)
         self.assertEqual(result.cleared_counts["manual_active_frames"], 2)
         self.assertEqual(result.cleared_counts["vr_overrides"], 2)
 
@@ -483,6 +495,7 @@ class TestExecuteStorageCleanup(_CleanupCase):
         self.assertEqual(self.encode_history.count_completed_history(), 0)
         self.assertEqual(self.frame_store.count(), 0)
         self.assertEqual(self.frame_store.count_crop_exclusions(), 0)
+        self.assertEqual(self.frame_store.count_crop_review_acks(), 0)
         self.assertEqual(self.frame_store.count_manual_active_frames(), 0)
         self.assertEqual(self.frame_store.count_vr_overrides(), 0)
 

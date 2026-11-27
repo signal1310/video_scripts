@@ -16,6 +16,7 @@ from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
     ACTIVE_FRAME_FAILED_TEXT,
     ACTIVE_FRAME_FULL_TEXT,
+    CROP_REVIEW_TEXT,
 )
 from src.gui.table.numeric_buckets import NumericBucketKind, build_numeric_buckets, resolve_numeric_bucket
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
@@ -161,6 +162,26 @@ class ActiveFrameFilterValueTests(unittest.TestCase):
             None if kept is None else kept.selected_values,
             (ACTIVE_FRAME_FAILED_TEXT, ACTIVE_FRAME_FULL_TEXT),
         )
+
+
+    def test_review_name_survives_restore_with_its_size(self) -> None:
+        """여백 확인 필요 값이 저장 필터 복원에서 크기와 함께 유지되는지 검증"""
+        snapshot = ColumnFilterSnapshot(selected_values=(CROP_REVIEW_TEXT, "1836x1008"))
+        kept = prune_stale_values(snapshot, ACTIVE_FRAME_COLUMN, None)
+        assert kept is not None
+        self.assertEqual(kept.selected_values, (CROP_REVIEW_TEXT, "1836x1008"))
+
+    def test_review_name_alone_is_kept(self) -> None:
+        """여백 확인 필요 값만 고른 필터도 복원에서 버리지 않는지 검증"""
+        snapshot = ColumnFilterSnapshot(selected_values=(CROP_REVIEW_TEXT,))
+        kept = prune_stale_values(snapshot, ACTIVE_FRAME_COLUMN, None)
+        assert kept is not None
+        self.assertEqual(kept.selected_values, (CROP_REVIEW_TEXT,))
+
+    def test_unrelated_text_is_still_dropped(self) -> None:
+        """여백 확인 필요가 유효 값이 되어도 다른 임의 문구는 그대로 버리는지 검증"""
+        snapshot = ColumnFilterSnapshot(selected_values=("사라진 값",))
+        self.assertIsNone(prune_stale_values(snapshot, ACTIVE_FRAME_COLUMN, None))
 
 
 if __name__ == "__main__":

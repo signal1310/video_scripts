@@ -16,6 +16,7 @@ from typing import Protocol
 from PyQt6.QtWidgets import QWidget
 
 from src.core.analysis.frame_analysis import (
+    ActiveRegion,
     FrameAnalysisThresholds,
     analysis_version_for_mode,
     apply_no_bars_ratio,
@@ -46,6 +47,7 @@ from src.service.analysis_store import open_default_store
 from src.service.encode.encode_history import EncodeHistory
 from src.service.encode.encode_job import job_from_json
 from src.service.frame_analysis_record import FrameAnalysisRecord
+from src.service.frame_analysis_service import crop_review_status
 from src.service.frame_analysis_store import FrameAnalysisStore
 from src.service.frame_compare_service import (
     WORK_DIR_NAME,
@@ -54,6 +56,7 @@ from src.service.frame_compare_service import (
     FrameCompareFileMissing,
     FrameCompareService,
 )
+from src.service.frame_override_rows import review_region_box
 from src.service.session import ClassifierSession
 
 
@@ -83,6 +86,34 @@ def _error_session(source_path: str, reason: str) -> CompareSession:
         filename=os.path.basename(source_path),
         source_path=source_path,
     )
+
+
+def crop_review_hold(
+    store: FrameAnalysisStore,
+    source_path: str,
+    region: ActiveRegion,
+    *,
+    identity_override: tuple[int, int] | None,
+    crop_enabled: bool,
+    is_vr_protected: bool,
+    excluded: bool,
+) -> bool:
+    """서비스와 같은 확인 표시를 읽어 화질 비교의 자동 크롭 보류 여부를 판정
+
+    - 표와 인코딩이 쓰는 `crop_review_status`를 그대로 불러 같은 기준을 씀
+    - 사용자 지정 활성 화면 판정은 호출자가 `resolve_crop_frame`에 넘기므로 여기서는 확인 표시만 읽음
+    """
+    overrides = None if identity_override is None else {source_path: identity_override}
+    acknowledged = store.load_crop_review_acknowledged(
+        {source_path: review_region_box(region)}, identity_overrides=overrides
+    )
+    return crop_review_status(
+        region,
+        crop_enabled=crop_enabled,
+        is_vr_protected=is_vr_protected,
+        acknowledged=source_path in acknowledged,
+        excluded=excluded,
+    ).hold_applies
 
 
 class FrameCompareController:
@@ -252,17 +283,27 @@ class FrameCompareController:
         overrides = (
             None if identity_override is None else {source_path: identity_override}
         )
-        excluded = self._store.load_crop_exclusions(
+        excluded_paths = self._store.load_crop_exclusions(
             [source_path], identity_overrides=overrides
         )
         manual = self._store.load_manual_active_frames(
             {source_path: (width, height)}, identity_overrides=overrides
         )
         region = apply_no_bars_ratio(record.active_region, width, height, thresholds=thresholds)
+        excluded = source_path in excluded_paths
+        review_hold = crop_review_hold(
+            self._store,
+            source_path,
+            region,
+            identity_override=identity_override,
+            crop_enabled=config.encode.crop_black_bars,
+            is_vr_protected=record.is_vr_protected,
+            excluded=excluded,
+        )
         frame = resolve_crop_frame(
             region,
             crop_enabled=config.encode.crop_black_bars,
-            excluded=source_path in excluded,
+            excluded=excluded or review_hold,
             is_vr_protected=record.is_vr_protected,
             manual_frame=manual.get(source_path),
         )

@@ -14,16 +14,23 @@ from src.gui.table.numeric_buckets import build_numeric_buckets, resolve_numeric
 from src.gui.table.table_columns import COL_DEF_MAP
 
 FilterValueGetter = Callable[[VideoEvaluation, int], str | float | None]
+FilterValuesGetter = Callable[[VideoEvaluation, int], Sequence[str | float | None]]
 
 
 def collect_value_counts(
     evaluations: Sequence[VideoEvaluation],
     col: int,
     spec: ColumnSpec,
-    get_value: FilterValueGetter,
+    get_values: FilterValuesGetter,
 ) -> list[tuple[str, int]]:
-    """열거형, 범주형 열의 고유 값별 행 수 목록"""
-    counts: Counter[str] = Counter(str(get_value(ev, col) or "") for ev in evaluations)
+    """열거형, 범주형 열의 고유 값별 행 수 목록
+
+    - 한 행이 값 여러 개를 가지면(활성 화면의 크기와 여백 확인 필요) 값마다 한 번씩 셈
+    """
+    counts: Counter[str] = Counter()
+    for ev in evaluations:
+        for value in dict.fromkeys(str(v or "") for v in get_values(ev, col)):
+            counts[value] += 1
     if spec.data_type is ColumnDataType.ENUM and spec.preset_values:
         ordered = [(val, counts.get(val, 0)) for val in spec.preset_values]
         ordered.extend((key, counts[key]) for key in sorted(counts) if key not in spec.preset_values)

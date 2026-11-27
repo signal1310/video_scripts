@@ -6,6 +6,7 @@ from typing import Any, ClassVar
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon
 
+from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_batch_book import (
@@ -27,10 +28,12 @@ from src.gui.table.column_filters import (
 )
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
+    CROP_REVIEW_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
     FRAME_ANALYSIS_COLUMNS,
     QUALITY_METRIC_COLUMN,
     FrameAnalysisResults,
+    crop_review_tooltip,
     is_frame_analysis_column,
 )
 from src.gui.table.row_spans import contiguous_row_ranges
@@ -69,6 +72,8 @@ from src.service.encode.encode_preview import PlannedCommand, planned_command_fo
 
 _EMPTY_INDEX = QModelIndex()
 _CELL_ICON_SIZE_PX: int = 12
+# - 여백 확인 필요 경고 아이콘. 키프레임 초과 셀과 같은 아이콘을 씀
+REVIEW_WARNING_ICON_NAME: str = "alert-triangle"
 # - 인코딩 진행 행 강조: (행 배경색, 파일명 열 왼쪽 띠 색) 선택자
 _ROW_TONE_BY_LABEL: dict[str, Callable[[ThemePalette], tuple[str, str]]] = {
     STATUS_RUNNING: lambda p: (p.row_running_bg, p.row_running_accent),
@@ -90,6 +95,8 @@ class VideoTableModel(QAbstractTableModel):
     config_changed = pyqtSignal()
     # - 데이터의 작업 폴더가 이전과 다를 때만 알림, 첫 적재는 폴더 변경으로 보지 않음
     root_changed = pyqtSignal()
+    # - 여백 확인 필요 표시 집합이 바뀌었을 때 알림(프록시가 칩 필터를 다시 평가)
+    review_flags_changed = pyqtSignal()
 
     COL_NAME = 0
     COL_WIDTH = 1
@@ -396,7 +403,9 @@ class VideoTableModel(QAbstractTableModel):
 
     def collect_column_value_counts(self, col: int) -> list[tuple[str, int]]:
         """열거형, 범주형 열에 대해 현재 데이터셋의 고유 값별 행 수 목록 반환"""
-        return collect_value_counts(self._evaluations, col, self.get_column_spec(col), self.get_filter_value_for)
+        return collect_value_counts(
+            self._evaluations, col, self.get_column_spec(col), self.get_filter_values_for
+        )
 
     def collect_numeric_bounds(
         self, col: int
@@ -482,6 +491,24 @@ class VideoTableModel(QAbstractTableModel):
         if any(col == self.COL_ACTIVE_FRAME for col, _order in self._sort_stack):
             self.set_sort_stack(self._sort_stack)
 
+    def set_review_flagged(self, filenames: Iterable[str]) -> None:
+        """여백 확인 필요 표시 파일명 집합을 바꾸고 그 표시가 붙는 두 열을 다시 그림
+
+        - 필터 바 칩과 프록시가 같은 집합을 쓰도록 바뀐 사실을 알림
+        """
+        self._frame_view.set_review_flagged(filenames)
+        if self._evaluations:
+            last_row = len(self._evaluations) - 1
+            self.dataChanged.emit(
+                self.index(0, self.COL_NAME),
+                self.index(last_row, self.COL_NAME),
+            )
+            self.dataChanged.emit(
+                self.index(0, self.COL_ACTIVE_FRAME),
+                self.index(last_row, self.COL_ACTIVE_FRAME),
+            )
+        self.review_flags_changed.emit()
+
     def set_frame_action_handlers(
         self,
         *,
@@ -543,6 +570,18 @@ class VideoTableModel(QAbstractTableModel):
             # - 셀 표기와 같은 값을 넘겨 필터 결과와 값별 행 수가 화면과 어긋나지 않게 함
             return self._encode_label(ev) or ""
         return self.get_filter_value(ev, col)
+
+    def get_filter_values_for(
+        self, ev: VideoEvaluation, col: int
+    ) -> tuple[str | float | None, ...]:
+        """행과 열의 필터 값 목록. 한 행이 두 값을 함께 가질 수 있는 화질 분석 열에서 씀
+
+        - 활성 화면 열의 여백 확인 필요 영상은 크기 문구와 이름 값을 함께 가짐
+        - 그 밖의 열은 값이 하나뿐인 `get_filter_value_for` 결과를 그대로 감쌈
+        """
+        if is_frame_analysis_column(col):
+            return self._frame_view.filter_values(ev.video.filename, col)
+        return (self.get_filter_value_for(ev, col),)
 
     def set_previous_discard_provider(self, provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]]) -> None:
         """이전 결과 폐기 기록을 구하는 함수를 연결. 연결 뒤 데이터를 설정할 때 상태 표기가 이전 폐기를 보여 줌"""
@@ -624,6 +663,28 @@ class VideoTableModel(QAbstractTableModel):
             return planned.skip_reason or COL_DEF_MAP[self.COL_FFMPEG_ARGS].tooltip_factory(self._config)
         return planned.command_line
 
+    def _review_region(self, ev: VideoEvaluation) -> ActiveRegion | None:
+        """여백 확인 필요 표시를 보일 영상의 자동 감지 활성 화면, 아니면 None"""
+        if not self._frame_view.is_review_flagged(ev.video.filename):
+            return None
+        result = self._frame_view.result(ev.video.filename)
+        return None if result is None else result.active_region
+
+    def is_review_flagged(self, filename: str) -> bool:
+        """파일명이 여백 확인 필요 표시 대상인지 여부"""
+        return self._frame_view.is_review_flagged(filename)
+
+    @property
+    def review_flagged_count(self) -> int:
+        """여백 확인 필요 표시 대상 영상 수"""
+        return self._frame_view.review_flagged_count
+
+    def _accessible_data(self, ev: VideoEvaluation, col: int) -> str | None:
+        """여백 확인 필요 셀의 접근성 이름. 그 밖의 셀은 None"""
+        if col == self.COL_ACTIVE_FRAME and self._review_region(ev) is not None:
+            return CROP_REVIEW_TEXT
+        return None
+
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
         if col == self.COL_ENCODE_STATE:
             return self._encode_label(ev)
@@ -668,6 +729,12 @@ class VideoTableModel(QAbstractTableModel):
         return _ROW_TONE_BY_LABEL[label](pal)
 
     def _decoration_data(self, ev: VideoEvaluation, col: int) -> QIcon | None:
+        pal = ThemeManager().current_palette
+        if (
+            col in (self.COL_NAME, self.COL_ACTIVE_FRAME)
+            and self._review_region(ev) is not None
+        ):
+            return self._warning_icon(pal.badge_pending[1], pal)
         if col == self.COL_ENCODE_STATE:
             icon_name = encode_state_icon_name(self._encode_label(ev))
         else:
@@ -677,7 +744,6 @@ class VideoTableModel(QAbstractTableModel):
             icon_name = col_def.icon_getter(ev)
         if not icon_name:
             return None
-        pal = ThemeManager().current_palette
         col_def = COL_DEF_MAP.get(col)
         if col == self.COL_ENCODE_STATE:
             badge = encode_state_badge(self._encode_label(ev), pal)
@@ -688,12 +754,22 @@ class VideoTableModel(QAbstractTableModel):
                 if col_def is not None and col_def.foreground_getter is not None
                 else None
             ) or pal.text_primary
+        return self._warning_icon(hex_color, pal, icon_name=icon_name)
+
+    def _warning_icon(
+        self,
+        hex_color: str,
+        palette: ThemePalette,
+        *,
+        icon_name: str = REVIEW_WARNING_ICON_NAME,
+    ) -> QIcon:
+        """색과 이름에 캐시된 셀 아이콘. 여백 확인 필요와 키프레임 초과가 같은 캐시를 씀"""
         cache_key = (icon_name, hex_color)
         cached = self._icon_cache.get(cache_key)
         if cached is not None:
             return cached
         icon = get_icon(
-            icon_name, color=hex_color, size=_CELL_ICON_SIZE_PX, palette=pal
+            icon_name, color=hex_color, size=_CELL_ICON_SIZE_PX, palette=palette
         )
         self._icon_cache[cache_key] = icon
         return icon
@@ -745,7 +821,12 @@ class VideoTableModel(QAbstractTableModel):
             return None
         if role == self.BADGE_ROLE:
             return self._badge_data(ev, col)
+        if role == int(Qt.ItemDataRole.AccessibleTextRole):
+            return self._accessible_data(ev, col)
         if role == int(Qt.ItemDataRole.BackgroundRole):
+            region = self._review_region(ev) if col == self.COL_ACTIVE_FRAME else None
+            if region is not None:
+                return self._get_cached_color(ThemeManager().current_palette.badge_pending[0])
             tone = self._row_tone(ev)
             return self._get_cached_color(tone[0]) if tone is not None else None
         if role == self.ACCENT_ROLE:
@@ -756,6 +837,13 @@ class VideoTableModel(QAbstractTableModel):
         if role == self.EVAL_ROLE:
             return ev
         if role == int(Qt.ItemDataRole.ToolTipRole):
+            region = (
+                self._review_region(ev)
+                if col in (self.COL_NAME, self.COL_ACTIVE_FRAME)
+                else None
+            )
+            if region is not None and col == self.COL_ACTIVE_FRAME:
+                return crop_review_tooltip(region)
             if col == self.COL_FFMPEG_ARGS:
                 return self._ffmpeg_command_tip(ev)
             if col == self.COL_OUTPUT_RES:
@@ -767,9 +855,13 @@ class VideoTableModel(QAbstractTableModel):
             if col == self.COL_ENCODE_STATE and (state_tip := self._encode_tooltip(ev)) is not None:
                 return state_tip
             if col == self.COL_NAME:
-                return format_row_tooltip(
+                row_tooltip = format_row_tooltip(
                     ev, self._root_dir, get_encode_codec_label(self._config.encode.encode_codec)
                 )
+                # - 여백 확인 필요 안내는 행 상세 정보를 지우지 않고 앞에 덧붙임
+                if region is not None:
+                    return f"{crop_review_tooltip(region)}\n\n{row_tooltip}"
+                return row_tooltip
             if col == self.COL_ACTION:
                 col_def = COL_DEF_MAP[col]
                 assert col_def.cell_tooltip is not None

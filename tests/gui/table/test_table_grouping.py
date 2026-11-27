@@ -611,12 +611,17 @@ class _FilterBarStub:
         self.search_edit = _SearchEditStub()
         self.options: list[tuple[str, str]] = []
         self.button: tuple[str, str, int] = ("", "", 0)
+        self.review_filter_cleared: bool = False
 
     def set_row_group_options(self, options: list[tuple[str, str]]) -> None:
         self.options = list(options)
 
     def set_row_group(self, group_by: str, *, label: str, count: int) -> None:
         self.button = (group_by, label, count)
+
+    def clear_review_filter(self) -> None:
+        """여백 확인 필요 칩 해제 기록"""
+        self.review_filter_cleared = True
 
 
 class RowGroupingCoordinatorTests(unittest.TestCase):
@@ -1215,7 +1220,12 @@ class DataCleanupGroupResetTests(unittest.TestCase):
         self.assertFalse(controller._sort_group_changed())
         view.group_model.set_group_by(GROUP_BY_FOLDER)
         self.assertTrue(controller._sort_group_changed())
+        # - 여백 확인 필요 칩을 켜면 필터 변경으로 세고, 초기화는 칩과 보기 필터를 함께 끔
+        view.proxy_model.set_review_only(True)
+        self.assertTrue(controller._sort_group_changed())
         controller._reset_sort_group()
+        self.assertFalse(view.proxy_model.review_only)
+        self.assertTrue(bar.review_filter_cleared)
         self.assertEqual(view.group_model.group_by, GROUP_BY_NONE)
         self.assertEqual(ui.filters.group_by, GROUP_BY_NONE)
         self.assertEqual(bar.button[0], GROUP_BY_NONE)

@@ -139,6 +139,26 @@ class TestGUIWindowLayout(GuiWindowTestCase):
         self.assertTrue(mw.filter_bar.btn_reset_filters.isHidden())
         self.assertFalse(view.empty_overlay.isVisible())
 
+    def test_review_chip_toggle_refreshes_filter_summary_and_empty_state(self) -> None:
+        """여백 확인 필요 칩을 켜면 필터 초기화 버튼과 빈 상태 안내까지 함께 갱신되는지 검증"""
+        mw, _ = self._loaded_window()
+        view = mw.table_view
+        # - 표에 여백 확인 필요 영상이 없으므로 칩을 켜면 표시 행이 0이 됨
+        mw.filter_bar.set_review_flagged_count(1)
+        self.assertTrue(mw.filter_bar.btn_reset_filters.isHidden())
+
+        mw.filter_bar.btn_review_filter.click()
+        self.assertTrue(mw.proxy_model.review_only)
+        self.assertEqual(len(mw.proxy_model.iter_visible_evaluations()), 0)
+        self.assertFalse(mw.filter_bar.btn_reset_filters.isHidden())
+        self.assertTrue(view.empty_overlay.isVisible())
+        self.assertEqual(view.empty_overlay.mode, "filtered_empty")
+
+        mw.filter_bar.btn_review_filter.click()
+        self.assertFalse(mw.proxy_model.review_only)
+        self.assertTrue(mw.filter_bar.btn_reset_filters.isHidden())
+        self.assertFalse(view.empty_overlay.isVisible())
+
     def test_footer_summary_follows_selection(self) -> None:
         """선택이 없으면 푸터 요약이 숨겨지고, 원본 보존 행 선택은 참고 표기 없이 구간 합계만, 다중 선택은 개수와 길이를 표시함을 검증"""
         mw, _ = self._loaded_window()

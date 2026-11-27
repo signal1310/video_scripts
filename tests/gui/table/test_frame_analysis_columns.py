@@ -12,6 +12,7 @@ from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_FAILED_TEXT,
     ACTIVE_FRAME_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
+    CROP_REVIEW_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
     DOWNSCALE_KEEP_TEXT,
     DOWNSCALE_UNMEASURABLE_TEXT,
@@ -22,6 +23,7 @@ from src.gui.table.frame_analysis_columns import (
     active_frame_sort_value,
     active_frame_text,
     active_frame_tooltip,
+    crop_review_tooltip,
     downscale_candidate_sort_value,
     downscale_candidate_text,
     downscale_candidate_tooltip,
@@ -488,6 +490,61 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertIsNone(
             foreground_color(ev, 0, _PALETTE, frame_view=view, encode_label=None, encode_state_col=99)
         )
+
+
+class CropReviewMarkerTests(unittest.TestCase):
+    """여백 확인 필요 표시의 툴팁과 필터 값을 검증"""
+
+    def _flagged(self) -> FrameAnalysisResult:
+        return _result(active=ActiveRegion(1836, 1008, 42, 36, True, dark_outliers_ignored=True))
+
+    def test_tooltip_has_title_reason_hold_and_solve(self) -> None:
+        tip = crop_review_tooltip(self._flagged().active_region)
+        lines = tip.split("\n")
+        self.assertEqual(lines[0], CROP_REVIEW_TEXT)
+        self.assertIn("검은 여백을 찾을 때 일부 지점의 여백이 어두워 판단에서 제외했습니다.", lines[1])
+        self.assertIn("활성 화면(1836x1008)", lines[1])
+        self.assertEqual(
+            lines[2],
+            "활성 화면을 직접 지정할 때까지 자동으로 잡은 검은 여백을 잘라내지 않고 전체 화면으로 인코딩합니다.",
+        )
+        self.assertEqual(
+            lines[3],
+            "미리 보기 창에서 활성 화면을 확인해 주세요. 직접 지정하거나 자동 감지로 되돌리면 이 경고가 사라집니다.",
+        )
+
+    def test_tooltip_keeps_the_margins_vary_sentence_after_the_first_paragraph(self) -> None:
+        varying = _result(
+            active=ActiveRegion(
+                1836, 1008, 42, 36, True, margins_vary=True, dark_outliers_ignored=True
+            )
+        )
+        lines = crop_review_tooltip(varying.active_region).split("\n")
+        self.assertEqual(lines[2], _MARGINS_VARY_SENTENCE)
+        self.assertEqual(len(lines), 5)
+
+    def test_filter_values_keep_the_size_and_add_the_review_name(self) -> None:
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": self._flagged(), "b.mp4": _result()})
+        view.set_review_flagged(["a.mp4"])
+        self.assertTrue(view.is_review_flagged("a.mp4"))
+        self.assertEqual(view.review_flagged_count, 1)
+        self.assertEqual(view.filter_value("a.mp4", ACTIVE_FRAME_COLUMN), "1836x1008")
+        self.assertEqual(
+            view.filter_values("a.mp4", ACTIVE_FRAME_COLUMN), ("1836x1008", CROP_REVIEW_TEXT)
+        )
+        self.assertEqual(view.filter_values("b.mp4", ACTIVE_FRAME_COLUMN), ("-",))
+        self.assertEqual(view.filter_values("a.mp4", QUALITY_METRIC_COLUMN), ("VMAF",))
+
+    def test_flag_does_not_change_cells_of_unflagged_or_reviewed_rows(self) -> None:
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": self._flagged()})
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), "1836x1008")
+        view.set_review_flagged([])
+        self.assertEqual(view.filter_values("a.mp4", ACTIVE_FRAME_COLUMN), ("1836x1008",))
+        view.set_review_flagged(["a.mp4"])
+        view.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), "1600x1000")
 
 
 class OutputResolutionDisplayTests(unittest.TestCase):

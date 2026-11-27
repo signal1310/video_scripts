@@ -146,6 +146,7 @@ ITEM_TOOLTIPS: dict[CleanupItemKey, str] = {
     "frame_cache": "화질 분석과 검은 여백 감지 결과 캐시를 지웁니다.",
     "manual_targets": "영상별로 직접 지정한 출력 해상도 지정을 모두 해제합니다.",
     "crop_exclusions": "검은 여백 잘라내기에서 제외한 영상 지정을 모두 해제합니다.",
+    "crop_review_acks": "여백 확인 필요 표시를 확인한 기록을 모두 지워 다음 분석에서 경고를 다시 띄웁니다.",
     "manual_active_frames": "영상별 사용자 지정 활성 화면을 모두 해제합니다.",
     "vr_overrides": "수동으로 VR 보호를 켜 둔 영상 지정을 모두 해제합니다.",
     "column_order": "표 열 순서를 기본 순서로 되돌립니다.",

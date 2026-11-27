@@ -44,6 +44,9 @@ SEARCH_DEBOUNCE_MS: int = 150
 COMPACT_TOOLTIP: str = "셀 여백과 행 높이를 줄여 한 화면에 더 많은 영상을 표시합니다."
 ROW_GROUP_TOOLTIP: str = "영상을 폴더나 범주형 열 값으로 묶어 접을 수 있는 그룹 머리글을 표시합니다."
 COLUMN_PRESET_TOOLTIP_TEMPLATE: str = "표에 표시할 열 묶음을 고릅니다. {labels} 중에서 선택합니다."
+# - 여백 확인 필요 칩: 이름은 TERMINOLOGY 4.5절 표준어, 개수는 결과 상태 필터와 같은 `이름 N` 형식
+REVIEW_CHIP_LABEL: str = "여백 확인 필요"
+REVIEW_CHIP_TOOLTIP: str = "자동 잘라내기를 보류한 영상만 봅니다."
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
@@ -62,6 +65,8 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     row_group_selected = pyqtSignal(str)
     expand_all_groups_requested = pyqtSignal()
     collapse_all_groups_requested = pyqtSignal()
+    # - 여백 확인 필요 칩 켜짐 여부
+    review_filter_toggled = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -76,6 +81,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._expand_groups_action: QAction | None = None
         self._collapse_groups_action: QAction | None = None
         self._row_group_emitting: bool = False
+        self._review_flagged_count: int = 0
 
         row = QHBoxLayout(self)
         row.setContentsMargins(14, 10, 14, 10)
@@ -104,6 +110,16 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.btn_clear_col_filters.clicked.connect(
             self.clear_column_filters_requested.emit
         )
+
+        # - 여백 확인 필요 영상이 있을 때만 보이는 누름 상태 칩. 검색창 바로 오른쪽에 둠
+        self.btn_review_filter = QPushButton("", self)
+        self.btn_review_filter.setObjectName("ReviewFilterChip")
+        self.btn_review_filter.setCheckable(True)
+        self.btn_review_filter.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_review_filter.setToolTip(REVIEW_CHIP_TOOLTIP)
+        self.btn_review_filter.setAccessibleName(REVIEW_CHIP_LABEL)
+        self.btn_review_filter.setVisible(False)
+        self.btn_review_filter.toggled.connect(self._on_review_filter_toggled)
 
         self.btn_reset_filters = QPushButton("필터 초기화", self)
         self.btn_reset_filters.setObjectName("ClearAllFiltersButton")
@@ -207,6 +223,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         )
 
         row.addWidget(self.search_edit, stretch=1)
+        row.addWidget(self.btn_review_filter)
         row.addWidget(self.btn_clear_col_filters)
         row.addWidget(self.btn_reset_filters)
         row.addWidget(divider)
@@ -227,6 +244,39 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     def set_any_filter_active(self, active: bool) -> None:
         """활성화된 필터 존재 여부에 따라 전체 필터 초기화 버튼 노출 갱신"""
         self.btn_reset_filters.setVisible(active)
+
+    def set_review_flagged_count(self, count: int) -> None:
+        """여백 확인 필요 영상 수를 칩 라벨에 반영하고, 0이면 칩을 숨김
+
+        - 개수가 0이 되면 켜져 있던 필터도 함께 풀어 빈 표가 남지 않게 함
+        - 0이 아닌 동안에는 칩이 필터 해제 뒤에도 남아 다시 켤 수 있음
+        """
+        self._review_flagged_count = max(0, count)
+        if self._review_flagged_count <= 0:
+            # - 칩을 숨기기 전에 꺼짐을 알려 프록시의 보기 필터도 함께 풀리게 함
+            self.btn_review_filter.setChecked(False)
+            self.btn_review_filter.setVisible(False)
+            return
+        self.btn_review_filter.setText(f"{REVIEW_CHIP_LABEL} {self._review_flagged_count}")
+        self.btn_review_filter.setVisible(True)
+
+    @property
+    def review_filter_enabled(self) -> bool:
+        """여백 확인 필요 칩이 켜져 있는지 반환"""
+        return self.btn_review_filter.isChecked()
+
+    def clear_review_filter(self) -> None:
+        """필터 초기화에서 여백 확인 필요 칩을 시그널 없이 끔(칩은 개수가 있는 동안 남음)"""
+        self._updating = True
+        try:
+            self.btn_review_filter.setChecked(False)
+        finally:
+            self._updating = False
+
+    def _on_review_filter_toggled(self, checked: bool) -> None:
+        """칩 변화를 복원 중이 아닐 때만 알림"""
+        if not self._updating:
+            self.review_filter_toggled.emit(checked)
 
     def _on_preset_action(self, preset_key: str) -> None:
         """프리셋 메뉴 항목 선택을 라벨에 반영하고 시그널로 알림"""

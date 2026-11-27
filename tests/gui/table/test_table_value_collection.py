@@ -35,7 +35,7 @@ class TableValueCollectionTests(unittest.TestCase):
             self.evals,
             VideoTableModel.COL_ZONE,
             VideoTableModel.get_column_spec(VideoTableModel.COL_ZONE),
-            self.get_value,
+            lambda ev, col: (self.get_value(ev, col),),
         )
         self.assertEqual(counts[:2], [("과화질", 1), ("적정", 2)])
 
@@ -44,7 +44,7 @@ class TableValueCollectionTests(unittest.TestCase):
             self.evals,
             VideoTableModel.COL_CODEC,
             VideoTableModel.get_column_spec(VideoTableModel.COL_CODEC),
-            self.get_value,
+            lambda ev, col: (self.get_value(ev, col),),
         )
         self.assertEqual(counts, [("h264", 2), ("hevc", 1)])
 

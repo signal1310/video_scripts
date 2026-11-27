@@ -22,15 +22,23 @@ from PyQt6.QtWidgets import QWidget
 from src.core.analysis.frame_analysis import count_failed_crop_scans, frame_thresholds_from_config
 from src.core.analysis.frame_analysis_runner import STAGE_SCAN, STAGE_SSIM, STAGE_VMAF, FrameAnalysisResult
 from src.core.analysis.reanalysis_notice import count_keyframe_missing
-from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL, ClassifierConfig
-from src.core.encode.encode_impact import parse_stream_summary_layout
+from src.core.config import ClassifierConfig
 from src.core.encode.ffmpeg_capability import probe_ffmpeg_capability
 from src.core.eta import ProgressEstimator, format_estimate_label, format_remaining
 from src.core.messages import MSG_WORK_CANCELLED
 from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
-from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, find_source_tier
-from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
+from src.gui.controllers.frame_analysis_targets import (
+    NO_CROP_TARGETS_TEXT,
+    NO_FRAME_TARGETS_TEXT,
+    build_requests,
+    is_below_frame_min_tier,
+    skip_for_crop_scan,
+    skip_for_frame_analysis,
+)
+from src.gui.controllers.frame_analysis_targets import (
+    frame_estimate_text as targets_frame_estimate_text,
+)
 from src.gui.controllers.frame_progress_buffer import FrameProgressBuffer, StageProgress
 from src.gui.controllers.manual_target_controller import ManualTargetController
 from src.gui.menus.menu_bar import MainMenuController
@@ -43,12 +51,14 @@ from src.gui.table.frame_analysis_columns import (
 from src.gui.table.table_context_menu import set_row_frame_analysis_opener
 from src.gui.table.table_empty_overlay import TableEmptyOverlay
 from src.gui.table.video_table_view import VideoTableView
+from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
 from src.gui.widgets.header_bar import HeaderBar, SplitAnalyzeButton
 from src.service.analysis_store import open_default_store
 from src.service.frame_analysis_service import (
     FrameAnalysisRequest,
     FrameAnalysisService,
+    crop_review_status,
 )
 from src.service.frame_analysis_store import FrameAnalysisStore
 from src.service.session import ClassifierSession
@@ -106,16 +116,6 @@ FRAME_ANALYSIS_FLUSH_MS: int = 300
 # - 정밀 분석 완료 뒤 이어서 실행할 후속 단계 이름
 FOLLOWUP_CROP: str = "crop"
 FOLLOWUP_FRAME: str = "frame"
-_NO_FRAME_TARGETS_TEXT: str = (
-    "화질 분석 대상이 없습니다. "
-    "예외 규칙, 이미 인코딩, HDR, 인터레이스, 직접 지정 영상은 건너뜁니다."
-)
-_NO_CROP_TARGETS_TEXT: str = (
-    "검은 여백 감지 대상이 없습니다. 예외 규칙, 이미 인코딩, HDR, 인터레이스 영상은 건너뜁니다."
-)
-_SKIP_ACTIONS: frozenset[SmartAction] = frozenset(
-    {SmartAction.PASS_EXCEPTION, SmartAction.PASS_ALREADY_ENCODED, SmartAction.PASS_HDR}
-)
 
 
 def frame_analysis_stage_text(stage: str, done: int, total: int) -> str:
@@ -248,73 +248,6 @@ class FrameAnalysisWorker(QThread):
             self.completed.emit(event)
 
 
-def _is_below_frame_min_tier(width: int, height: int, min_tier: str) -> bool:
-    """원본 해상도 등급이 화질 분석 대상 해상도 미만인지 판정
-
-    - 전체(all)는 어떤 해상도도 미만이 아님
-    - 규격 경계는 해상도 규격 탐색과 같은 정의를 씀
-    """
-    if min_tier == FRAME_ANALYSIS_MIN_TIER_ALL:
-        return False
-    limit = RESOLUTION_TIER_BY_KEY.get(min_tier)
-    if limit is None:
-        return False
-    source = find_source_tier(width, height)
-    return source is None or source.short_side < limit.short_side
-
-
-def _is_interlaced(ev: VideoEvaluation) -> bool:
-    """원본이 인터레이스 영상인지 스트림 요약의 필드 순서로 판정"""
-    layout = parse_stream_summary_layout(ev.video.stream_summary)
-    return layout is not None and layout.is_interlaced
-
-
-def _skip_for_frame_analysis(ev: VideoEvaluation) -> bool:
-    """전체 화질 분석에서 자동으로 건너뛸 영상인지 판정
-
-    - 예외 규칙, 이미 인코딩, HDR 보존, 인터레이스 원본은 화질 분석 대상이 아님
-    - 출력 해상도를 직접 지정한 영상(축소 안 함 포함)은 판정을 덮어쓰므로 측정하지 않음
-    """
-    return ev.smart_action in _SKIP_ACTIONS or _is_interlaced(ev) or bool(ev.manual_target)
-
-
-def _skip_for_crop_scan(ev: VideoEvaluation) -> bool:
-    """검은 여백 감지에서 자동으로 건너뛸 영상인지 판정
-
-    - 직접 지정 영상은 판정을 덮어쓰지 않으므로 검은 여백은 정상 감지
-    """
-    return ev.smart_action in _SKIP_ACTIONS or _is_interlaced(ev)
-
-
-def build_requests(
-    evaluations: Sequence[VideoEvaluation],
-    root_dir: str,
-    overrides: frozenset[str],
-) -> list[FrameAnalysisRequest]:
-    """평가 결과와 원본 파일 정보로 화질 분석 요청 목록 생성, 없는 파일은 건너뜀"""
-    requests: list[FrameAnalysisRequest] = []
-    for ev in evaluations:
-        path = resolve_source_filepath(root_dir, ev.video.filename)
-        try:
-            stat = os.stat(path)
-        except OSError:
-            continue
-        layout = parse_stream_summary_layout(ev.video.stream_summary)
-        requests.append(
-            FrameAnalysisRequest(
-                filename=ev.video.filename,
-                path=path,
-                width=ev.video.width,
-                height=ev.video.height,
-                duration_sec=ev.video.duration,
-                filesize_bytes=stat.st_size,
-                mtime_ns=stat.st_mtime_ns,
-                has_vr_metadata=layout is not None and layout.is_vr,
-                manual_vr=path in overrides,
-            )
-        )
-    return requests
-
 @dataclass(frozen=True)
 class FrameAnalysisHost:
     """컨트롤러가 메인 창에서 받는 의존성 묶음"""
@@ -323,6 +256,7 @@ class FrameAnalysisHost:
     table_view: VideoTableView
     footer: FooterBar
     menu: MainMenuController
+    filter_bar: FilterTuningBar
     report_provider: Callable[[], SummaryReport | None]
     config_provider: Callable[[], ClassifierConfig]
     classifier_provider: Callable[[], ClassifierSession | None]
@@ -343,6 +277,8 @@ class FrameAnalysisController:
         self._worker: FrameAnalysisWorker | None = None
         self._requests: list[FrameAnalysisRequest] = []
         self._results: dict[str, FrameAnalysisResult] = {}
+        # - 여백 확인 표시를 셀 때 쓰는 리포트 전체 요청. 파일 식별 값 조회(os.stat)를 묶음 주기마다 되풀이하지 않도록 보관
+        self._report_requests: list[FrameAnalysisRequest] = []
         self._shown_roots: set[tuple[str, bool]] = set()
         self._start_root: str = ""
         self._crop_scan: bool = False
@@ -378,13 +314,19 @@ class FrameAnalysisController:
             self.cancel()
         if report is None:
             self._requests = []
+            self._report_requests = []
             self._results = {}
             self._host.table_view.table_model.set_manual_vr_overrides(())
             self._host.table_view.table_model.set_crop_exclusions(())
             self._host.table_view.table_model.set_manual_active_frames({})
+            self._host.table_view.table_model.set_review_flagged(())
+            self._host.filter_bar.set_review_flagged_count(0)
         else:
             overrides = self._load_overrides(report.evaluations, report.root_dir)
-            self._requests = build_requests(report.evaluations, report.root_dir, overrides)
+            self._report_requests = build_requests(
+                report.evaluations, report.root_dir, overrides
+            )
+            self._requests = list(self._report_requests)
             service = self._load_service()
             self._results = service.load_results(self._requests)
             self._apply_manual_vr(overrides)
@@ -482,13 +424,7 @@ class FrameAnalysisController:
         if report is None:
             return ""
         min_tier = self._host.config_provider().encode.frame_analysis_min_tier
-        count = sum(
-            1
-            for ev in report.evaluations
-            if not _is_below_frame_min_tier(ev.video.width, ev.video.height, min_tier)
-            and not _skip_for_frame_analysis(ev)
-        )
-        return f"대상 {count}개"
+        return targets_frame_estimate_text(report.evaluations, min_tier)
 
     def refresh_actions(self) -> None:
         """메뉴 항목의 대상, 선택, 실행 상태를 갱신"""
@@ -541,6 +477,7 @@ class FrameAnalysisController:
         self._apply_crop_exclusions(
             self._load_crop_exclusions(report.evaluations, report.root_dir)
         )
+        self._apply_results(show_columns=False)
         self._host.re_evaluate(lambda: None)
         self._host.notify(
             "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 인코딩할 때 검은 여백을 잘라내지 않습니다."
@@ -556,12 +493,14 @@ class FrameAnalysisController:
         - frame이 None이면 지정을 지워 자동 감지 결과로 되돌림
         - 화질 분석 캐시는 지우지 않아 측정 결과를 그대로 두고 판정과 인코딩 입력만 바꿈
         - 잘라내기 제외 전환과 같이 실행 취소 기록은 남기지 않음
+        - 사용자가 고른 활성 화면은 자동 감지 영역을 확인한 것으로 남겨 같은 영역의 경고가 다시 뜨지 않게 함
         """
         report = self._host.report_provider()
         if report is None or not evals:
             return
         for ev in evals:
             path = resolve_source_filepath(report.root_dir, ev.video.filename)
+            self._acknowledge_review(path, ev.video.filename)
             self._store.set_manual_active_frame(
                 path,
                 frame,
@@ -571,6 +510,7 @@ class FrameAnalysisController:
         self._apply_manual_frames(
             self._load_manual_frames(report.evaluations, report.root_dir)
         )
+        self._apply_results(show_columns=False)
         self._host.re_evaluate(lambda: None)
         self._host.notify(
             "사용자 지정 활성 화면을 저장했습니다. 이 영상은 인코딩할 때 지정한 영역을 잘라냅니다."
@@ -606,16 +546,16 @@ class FrameAnalysisController:
         if report is None:
             return
         config = self._host.config_provider()
-        skip = _skip_for_crop_scan if crop_only else _skip_for_frame_analysis
+        skip = skip_for_crop_scan if crop_only else skip_for_frame_analysis
         targets = list(evals) if force else [ev for ev in evals if not skip(ev)]
         if not targets:
-            self._host.notify(_NO_CROP_TARGETS_TEXT if crop_only else _NO_FRAME_TARGETS_TEXT)
+            self._host.notify(NO_CROP_TARGETS_TEXT if crop_only else NO_FRAME_TARGETS_TEXT)
             return
         crop_only_names = frozenset(
             ev.video.filename
             for ev in targets
             if not crop_only
-            and _is_below_frame_min_tier(
+            and is_below_frame_min_tier(
                 ev.video.width, ev.video.height, config.encode.frame_analysis_min_tier
             )
         )
@@ -865,8 +805,43 @@ class FrameAnalysisController:
             return
         self._host.table_view.table_model.set_manual_active_frames(frames)
 
+    def _acknowledge_review(self, path: str, filename: str) -> None:
+        """사용자가 고른 활성 화면을 확인 표시로 저장
+
+        - 자동 감지 영역이 여백 확인 대상일 때만 남겨, 다시 분석해 같은 영역이 나오면 경고가 뜨지 않게 함
+        - 자동 감지로 되돌리기와 전체 화면 유지도 같은 호출로 확인 처리됨
+        """
+        result = self._results.get(filename)
+        if result is None:
+            return
+        status = crop_review_status(
+            result.active_region,
+            crop_enabled=self._host.config_provider().encode.crop_black_bars,
+            is_vr_protected=result.is_vr_protected,
+        )
+        if status.flagged:
+            self._store.set_crop_review_acknowledged(path, result.active_region)
+
+    def _apply_review_flags(self) -> None:
+        """여백 확인 필요 표시 집합과 필터 칩 개수를 지금 캐시와 설정으로 다시 계산
+
+        - 실행 대상이 일부만 분석돼도 표의 나머지 영상 표시가 사라지지 않도록 현재 리포트 전체를 기준으로 셈
+        """
+        report = self._host.report_provider()
+        if report is None or not self._report_requests:
+            flagged: frozenset[str] = frozenset()
+        else:
+            statuses = self._load_service().crop_review_statuses(
+                self._report_requests,
+                crop_enabled=self._host.config_provider().encode.crop_black_bars,
+            )
+            flagged = frozenset(statuses)
+        self._host.table_view.table_model.set_review_flagged(flagged)
+        self._host.filter_bar.set_review_flagged_count(len(flagged))
+
     def _apply_results(self, *, show_columns: bool = True, crop_only: bool = False) -> None:
         self._host.table_view.table_model.set_frame_analysis_results(self._results)
+        self._apply_review_flags()
         if show_columns:
             self._maybe_show_columns(crop_only)
 
@@ -889,6 +864,7 @@ class FrameAnalysisWindow(Protocol):
     manual_targets: ManualTargetController
     column_history: ColumnHistoryRecorder
     header_bar: HeaderBar
+    filter_bar: FilterTuningBar
 
     @property
     def current_report(self) -> SummaryReport | None:
@@ -947,6 +923,7 @@ def attach_frame_analysis(
         table_view=window.table_view,
         footer=window.footer_bar,
         menu=window.menu,
+        filter_bar=window.filter_bar,
         report_provider=lambda: window.current_report,
         config_provider=config_provider,
         classifier_provider=lambda: window.classifier,

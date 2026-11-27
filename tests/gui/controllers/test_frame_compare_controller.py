@@ -11,6 +11,7 @@ import tempfile
 import threading
 import unittest
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 from unittest import mock
 
@@ -22,7 +23,12 @@ if TYPE_CHECKING:
     from src.gui.controllers.frame_compare_controller import FrameCompareWindowHost
     from src.gui.preview.preview_controller import PreviewController
 
-from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, FRAME_ANALYSIS_VERSION, TierScore
+from src.core.analysis.frame_analysis import (
+    CROP_SCAN_VERSION,
+    FRAME_ANALYSIS_VERSION,
+    ActiveRegion,
+    TierScore,
+)
 from src.core.analysis.frame_compare import FrameSource
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_gate import GatePurpose
@@ -48,6 +54,7 @@ from src.service.frame_compare_service import (
     FrameCompareService,
     FrameSourceInfo,
 )
+from src.service.frame_override_rows import review_region_box
 from src.service.session import ClassifierSession
 from tests._factories import make_eval, make_report, make_video
 from tests._gui_helpers import GuiTestCase
@@ -365,6 +372,38 @@ class SessionTests(_ControllerCase):
             disabled = controller.build_session(self.source, 0.0)
         self.assertIsNone(disabled.active_frame)
 
+    def test_review_hold_stops_the_comparison_crop_until_the_user_confirms(self) -> None:
+        """여백 확인 필요 영상의 비교 창이 인코더와 같이 자동 크롭을 보류하는지 검증"""
+        info = self.info(self.source)
+        record = replace(
+            self.save_record(),
+            filename="video.mp4",
+            filesize_bytes=info.size_bytes,
+            mtime_ns=info.mtime_ns,
+            active_width=1600,
+            active_height=1000,
+            active_x=260,
+            active_y=40,
+            has_black_bars=True,
+            dark_outliers_ignored=True,
+        )
+        self.store.save(record)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = self.controller.build_session(self.source, 0.0)
+        self.assertIsNone(session.active_frame)
+        self.assertEqual((session.width, session.height), (3840, 2160))
+        target = session.plan.target("1080p")
+        assert target is not None
+        self.assertIsNone(target.crop)
+
+        # 자동 감지로 되돌리기나 전체 화면 유지는 확인 표시를 남겨 비교도 자동 크롭을 씀
+        self.store.set_crop_review_acknowledged(
+            self.source, record.active_region
+        )
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            confirmed = self.controller.build_session(self.source, 0.0)
+        self.assertEqual(confirmed.active_frame, ActiveFrame(1600, 1000, 260, 40))
+
     def test_crop_only_cache_keeps_the_active_frame_without_scores(self) -> None:
         """검은 여백 감지 전용 행도 비교 창에서 활성 화면 크롭으로 쓰이고 점수는 비우는지 검증"""
         info = self.info(self.source)
@@ -615,6 +654,48 @@ class SessionTests(_ControllerCase):
         self.assertIsNone(session.active_frame)
         self.assertEqual((session.width, session.height), (3840, 2160))
         self.assertEqual(self.store.count_crop_exclusions(), 1)
+
+    def test_crop_review_ack_survives_a_comparison_with_the_archived_original(self) -> None:
+        """보관 원본과 비교하는 세션을 열어도 결과 파일의 여백 확인 표시가 지워지지 않음
+
+        - 확인 표시는 결과 파일 식별 값으로 저장되므로 보관 원본 식별 값으로 조회하면 맞지 않지만,
+          그 조회로 행을 지우면 표의 여백 확인 필요 경고가 되살아남
+        """
+        self._finish_archive_encode()
+        self._place_result_over_the_source()
+        info = self.info(self.archive)
+        self.store.save(
+            FrameAnalysisRecord(
+                filename="video.mp4",
+                filesize_bytes=info.size_bytes,
+                mtime_ns=info.mtime_ns,
+                active_width=1600,
+                active_height=1000,
+                active_x=260,
+                active_y=40,
+                has_black_bars=True,
+                dark_outliers_ignored=True,
+                metric_used="VMAF",
+                vmaf_model="vmaf_v0.6.1",
+                tier_scores=(TierScore(tier="720p", ssim=0.9983, vmaf=98.7),),
+                candidate_tier="720p",
+                valid_segments=3,
+                total_segments=3,
+                unmeasurable=False,
+                is_vr_protected=False,
+                measured_at="2026-11-22T00:00:00Z",
+                analysis_version=FRAME_ANALYSIS_VERSION,
+            )
+        )
+        region = ActiveRegion(1600, 1000, 260, 40, has_black_bars=True, dark_outliers_ignored=True)
+        box = review_region_box(region)
+        self.store.set_crop_review_acknowledged(self.source, region)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = self.controller.build_session(self.source, 0.0)
+        self.assertEqual(session.plan.original.path, self.archive)
+        self.assertEqual(
+            self.store.load_crop_review_acknowledged({self.source: box}), frozenset({self.source})
+        )
 
     def test_manual_frame_applies_when_the_compared_original_is_the_source(self) -> None:
         """비교 기준 원본이 source_path와 같으면 그 파일과 맞춘 지정을 적용하고, 보관 원본과 맞지 않으면 무시

@@ -93,7 +93,15 @@ USER_RESIZED_NAME_ATTR: str = "_user_resized_name_col"
 USER_RESIZED_COLS_ATTR: str = "_user_resized_cols"
 # - 표시 데이터가 아니라 저장 기록과 캐시를 지우는 항목이라 실행 뒤 표와 캐시를 다시 읽어야 함
 ANALYSIS_STORAGE_KEYS: frozenset[CleanupItemKey] = frozenset(
-    {"probe_cache", "frame_cache", "manual_targets", "crop_exclusions", "manual_active_frames", "vr_overrides"}
+    {
+        "probe_cache",
+        "frame_cache",
+        "manual_targets",
+        "crop_exclusions",
+        "crop_review_acks",
+        "manual_active_frames",
+        "vr_overrides",
+    }
 )
 ENCODE_STORAGE_KEYS: frozenset[CleanupItemKey] = frozenset({"discarded_history", "encode_output_history"})
 
@@ -537,6 +545,9 @@ class DataCleanupController:
         deps.table_view.group_model.set_group_by(GROUP_BY_NONE)
         deps.filter_bar.set_row_group(GROUP_BY_NONE, label="", count=0)
         deps.proxy_model.clear_all_column_filters()
+        # - 칩은 시그널 없이 끄므로 프록시의 보기 필터도 함께 풀어야 표가 걸러진 채 남지 않음
+        deps.filter_bar.clear_review_filter()
+        deps.proxy_model.set_review_only(False)
         deps.filter_bar.search_edit.clear()
         filters = deps.session.state.ui.filters
         filters.search = ""

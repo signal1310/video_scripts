@@ -14,7 +14,12 @@ from src.core.analysis.frame_analysis import (
     TierScore,
 )
 from src.core.analysis.probe_version_rules import KEYFRAME_MEASURE_VERSION
-from src.core.config import RESULT_POLICY_REPLACE, RESULT_POLICY_SEPARATE, ClassifierConfig
+from src.core.config import (
+    RESULT_POLICY_ARCHIVE,
+    RESULT_POLICY_REPLACE,
+    RESULT_POLICY_SEPARATE,
+    ClassifierConfig,
+)
 from src.core.encode_fingerprint import compute_encode_fingerprint
 from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.core.models import ActiveFrame, QualityZone
@@ -379,8 +384,8 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         jobs = jobs_from_evaluations(report.evaluations, self.root)
         self.assertEqual(jobs[0].crop_filter, "crop=1280:720:0:180")
 
-    def test_crop_review_hold_applies_only_to_original_replacement(self) -> None:
-        """어두운 근거로 지점을 무시한 자동 크롭은 원본 교체에서 보류되고 별도 출력에서는 유지되는지 검증"""
+    def test_crop_review_hold_applies_to_every_output_mode(self) -> None:
+        """어두운 근거로 지점을 무시한 자동 크롭은 출력 방식과 무관하게 보류되는지 검증"""
         clip = os.path.join(self.root, "review.mp4")
         with open(clip, "wb") as handle:
             handle.write(b"v" * 2048)
@@ -419,21 +424,15 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
         svc = self._service()
 
-        detected = ActiveFrame(1600, 1000, 260, 40)
-        self.config.execution.result_policy = RESULT_POLICY_REPLACE
-        replaced = svc.evaluate_all()
-        self.assertIsNone(replaced.evaluations[0].active_frame)
-        self.assertIsNone(jobs_from_evaluations(replaced.evaluations, self.root)[0].crop_filter)
+        for policy in (RESULT_POLICY_REPLACE, RESULT_POLICY_SEPARATE, RESULT_POLICY_ARCHIVE):
+            self.config.execution.result_policy = policy
+            report = svc.evaluate_all()
+            self.assertIsNone(report.evaluations[0].active_frame, policy)
+            self.assertIsNone(
+                jobs_from_evaluations(report.evaluations, self.root)[0].crop_filter, policy
+            )
 
-        self.config.execution.result_policy = RESULT_POLICY_SEPARATE
-        separated = svc.evaluate_all()
-        self.assertEqual(separated.evaluations[0].active_frame, detected)
-        self.assertEqual(
-            jobs_from_evaluations(separated.evaluations, self.root)[0].crop_filter,
-            detected.crop_filter_expr(),
-        )
-
-        # 사용자 지정 활성 화면은 원본 교체에서도 사람 확인 보류를 풂
+        # 사용자 지정 활성 화면은 출력 방식과 무관하게 사람 확인 보류를 풂
         manual = ActiveFrame(1280, 720, 0, 180)
         frame_store = FrameAnalysisStore(self.db_path)
         try:

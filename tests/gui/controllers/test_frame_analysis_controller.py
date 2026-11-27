@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 from typing import cast
 from unittest import mock
 
@@ -13,7 +14,7 @@ from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
-from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL, ClassifierConfig
+from src.core.config import ClassifierConfig
 from src.core.encode.ffmpeg_capability import FfmpegCapability
 from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.smart_action import SmartAction
@@ -26,24 +27,24 @@ from src.gui.controllers.frame_analysis_controller import (
     FrameAnalysisStageProgress,
     FrameAnalysisWindow,
     FrameAnalysisWorker,
-    _is_below_frame_min_tier,
-    _skip_for_crop_scan,
-    _skip_for_frame_analysis,
     attach_frame_analysis,
-    build_requests,
     completion_status_text,
     frame_analysis_stage_text,
     run_frame_analysis_body,
 )
+from src.gui.controllers.frame_analysis_targets import build_requests
 from src.gui.menus.menu_bar import MainMenuController
 from src.gui.table.video_table_view import VideoTableView
+from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
+from src.service.frame_analysis_record import FrameAnalysisRecord
 from src.service.frame_analysis_service import (
     FrameAnalysisRequest,
     FrameAnalysisService,
 )
 from src.service.frame_analysis_store import FrameAnalysisStore
 from tests._factories import make_eval, make_report, make_video
+from tests._frame_analysis_fakes import make_frame_record
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -70,6 +71,7 @@ class _FakeModel:
         self.manual_vr: frozenset[str] = frozenset()
         self.crop_excluded: frozenset[str] = frozenset()
         self.manual_frames: dict[str, object] = {}
+        self.review_flagged: frozenset[str] = frozenset()
         self.handlers: dict[str, object] = {}
 
     def set_frame_analysis_results(self, results: dict[str, FrameAnalysisResult]) -> None:
@@ -87,6 +89,9 @@ class _FakeModel:
 
     def set_manual_vr_overrides(self, names: Iterable[str]) -> None:
         self.manual_vr = frozenset(names)
+
+    def set_review_flagged(self, names: Iterable[str]) -> None:
+        self.review_flagged = frozenset(names)
 
     def is_manual_vr(self, filename: str) -> bool:
         return filename in self.manual_vr
@@ -306,6 +311,7 @@ class _ControllerCase(unittest.TestCase):
         self.view = _FakeView()
         self.footer = _FakeFooter()
         self.menu = _FakeMenu()
+        self.filter_bar = _FakeFilterBar()
         self.shown = 0
         self.shown_modes: list[bool] = []
         self.notifications: list[str] = []
@@ -341,6 +347,7 @@ class _ControllerCase(unittest.TestCase):
             table_view=cast("VideoTableView", self.view),
             footer=cast("FooterBar", self.footer),
             menu=cast("MainMenuController", self.menu),
+            filter_bar=cast("FilterTuningBar", self.filter_bar),
             report_provider=lambda: report if report is not None else self.report,
             config_provider=(lambda: config) if config is not None else ClassifierConfig,
             classifier_provider=lambda: None,
@@ -576,6 +583,42 @@ class ControllerTests(_ControllerCase):
         controller = self.make_controller()
         controller.reload_cached()
         self.assertEqual(self.view.table_model.manual_vr, frozenset({"a.mp4"}))
+
+    def _flagged_record(self) -> FrameAnalysisRecord:
+        """지금 a.mp4 파일의 식별 값에 맞춘 여백 확인 필요 캐시 행"""
+        stat = os.stat(os.path.join(self.root, "a.mp4"))
+        return replace(
+            make_frame_record("a.mp4", size=stat.st_size, mtime=stat.st_mtime_ns),
+            dark_outliers_ignored=True,
+        )
+
+    def test_reload_cached_publishes_review_flags_and_chip_count(self) -> None:
+        """여백 확인 필요 영상이 표 표시 집합과 필터 칩 개수로 함께 드러나는지 검증"""
+        self.store.save(self._flagged_record())
+        controller = self.make_controller()
+        controller.reload_cached()
+        self.assertEqual(self.view.table_model.review_flagged, frozenset({"a.mp4"}))
+        self.assertEqual(self.filter_bar.review_count, 1)
+
+    def test_saving_a_manual_frame_clears_the_review_flag_and_holds_it_off(self) -> None:
+        """직접 지정을 저장하면 여백 확인 필요 표시와 보류가 함께 풀리고 저장되는지 검증"""
+        path = os.path.join(self.root, "a.mp4")
+        self.store.save(self._flagged_record())
+        controller = self.make_controller()
+        controller.reload_cached()
+        self.assertEqual(self.filter_bar.review_count, 1)
+
+        manual = ActiveFrame(1280, 720, 0, 180)
+        controller.set_manual_active_frame([self.ev], manual)
+        self.assertEqual(self.view.table_model.review_flagged, frozenset())
+        self.assertEqual(self.filter_bar.review_count, 0)
+        self.assertEqual(
+            self.store.load_manual_active_frames({path: (1920, 1080)}), {path: manual}
+        )
+        # 직접 지정을 지워도 확인 표시가 남아 자동 감지로 되돌리기가 다시 경고를 띄우지 않음
+        controller.set_manual_active_frame([self.ev], None)
+        self.assertEqual(self.filter_bar.review_count, 0)
+        self.assertEqual(self.view.table_model.review_flagged, frozenset())
 
     def test_apply_results_shows_columns_once_per_root(self) -> None:
         controller = self.make_controller()
@@ -1063,11 +1106,22 @@ class _FakeHeader:
         self.saved_tier = tier_key
 
 
+class _FakeFilterBar:
+    """필터 바 대역: 여백 확인 필요 칩 개수 반영만 기록"""
+
+    def __init__(self) -> None:
+        self.review_count: int = 0
+
+    def set_review_flagged_count(self, count: int) -> None:
+        self.review_count = count
+
+
 class _FakeWindow:
     def __init__(self, case: _ControllerCase) -> None:
         self.table_view = case.view
         self.footer_bar = case.footer
         self.menu = case.menu
+        self.filter_bar = _FakeFilterBar()
         self.manual_targets = mock.Mock()
         self.column_history = _FakeHistory()
         self.header_bar = _FakeHeader()
@@ -1133,44 +1187,6 @@ class AttachTests(_ControllerCase):
 
 class FrameAnalysisStartRulesTests(_ControllerCase):
     """전체 화질 분석의 자동 건너뛰기와 대상 해상도 필터 검증"""
-
-    def test_skip_rules_cover_exception_encoded_hdr_manual_and_interlaced(self) -> None:
-        """예외 규칙, 이미 인코딩, HDR, 인터레이스, 직접 지정 영상은 자동 대상에서 빠짐"""
-        for action in (
-            SmartAction.PASS_EXCEPTION,
-            SmartAction.PASS_ALREADY_ENCODED,
-            SmartAction.PASS_HDR,
-        ):
-            with self.subTest(action=action):
-                self.assertTrue(_skip_for_frame_analysis(make_eval(smart_action=action)))
-        self.assertTrue(_skip_for_frame_analysis(make_eval(manual_target="keep")))
-        self.assertTrue(_skip_for_frame_analysis(make_eval(manual_target="720p")))
-        self.assertFalse(_skip_for_frame_analysis(make_eval()))
-        interlaced = make_eval(
-            video=make_video(
-                stream_summary=(
-                    '[{"kind":"video","codec":"h264","attached_pic":false,'
-                    '"field_order":"tt"}]'
-                )
-            )
-        )
-        self.assertTrue(_skip_for_frame_analysis(interlaced))
-        self.assertTrue(_skip_for_crop_scan(interlaced))
-
-    def test_crop_scan_skip_rules_keep_manual_target_videos(self) -> None:
-        """검은 여백 감지는 직접 지정 영상을 건너뛰지 않고 보존 대상과 인터레이스만 제외"""
-        manual = make_eval(manual_target="720p")
-        self.assertFalse(_skip_for_crop_scan(manual))
-        self.assertFalse(_skip_for_crop_scan(make_eval(manual_target="keep")))
-        self.assertTrue(_skip_for_crop_scan(make_eval(smart_action=SmartAction.PASS_HDR)))
-        self.assertFalse(_skip_for_crop_scan(make_eval()))
-
-    def test_min_tier_filter_uses_source_tier(self) -> None:
-        """원본 규격이 대상 해상도 미만인지 판정하고 전체와 모르는 값은 걸러내지 않음"""
-        self.assertTrue(_is_below_frame_min_tier(1280, 720, "1080p"))
-        self.assertFalse(_is_below_frame_min_tier(1920, 1080, "1080p"))
-        self.assertFalse(_is_below_frame_min_tier(1280, 720, FRAME_ANALYSIS_MIN_TIER_ALL))
-        self.assertFalse(_is_below_frame_min_tier(1280, 720, "unknown"))
 
     def _capability(self) -> FfmpegCapability:
         return FfmpegCapability(
@@ -1332,6 +1348,19 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         self.assertEqual(controller.frame_estimate_text(), "대상 1개")
         self.assertEqual(controller.analysis_estimate_text("frame"), "대상 1개")
         self.assertEqual(controller.analysis_estimate_text("fast"), "")
+
+    def test_estimate_text_uses_the_shared_target_rule(self) -> None:
+        """컨트롤러가 대상 수 규칙을 다시 구현하지 않고 공용 함수에 맡기는지 검증"""
+        controller = self.make_controller(report=make_report([self.ev], root_dir=self.root))
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.targets_frame_estimate_text",
+            return_value="대상 9개",
+        ) as shared:
+            self.assertEqual(controller.frame_estimate_text(), "대상 9개")
+        shared.assert_called_once()
+        evaluations, min_tier = shared.call_args.args
+        self.assertEqual(list(evaluations), [self.ev])
+        self.assertEqual(min_tier, ClassifierConfig().encode.frame_analysis_min_tier)
 
 
 if __name__ == "__main__":

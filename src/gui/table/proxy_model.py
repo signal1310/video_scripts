@@ -35,11 +35,29 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         super().__init__(parent)
         self._search_text: str = DEFAULT_FILTER_SEARCH
         self._column_filters: dict[int, ColumnFilterRule] = {}
+        # - 여백 확인 필요 칩이 켜지면 보류 영상만 남김. 열 필터와 별개로 저장하지 않음
+        self._review_only: bool = False
         self.setDynamicSortFilter(True)
 
     def is_any_filter_active(self) -> bool:
-        """검색어, 열 헤더 필터 중 하나라도 활성화되었는지 반환"""
-        return bool(self._search_text or self._column_filters)
+        """검색어, 열 헤더 필터, 여백 확인 필요 칩 중 하나라도 활성화되었는지 반환"""
+        return bool(self._search_text or self._column_filters or self._review_only)
+
+    def set_review_only(self, enabled: bool) -> None:
+        """여백 확인 필요 영상만 보기 칩 상태를 적용하고 필터 재평가"""
+        if self._review_only == enabled:
+            return
+        self._review_only = enabled
+        self._refilter()
+
+    def refilter(self) -> None:
+        """표시 값이 바뀐 뒤 필터를 다시 평가"""
+        self._refilter()
+
+    @property
+    def review_only(self) -> bool:
+        """여백 확인 필요 영상만 보는 중인지"""
+        return self._review_only
 
     def iter_visible_evaluations(self) -> list[VideoEvaluation]:
         """현재 필터 조건을 통과해 화면에 표시 중인 VideoEvaluation 목록 반환"""
@@ -188,12 +206,17 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         ):
             return False
 
-        # 2. 열 데이터 타입 기반 동적 필터 (AND 결합)
+        # 2. 여백 확인 필요 칩
+        if self._review_only and not model.is_review_flagged(ev.video.filename):
+            return False
+
+        # 3. 열 데이터 타입 기반 동적 필터 (AND 결합)
         cfg = model.config
         for col, rule in self._column_filters.items():
             spec = VideoTableModel.get_column_spec(col)
-            val = model.get_filter_value_for(ev, col)
-            if not rule.matches(val, spec, config=cfg):
+            # - 한 행이 값 두 개를 가질 수 있는 열(활성 화면의 크기와 여백 확인 필요)은 어느 하나만 맞아도 남김
+            values = model.get_filter_values_for(ev, col)
+            if not any(rule.matches(value, spec, config=cfg) for value in values):
                 return False
         return True
 

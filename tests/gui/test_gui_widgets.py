@@ -1233,6 +1233,36 @@ class TestGUIWidgetsModule(GuiTestCase):
         bar.set_row_group_options([("folder", "폴더"), ("column:4", "코덱")])
         self.assertIn("column:4", bar._row_group_actions)
 
+    def test_filter_bar_review_chip_visibility_count_and_toggle(self) -> None:
+        """여백 확인 필요 칩이 개수가 있을 때만 보이고, 누르면 시그널을 내보내는지 검증"""
+        from src.gui.widgets.filter_bar import REVIEW_CHIP_LABEL, REVIEW_CHIP_TOOLTIP
+
+        bar = FilterTuningBar()
+        self.addCleanup(bar.close)
+        events: list[bool] = []
+        bar.review_filter_toggled.connect(events.append)
+        self.assertTrue(bar.btn_review_filter.isHidden())
+
+        bar.set_review_flagged_count(3)
+        self.assertFalse(bar.btn_review_filter.isHidden())
+        self.assertEqual(bar.btn_review_filter.text(), f"{REVIEW_CHIP_LABEL} 3")
+        self.assertEqual(bar.btn_review_filter.toolTip(), REVIEW_CHIP_TOOLTIP)
+        self.assertEqual(bar.btn_review_filter.accessibleName(), REVIEW_CHIP_LABEL)
+        self.assertEqual(events, [])
+
+        bar.btn_review_filter.click()
+        self.assertTrue(bar.review_filter_enabled)
+        self.assertEqual(events, [True])
+
+        # 초기화는 켜짐만 풀고 칩은 개수가 남아 있는 동안 그대로 둠
+        bar.clear_review_filter()
+        self.assertFalse(bar.review_filter_enabled)
+        self.assertFalse(bar.btn_review_filter.isHidden())
+        self.assertEqual(events, [True])
+
+        bar.set_review_flagged_count(0)
+        self.assertTrue(bar.btn_review_filter.isHidden())
+
     def test_filter_bar_wide_layout_keeps_preset_and_compact_button_text(self) -> None:
         """넓은 폭에서도 열 프리셋, 좁게 보기 버튼이 글자 폭만큼 보이는지 검증"""
         bar = FilterTuningBar()

@@ -10,6 +10,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 from src.core import workspace_paths as paths_module
+from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.models import ActiveFrame
 from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore
 from src.service.frame_analysis_store import (
@@ -18,6 +19,7 @@ from src.service.frame_analysis_store import (
     _is_locked_error,
 )
 from src.service.frame_override_rows import (
+    review_region_box,
     validated_crop_exclusion_rows,
     validated_manual_rows,
 )
@@ -447,6 +449,43 @@ class TestFrameStoreChangedFileIdentity(_StoreTestCase):
             self.store.load_manual_active_frames({self.clip: (1920, 1080)}),
             {self.clip: manual},
         )
+
+    def test_crop_review_ack_of_a_result_file_survives_an_archived_original_lookup(self) -> None:
+        """원본 보관/교체 모드의 보관 원본 식별 값으로 조회해도 결과 파일의 확인 표시는 남음
+
+        - 화질 비교 창을 열기만 해도 확인 표시가 지워지면 여백 확인 필요 경고가 표에 다시 나타남
+        """
+        region = ActiveRegion(1600, 1000, 260, 40, has_black_bars=True, dark_outliers_ignored=True)
+        box = review_region_box(region)
+        self.store.set_crop_review_acknowledged(self.clip, region)
+        stat = os.stat(self.clip)
+        archive_identity = (stat.st_size + 1, stat.st_mtime_ns)
+        self.assertEqual(
+            self.store.load_crop_review_acknowledged(
+                {self.clip: box}, identity_overrides={self.clip: archive_identity}
+            ),
+            frozenset(),
+        )
+        self.assertEqual(
+            self.store.load_crop_review_acknowledged({self.clip: box}), frozenset({self.clip})
+        )
+
+    def test_crop_review_ack_is_dropped_for_a_changed_file_or_a_changed_region(self) -> None:
+        """같은 경로의 영상이 바뀌거나 새 분석이 다른 영역을 내면 확인 표시를 버림"""
+        region = ActiveRegion(1600, 1000, 260, 40, has_black_bars=True, dark_outliers_ignored=True)
+        box = review_region_box(region)
+        self.store.set_crop_review_acknowledged(self.clip, region)
+        self._replace_clip()
+        self.assertEqual(self.store.load_crop_review_acknowledged({self.clip: box}), frozenset())
+
+        self.store.set_crop_review_acknowledged(self.clip, region)
+        moved = ActiveRegion(1600, 1000, 300, 40, has_black_bars=True, dark_outliers_ignored=True)
+        self.assertEqual(
+            self.store.load_crop_review_acknowledged({self.clip: review_region_box(moved)}),
+            frozenset(),
+        )
+        # 지운 행은 다시 저장하지 않는 한 같은 영역으로 조회해도 살아나지 않음
+        self.assertEqual(self.store.load_crop_review_acknowledged({self.clip: box}), frozenset())
 
     def test_crop_exclusion_from_an_old_schema_is_kept_and_stamped(self) -> None:
         """식별 값 열이 없던 잘라내기 제외 행도 한 번 유효하게 읽고 지금 파일 값으로 채움"""

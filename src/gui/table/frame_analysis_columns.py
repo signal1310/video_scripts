@@ -7,7 +7,11 @@
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
-from src.core.analysis.frame_analysis import is_crop_only_result, is_failed_crop_scan
+from src.core.analysis.frame_analysis import (
+    ActiveRegion,
+    is_crop_only_result,
+    is_failed_crop_scan,
+)
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.quality_probe import METRIC_SSIM, METRIC_VMAF
@@ -26,6 +30,9 @@ FRAME_ANALYSIS_COLUMNS: frozenset[int] = frozenset(
 ACTIVE_FRAME_FULL_TEXT: str = "-"
 ACTIVE_FRAME_VR_TEXT: str = "VR 보호"
 ACTIVE_FRAME_FAILED_TEXT: str = "감지 실패"
+# - 활성 화면을 직접 지정할 때까지 자동 잘라내기를 보류한 영상의 표시 이름. 셀 아이콘, 툴팁 제목,
+#   필터 바 칩, 활성 화면 열 필터 값이 같은 이름을 씀(TERMINOLOGY 4.5절)
+CROP_REVIEW_TEXT: str = "여백 확인 필요"
 DOWNSCALE_KEEP_TEXT: str = "유지"
 DOWNSCALE_UNMEASURABLE_TEXT: str = "측정 불가"
 METRIC_VMAF_TEXT: str = "VMAF"
@@ -64,6 +71,19 @@ _ACTIVE_FRAME_CROP_OFF_TIP: str = (
 )
 # - 사용자 지정 활성 화면은 자동 감지 결과를 덮어쓴 상태임을 알리는 한 문장
 _ACTIVE_FRAME_MANUAL_TIP: str = "사용자 지정 활성 화면입니다."
+# - 자동 잘라내기를 보류한 영상의 툴팁. 제목 뒤에 감지 설명, 보류 안내, 확인 방법을 차례로 붙임
+_CROP_REVIEW_TITLE: str = CROP_REVIEW_TEXT
+_CROP_REVIEW_REASON_TEMPLATE: str = (
+    "검은 여백을 찾을 때 일부 지점의 여백이 어두워 판단에서 제외했습니다. "
+    "그 지점이 실제 화면의 어두운 부분인 경우, 지금 잡은 활성 화면({size}) 밖의 여백을 잘라낼 때 "
+    "실제 화면의 어두운 부분까지 검은 여백으로 보고 함께 잘릴 수 있습니다."
+)
+_CROP_REVIEW_HOLD_TIP: str = (
+    "활성 화면을 직접 지정할 때까지 자동으로 잡은 검은 여백을 잘라내지 않고 전체 화면으로 인코딩합니다."
+)
+_CROP_REVIEW_SOLVE_TIP: str = (
+    "미리 보기 창에서 활성 화면을 확인해 주세요. 직접 지정하거나 자동 감지로 되돌리면 이 경고가 사라집니다."
+)
 # - 구간마다 여백이 달라 합집합만 잡힌 영상에 덧붙이는 안내
 _ACTIVE_FRAME_MARGINS_VARY_TIP: str = (
     "구간마다 검은 여백이 달라 가장 넓게 겹치는 영역만 활성 화면으로 잡았습니다. "
@@ -134,6 +154,23 @@ def active_frame_text(result: FrameAnalysisResult | None) -> str:
     if result.active_region.has_black_bars:
         return f"{result.active_region.width}x{result.active_region.height}"
     return ACTIVE_FRAME_FULL_TEXT
+
+
+def crop_review_tooltip(region: ActiveRegion) -> str:
+    """여백 확인 필요 툴팁: 제목, 감지 설명, 구간별 여백 안내, 보류 안내, 확인 방법
+
+    - 구간별 여백 안내는 그 플래그가 함께 있으면 첫 문단 뒤에 같은 문장을 붙임
+    - 셀과 파일 이름 아이콘이 같은 문구를 씀
+    """
+    lines = [
+        _CROP_REVIEW_TITLE,
+        _CROP_REVIEW_REASON_TEMPLATE.format(size=f"{region.width}x{region.height}"),
+    ]
+    if region.margins_vary:
+        lines.append(_ACTIVE_FRAME_MARGINS_VARY_TIP)
+    lines.append(_CROP_REVIEW_HOLD_TIP)
+    lines.append(_CROP_REVIEW_SOLVE_TIP)
+    return "\n".join(lines)
 
 
 def active_frame_tooltip(
@@ -290,9 +327,10 @@ def quality_metric_sort_value(result: FrameAnalysisResult | None) -> tuple[int, 
 
 
 class FrameAnalysisResults:
-    """파일명별 화질 분석 결과, 수동 VR 보호, 잘라내기 제외, 사용자 지정 활성 화면을 보관하는 표 모델 보조
+    """파일명별 화질 분석 결과, 수동 VR 보호, 잘라내기 제외, 활성 화면, 여백 확인 필요 표시 보관
 
     - 사용자 지정 활성 화면은 자동 감지 결과를 덮어쓰므로 셀 값도 지정 크기로 보여 줌
+    - 여백 확인 필요 표시는 서비스가 정한 자동 크롭 보류 영상 파일명만 담음
     """
 
     def __init__(self) -> None:
@@ -300,6 +338,7 @@ class FrameAnalysisResults:
         self._manual_vr: frozenset[str] = frozenset()
         self._crop_excluded: frozenset[str] = frozenset()
         self._manual_frames: dict[str, ActiveFrame] = {}
+        self._review_flagged: frozenset[str] = frozenset()
 
     def set_results(self, results: Mapping[str, FrameAnalysisResult]) -> None:
         """결과 캐시 전체 교체"""
@@ -320,6 +359,19 @@ class FrameAnalysisResults:
     def set_manual_frames(self, frames: Mapping[str, ActiveFrame]) -> None:
         """사용자 지정 활성 화면을 파일명별로 교체"""
         self._manual_frames = dict(frames)
+
+    def set_review_flagged(self, filenames: Iterable[str]) -> None:
+        """여백 확인 필요 표시를 보일 파일명 집합 교체"""
+        self._review_flagged = frozenset(filenames)
+
+    def is_review_flagged(self, filename: str) -> bool:
+        """파일명이 여백 확인 필요 표시 대상인지 여부"""
+        return filename in self._review_flagged
+
+    @property
+    def review_flagged_count(self) -> int:
+        """여백 확인 필요 영상 수"""
+        return len(self._review_flagged)
 
     def result(self, filename: str) -> FrameAnalysisResult | None:
         """파일명의 화질 분석 결과, 없으면 None"""
@@ -374,8 +426,19 @@ class FrameAnalysisResults:
         return quality_metric_text(result)
 
     def filter_value(self, filename: str, col: int) -> str:
-        """화질 분석 열의 필터 값(표시 문구와 같음)"""
+        """화질 분석 열의 필터 값(표시 문구와 같음)
+
+        - 활성 화면 열은 크기 문구에 더해 여백 확인 필요 영상을 따로 고를 수 있게 같은 이름 값을 둠
+        - 목록 중 하나만 골라도 그 행을 남기도록 표 모델이 값마다 겹쳐 셈
+        """
         return self.display(filename, col)
+
+    def filter_values(self, filename: str, col: int) -> tuple[str, ...]:
+        """화질 분석 열의 필터 값 목록. 활성 화면 열은 여백 확인 필요 영상에 이름 값을 하나 더 둠"""
+        value = self.display(filename, col)
+        if col == ACTIVE_FRAME_COLUMN and self.is_review_flagged(filename):
+            return (value, CROP_REVIEW_TEXT)
+        return (value,)
 
     def sort_value(self, filename: str, col: int) -> object:
         """화질 분석 열의 정렬 값"""

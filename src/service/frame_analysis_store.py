@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import TypeVar
 
-from src.core.analysis.frame_analysis import normalize_manual_active_frame
+from src.core.analysis.frame_analysis import ActiveRegion, normalize_manual_active_frame
 from src.core.models import ActiveFrame
 from src.core.workspace_paths import LogicalOwnerResolver, is_within_roots
 from src.service.frame_analysis_record import (
@@ -27,10 +27,13 @@ from src.service.frame_analysis_record import (
 )
 from src.service.frame_override_rows import (
     MANUAL_FRAME_MATCH_COLUMNS,
+    REVIEW_ACK_MATCH_COLUMNS,
     add_missing_columns,
     file_identity,
+    review_region_box,
     validated_crop_exclusion_rows,
     validated_manual_rows,
+    validated_review_ack_rows,
     write_row_changes,
 )
 
@@ -42,6 +45,7 @@ FRAME_ANALYSIS_TABLE: str = "frame_analysis_cache"
 FRAME_ANALYSIS_VR_TABLE: str = "frame_analysis_vr_override"
 FRAME_ANALYSIS_CROP_TABLE: str = "frame_analysis_crop_exclude"
 FRAME_ANALYSIS_MANUAL_FRAME_TABLE: str = "frame_analysis_manual_active_frame"
+FRAME_ANALYSIS_REVIEW_ACK_TABLE: str = "frame_analysis_crop_review_ack"
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
 # - 조회 중 곁들이는 행 정리는 화면 스레드에서 돌므로 잠금을 오래 기다리지 않고 포기함
 ROW_CLEANUP_BUSY_TIMEOUT_SEC: float = 0.2
@@ -92,6 +96,15 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "  manual_y INTEGER NOT NULL,\n"
     "  manual_width INTEGER NOT NULL,\n"
     "  manual_height INTEGER NOT NULL,\n"
+    "  filesize_bytes INTEGER,\n"
+    "  mtime_ns INTEGER\n"
+    ") WITHOUT ROWID",
+    f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_REVIEW_ACK_TABLE} (\n"
+    "  source_path TEXT PRIMARY KEY,\n"
+    "  region_width INTEGER NOT NULL,\n"
+    "  region_height INTEGER NOT NULL,\n"
+    "  region_x INTEGER NOT NULL,\n"
+    "  region_y INTEGER NOT NULL,\n"
     "  filesize_bytes INTEGER,\n"
     "  mtime_ns INTEGER\n"
     ") WITHOUT ROWID",
@@ -322,6 +335,14 @@ class FrameAnalysisStore:
         """수동 VR 보호 지정 건수. root_dirs를 주면 그 범위 경로만 셈"""
         return self._run(lambda conn: len(_path_rows(conn, FRAME_ANALYSIS_VR_TABLE, root_dirs)))
 
+    def count_crop_review_acks(self, root_dirs: Sequence[str] | None = None) -> int:
+        """여백 확인 필요 표시를 확인한 기록 건수. root_dirs를 주면 그 범위 경로만 셈"""
+        return self._run(lambda conn: len(_path_rows(conn, FRAME_ANALYSIS_REVIEW_ACK_TABLE, root_dirs)))
+
+    def clear_crop_review_acks(self, root_dirs: Sequence[str] | None = None) -> int:
+        """여백 확인 표시 기록을 지워 분석 캐시를 지운 뒤에도 경고가 다시 뜨게 함"""
+        return self._run(lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_REVIEW_ACK_TABLE, root_dirs))
+
     def clear_vr_overrides(self, root_dirs: Sequence[str] | None = None) -> int:
         """수동 VR 보호 지정을 지우고 지운 건수 반환"""
         return self._run(lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_VR_TABLE, root_dirs))
@@ -526,6 +547,90 @@ class FrameAnalysisStore:
                             normalized.y,
                             normalized.width,
                             normalized.height,
+                            None if identity is None else identity[0],
+                            None if identity is None else identity[1],
+                        ),
+                    )
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+
+        self._run(_write)
+
+    def load_crop_review_acknowledged(
+        self,
+        regions: Mapping[str, tuple[int, int, int, int]],
+        *,
+        identity_overrides: Mapping[str, tuple[int, int]] | None = None,
+    ) -> frozenset[str]:
+        """어두운 근거 무시 자동 크롭을 사용자가 확인한 경로 집합 조회
+
+        - `regions`는 경로별 자동 감지 활성 화면 (너비, 높이, x, y)이며, 저장 값과 다르면 새 분석이 다른
+          영역으로 같은 경고를 낸 것이므로 그 경로를 빼고 행을 지움
+        - 저장 시점의 파일 크기와 수정 시각이 지금 파일과 다르면 원본이 바뀐 행이라 그 경로를 빼고 행을 지움
+        - 영역을 모르는 경로는 비교할 수 없으므로 빼고 지움
+        - `identity_overrides`의 처리는 `load_crop_exclusions`와 같음. 다른 파일을 띄우는 조회에서 식별 값이
+          맞지 않는 행은 결과 파일용 확인 표시일 수 있어 지우지 않고 그 조회에서만 건너뜀
+        """
+
+        def _select(conn: sqlite3.Connection) -> frozenset[str]:
+            keys = list(dict.fromkeys(path for path in regions if path))
+            if not keys:
+                return frozenset()
+            placeholders = ", ".join("?" * len(keys))
+            rows = conn.execute(
+                f"SELECT source_path, region_width, region_height, region_x, region_y,"
+                f" filesize_bytes, mtime_ns FROM {FRAME_ANALYSIS_REVIEW_ACK_TABLE}"
+                f" WHERE source_path IN ({placeholders})",
+                keys,
+            ).fetchall()
+            kept, dropped, stamped = validated_review_ack_rows(
+                rows, regions, identity_overrides=identity_overrides
+            )
+            _write_row_changes_best_effort(
+                self._db_path,
+                table=FRAME_ANALYSIS_REVIEW_ACK_TABLE,
+                drop_columns=REVIEW_ACK_MATCH_COLUMNS,
+                dropped=dropped,
+                stamped=stamped,
+            )
+            return frozenset(kept)
+
+        return self._run(_select)
+
+    def set_crop_review_acknowledged(
+        self, source_path: str, region: ActiveRegion | None
+    ) -> None:
+        """영상의 여백 확인 필요 표시를 확인한 것으로 저장. None이면 지워 표시를 되살림
+
+        - 자동 감지 영역을 함께 남겨, 다시 분석해 다른 영역이 나오면 그 표시를 지우고 경고를 되살림
+        - 저장 시점 파일 크기와 수정 시각을 함께 남겨, 같은 경로의 파일이 바뀌면 읽을 때 버림
+        - 분석 캐시는 지우지 않음. 확인 여부는 보류 판정 입력에서만 씀
+        """
+        if not source_path:
+            return
+
+        def _write(conn: sqlite3.Connection) -> None:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                conn.execute(
+                    f"DELETE FROM {FRAME_ANALYSIS_REVIEW_ACK_TABLE} WHERE source_path = ?",
+                    (source_path,),
+                )
+                if region is not None:
+                    identity = file_identity(source_path)
+                    box = review_region_box(region)
+                    conn.execute(
+                        f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_REVIEW_ACK_TABLE}"
+                        " (source_path, region_width, region_height, region_x, region_y,"
+                        " filesize_bytes, mtime_ns) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            source_path,
+                            box[0],
+                            box[1],
+                            box[2],
+                            box[3],
                             None if identity is None else identity[0],
                             None if identity is None else identity[1],
                         ),

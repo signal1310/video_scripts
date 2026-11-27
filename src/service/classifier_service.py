@@ -18,7 +18,7 @@ from src.core.analysis.frame_analysis import (
     review_holds_automatic_crop,
 )
 from src.core.analysis.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
-from src.core.config import RESULT_POLICY_REPLACE, ClassifierConfig
+from src.core.config import ClassifierConfig
 from src.core.encode.encode_paths import excluded_folder_names
 from src.core.evaluation.classification_policy import (
     DEFAULT_CLASSIFICATION_POLICIES,
@@ -37,6 +37,7 @@ from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, DirSignature, TableCache
 from src.service.encode.encode_output_history import EncodeOutputHistory
 from src.service.frame_analysis_store import FrameAnalysisStore
+from src.service.frame_override_rows import review_region_box
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +94,6 @@ def _resolve_frame_cache_for(
     crop_enabled: bool = True,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     frame_targets_enabled: bool = True,
-    replace_original: bool = False,
 ) -> tuple[dict[str, ActiveFrame], dict[str, str]]:
     """화질 분석 캐시에서 잘라내기 확정 영상과 축소 후보 규격을 파일명별로 조회
 
@@ -101,7 +101,7 @@ def _resolve_frame_cache_for(
     - 현재 파일 크기와 수정 시각이 같은 행만 써서 바뀐 파일의 낡은 측정을 쓰지 않음
     - 잘라내기를 쓰지 않는 영상(설정 끔, VR 보호, 검은 여백 없음)은 축소 후보도 반영하지 않음
     - 사용자 지정 활성 화면은 자동 감지 결과와 영상별 제외를 덮어씀
-    - 원본 교체 인코딩에서 어두운 근거로 지점을 무시한 영상은 영상별 제외와 같은 경로로 자동 크롭을 보류
+    - 어두운 근거로 지점을 무시한 영상은 사용자가 확인할 때까지 영상별 제외와 같은 경로로 자동 크롭을 보류
     - 활성 화면 면적이 현재 무시 상한을 넘으면 전체 프레임으로 되돌려 판정
     """
     if db_path is None:
@@ -126,9 +126,22 @@ def _resolve_frame_cache_for(
         manual = store.load_manual_active_frames(
             {path: size_by_name[name] for name, path in path_by_name.items()}
         )
+        loaded = store.load_many(keys)
+        regions = {
+            path_by_name[key[0]]: review_region_box(
+                apply_no_bars_ratio(
+                    record.active_region,
+                    *size_by_name[key[0]],
+                    thresholds=thresholds,
+                )
+            )
+            for key, record in loaded.items()
+            if key[0] in path_by_name
+        }
+        acknowledged = store.load_crop_review_acknowledged(regions) if regions else frozenset()
         frames: dict[str, ActiveFrame] = {}
         frame_targets: dict[str, str] = {}
-        for key, record in store.load_many(keys).items():
+        for key, record in loaded.items():
             if not is_usable_analysis_version(record.analysis_version, analysis_version):
                 continue
             width, height = size_by_name.get(key[0], (0, 0))
@@ -139,10 +152,10 @@ def _resolve_frame_cache_for(
             # - 사람 확인이 필요한 자동 크롭은 영상별 제외와 같은 경로로 전체 프레임 판정을 받게 함
             review_hold = review_holds_automatic_crop(
                 region,
-                replace_original=replace_original,
                 crop_enabled=crop_enabled,
                 is_vr_protected=record.is_vr_protected,
                 manual_frame=manual.get(path),
+                acknowledged=path in acknowledged,
             )
             frame = resolve_crop_frame(
                 region,
@@ -414,7 +427,6 @@ class VideoClassifierService:
             crop_enabled=self.config.encode.crop_black_bars,
             thresholds=frame_thresholds_from_config(self.config),
             frame_targets_enabled=self.config.encode.auto_apply_frame_target,
-            replace_original=self.config.execution.result_policy == RESULT_POLICY_REPLACE,
         )
         return VideoEvaluator.evaluate_all(
             self.root_dir,
@@ -465,7 +477,6 @@ class VideoClassifierService:
             config.encode.frame_analysis_mode, config.encode.scale_algorithm
         )
         crop_enabled = config.encode.crop_black_bars
-        replace_original = config.execution.result_policy == RESULT_POLICY_REPLACE
 
         def job() -> SummaryReport:
             tag_names, matched_names = _resolve_encoded_evidence_for(
@@ -479,7 +490,6 @@ class VideoClassifierService:
                 crop_enabled=crop_enabled,
                 thresholds=frame_thresholds_from_config(config),
                 frame_targets_enabled=config.encode.auto_apply_frame_target,
-                replace_original=replace_original,
             )
             return VideoEvaluator.evaluate_all(
                 root_dir,

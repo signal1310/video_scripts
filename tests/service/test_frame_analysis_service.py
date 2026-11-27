@@ -29,6 +29,7 @@ from src.service.frame_analysis_service import (
     _ScanStatsPool,
 )
 from src.service.frame_analysis_store import FrameAnalysisStore
+from src.service.frame_override_rows import review_region_box
 from tests._frame_analysis_fakes import FakeStderrRunner, make_frame_record
 
 
@@ -279,8 +280,8 @@ class TestFrameAnalysisService(_ServiceTestCase):
         vr_service.analyze_batch([_request("vr.mp4", has_vr_metadata=True)])
         self.assertEqual(vr_service.load_active_frames([_request("vr.mp4", has_vr_metadata=True)]), {})
 
-    def test_crop_review_statuses_report_flag_and_hold(self) -> None:
-        """어두운 근거로 지점을 무시한 영상만 표시하고 원본 교체 여부에 따라 보류 상태를 나누는지 검증"""
+    def test_crop_review_statuses_report_unconfirmed_flags_only(self) -> None:
+        """여백 확인 필요 표시는 확인 전에만 남고 확인한 영상은 표시와 보류가 모두 풀리는지 검증"""
         service = self.make_service(FakeStderrRunner())
         flagged = replace(make_frame_record("flagged.mp4"), dark_outliers_ignored=True)
         plain = make_frame_record("plain.mp4")
@@ -288,25 +289,73 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.store.save(plain)
         requests = [_request("flagged.mp4"), _request("plain.mp4")]
 
-        separate = service.crop_review_statuses(requests, replace_original=False)
-        self.assertEqual(set(separate), {"flagged.mp4"})
-        self.assertTrue(separate["flagged.mp4"].flagged)
-        self.assertFalse(separate["flagged.mp4"].hold_applies)
+        statuses = service.crop_review_statuses(requests)
+        self.assertEqual(set(statuses), {"flagged.mp4"})
+        self.assertTrue(statuses["flagged.mp4"].flagged)
+        self.assertTrue(statuses["flagged.mp4"].hold_applies)
 
-        replaced = service.crop_review_statuses(requests, replace_original=True)
-        self.assertTrue(replaced["flagged.mp4"].hold_applies)
-
-        # 사용자 지정 활성 화면과 잘라내기 설정 끔은 보류를 풀지만 표시는 남김
+        # 사용자 지정 활성 화면과 잘라내기 설정 끔은 표시와 보류를 모두 품
         self.store.set_manual_active_frame(
             "flagged.mp4", ActiveFrame(1280, 720, 0, 180), frame_width=1920, frame_height=1080
         )
-        self.assertFalse(
-            service.crop_review_statuses(requests, replace_original=True)["flagged.mp4"].hold_applies
+        self.assertEqual(service.crop_review_statuses(requests), {})
+        self.store.set_manual_active_frame(
+            "flagged.mp4", None, frame_width=1920, frame_height=1080
         )
-        self.assertFalse(
-            service.crop_review_statuses(
-                requests, replace_original=True, crop_enabled=False
-            )["flagged.mp4"].hold_applies
+        self.assertEqual(service.crop_review_statuses(requests, crop_enabled=False), {})
+
+        # 자동 감지로 되돌리기와 전체 화면 유지는 확인 표시를 남겨 같은 영상이 다시 뜨지 않음
+        region = flagged.active_region
+        self.store.set_crop_review_acknowledged("flagged.mp4", region)
+        self.assertEqual(service.crop_review_statuses(requests), {})
+        self.assertEqual(
+            service.load_active_frames([_request("flagged.mp4")]),
+            {"flagged.mp4": ActiveFrame(720, 1080, 600, 0)},
+        )
+
+        # 새 분석이 다른 영역으로 같은 경고를 내면 확인 표시를 버리고 표시를 되살림
+        self.store.save(replace(flagged, active_x=300))
+        moved = service.crop_review_statuses(requests)
+        self.assertEqual(set(moved), {"flagged.mp4"})
+        self.assertTrue(moved["flagged.mp4"].hold_applies)
+
+    def test_crop_review_ack_is_dropped_for_a_changed_region_or_changed_file(self) -> None:
+        """저장한 영역과 다른 분석 결과나 바뀐 파일은 확인 표시를 버리는지 검증"""
+        service = self.make_service(FakeStderrRunner())
+        flagged = replace(make_frame_record("flagged.mp4"), dark_outliers_ignored=True)
+        self.store.save(flagged)
+        region = review_region_box(flagged.active_region)
+        self.store.set_crop_review_acknowledged("flagged.mp4", flagged.active_region)
+        self.assertEqual(service.crop_review_statuses([_request("flagged.mp4")]), {})
+        # 영역을 모르는 조회는 저장 값을 읽지 않음
+        self.assertEqual(self.store.load_crop_review_acknowledged({}), frozenset())
+        self.assertEqual(
+            self.store.load_crop_review_acknowledged({"flagged.mp4": region}),
+            frozenset({"flagged.mp4"}),
+        )
+        # 새 분석이 다른 영역이면 확인 표시를 지움
+        self.store.set_crop_review_acknowledged("flagged.mp4", flagged.active_region)
+        moved = (region[0], region[1], region[2] + 40, region[3])
+        self.assertEqual(
+            self.store.load_crop_review_acknowledged({"flagged.mp4": moved}), frozenset()
+        )
+        self.assertEqual(
+            self.store.load_crop_review_acknowledged({"flagged.mp4": region}), frozenset()
+        )
+        # 같은 영역으로 다시 확인한 뒤 파일이 바뀌면 확인 표시를 쓰지 않음
+        real = os.path.join(self.tmp_dir, "flagged.mp4")
+        with open(real, "wb") as handle:
+            handle.write(b"v" * 16)
+        stat = os.stat(real)
+        self.store.set_crop_review_acknowledged(real, flagged.active_region)
+        self.assertEqual(
+            self.store.load_crop_review_acknowledged({real: region}), frozenset({real})
+        )
+        self.assertEqual(
+            self.store.load_crop_review_acknowledged(
+                {real: region}, identity_overrides={real: (stat.st_size + 1, stat.st_mtime_ns)}
+            ),
+            frozenset(),
         )
 
     def test_crop_exclusion_roundtrip_keeps_frame_cache(self) -> None:

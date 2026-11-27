@@ -312,18 +312,18 @@ def needs_crop_review(region: ActiveRegion) -> bool:
 def review_holds_automatic_crop(
     region: ActiveRegion,
     *,
-    replace_original: bool,
     crop_enabled: bool = True,
     is_vr_protected: bool = False,
     manual_frame: ActiveFrame | None = None,
+    acknowledged: bool = False,
 ) -> bool:
-    """어두운 근거로 지점을 무시한 자동 크롭을 원본 교체 인코딩에서 보류할지
+    """어두운 근거로 지점을 무시한 자동 크롭을 보류할지
 
-    - 어두운 근거로 안쪽 경계를 채택한 영상은 사람이 확인해야 하므로 원본을 대체하는 인코딩에는 자동 크롭을 쓰지 않음
-    - 별도 출력은 원본을 남기므로 자동 크롭을 그대로 씀
+    - 어두운 근거로 안쪽 경계를 채택한 영상은 사람이 확인해야 하므로 출력 방식과 무관하게 자동 크롭을 쓰지 않음
     - 사용자 지정 활성 화면, 잘라내기 설정 끔, VR 보호는 기존 확정 규칙대로 보류 대상이 아님
+    - 확인한 영상(직접 지정 저장, 자동 감지로 되돌리기, 전체 화면 유지)은 확인 표시로 보류를 풀어 자동 크롭을 그대로 씀
     """
-    if not replace_original or manual_frame is not None:
+    if manual_frame is not None or acknowledged:
         return False
     if not crop_enabled or is_vr_protected:
         return False

@@ -295,6 +295,24 @@ QPushButton#ClearAllFiltersButton:hover {{
     background-color: {p.bg_hover};
     color: {p.text_primary};
 }}
+QPushButton#ReviewFilterChip {{
+    background-color: {p.badge_pending[0]};
+    color: {p.badge_pending[1]};
+    border: 1px solid {p.badge_pending[1]};
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    min-height: 20px;
+}}
+QPushButton#ReviewFilterChip:hover {{
+    background-color: {p.bg_hover};
+}}
+QPushButton#ReviewFilterChip:checked {{
+    background-color: {p.badge_pending[0]};
+    color: {p.badge_pending[1]};
+    border: 2px solid {p.badge_pending[1]};
+}}
 QPushButton#CompactTableButton:checked, QPushButton#CompactTableButton:checked:hover {{
     background-color: {p.bg_selected};
     border-color: {p.action_primary_border};

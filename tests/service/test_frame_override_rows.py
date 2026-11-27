@@ -15,6 +15,7 @@ from src.service.frame_override_rows import (
     optional_int,
     validated_crop_exclusion_rows,
     validated_manual_rows,
+    validated_review_ack_rows,
     write_row_changes,
 )
 
@@ -302,6 +303,39 @@ class TestValidatedRows(_StoreTestCase):
         rows = [(self.clip, 1, None, None)]
         kept, stamped = validated_crop_exclusion_rows(rows, identity_overrides={self.clip: (1, 2)})
         self.assertEqual(kept, [self.clip])
+        self.assertEqual(stamped, [])
+
+    def test_review_ack_row_of_another_file_is_skipped_without_cleanup(self) -> None:
+        """여백 확인 표시도 다른 파일의 식별 값과 맞춰 보는 조회에서는 맞지 않는 행을 지우지 않음
+
+        - 원본 보관/교체 모드에서 화질 비교를 열 때 확인 표시가 지워지면 여백 확인 필요 경고가 되살아남
+        """
+        stat = os.stat(self.clip)
+        stored = (1600, 1000, 260, 40)
+        rows = [(self.clip, *stored, stat.st_size, stat.st_mtime_ns)]
+        regions = {self.clip: stored}
+        kept, dropped, stamped = validated_review_ack_rows(
+            rows, regions, identity_overrides={self.clip: (1, 2)}
+        )
+        self.assertEqual(kept, [])
+        self.assertEqual(dropped, [])
+        self.assertEqual(stamped, [])
+        kept, dropped, _stamped = validated_review_ack_rows(
+            rows,
+            regions,
+            identity_overrides={self.clip: (stat.st_size, stat.st_mtime_ns)},
+        )
+        self.assertEqual(kept, [self.clip])
+        self.assertEqual(dropped, [])
+
+    def test_review_ack_row_of_changed_file_is_dropped(self) -> None:
+        """같은 경로의 영상이 바뀐 확인 표시 행은 정상 조회에서 지움"""
+        stat = os.stat(self.clip)
+        stored = (1600, 1000, 260, 40)
+        rows = [(self.clip, *stored, stat.st_size + 1, stat.st_mtime_ns)]
+        kept, dropped, stamped = validated_review_ack_rows(rows, {self.clip: stored})
+        self.assertEqual(kept, [])
+        self.assertEqual(dropped, [rows[0]])
         self.assertEqual(stamped, [])
 
 

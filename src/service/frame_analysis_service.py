@@ -24,6 +24,7 @@ from multiprocessing import get_context
 
 from src.core.analysis.frame_analysis import (
     DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
+    ActiveRegion,
     CropBox,
     EdgeDarkness,
     FrameAnalysisThresholds,
@@ -34,7 +35,6 @@ from src.core.analysis.frame_analysis import (
     is_failed_crop_scan,
     is_usable_analysis_version,
     is_vr_protected,
-    needs_crop_review,
     rejudge_candidate_tier,
     resolve_crop_frame,
     review_holds_automatic_crop,
@@ -58,6 +58,7 @@ from src.service.frame_analysis_record import (
     result_from_record,
 )
 from src.service.frame_analysis_store import FrameAnalysisStore
+from src.service.frame_override_rows import review_region_box
 
 ANALYSIS_TIMEOUT_SEC: float = 1800.0
 # - 영상 단위와 영상 내부 라운드 병렬 워커 수(이름 있는 상수를 위치 인자로 넘김)
@@ -74,12 +75,40 @@ PROCESS_START_METHOD: str = "spawn"
 class CropReviewStatus:
     """영상 한 개의 어두운 근거 무시 자동 크롭 표시 상태
 
-    - flagged: 어두운 근거로 지점을 무시해 안쪽 경계를 채택한 자동 크롭인지
-    - hold_applies: 원본 교체 인코딩에서 그 자동 크롭을 보류하는지
+    - flagged: 사용자가 아직 확인하지 않아 여백 확인 필요 표시를 보여야 하는지
+    - hold_applies: 자동 크롭을 보류해 전체 화면으로 인코딩하는지(잘라내기 설정 끔, VR 보호, 영상별 제외면 거짓)
     """
 
     flagged: bool
     hold_applies: bool
+
+
+def crop_review_status(
+    region: ActiveRegion,
+    *,
+    crop_enabled: bool = True,
+    is_vr_protected: bool = False,
+    manual_frame: ActiveFrame | None = None,
+    acknowledged: bool = False,
+    excluded: bool = False,
+) -> CropReviewStatus:
+    """영상 한 개의 여백 확인 필요 표시와 자동 크롭 보류 상태
+
+    - 직접 지정을 저장했거나, 자동 감지로 되돌리기나 전체 화면 유지를 골라 확인 표시를 남겼거나,
+      영상별 잘라내기 제외로 이미 전체 화면을 쓰는 영상은 확인한 것으로 보고 표시와 보류를 모두 품
+    - 잘라내기 설정 끔과 VR 보호는 기존 확정 규칙대로 전체 화면을 쓰며 표시도 하지 않음
+    - 표와 화질 비교가 같은 판정을 쓰도록 `review_holds_automatic_crop`을 기준으로 삼음
+    """
+    if excluded:
+        return CropReviewStatus(flagged=False, hold_applies=False)
+    hold = review_holds_automatic_crop(
+        region,
+        crop_enabled=crop_enabled,
+        is_vr_protected=is_vr_protected,
+        manual_frame=manual_frame,
+        acknowledged=acknowledged,
+    )
+    return CropReviewStatus(flagged=hold, hold_applies=hold)
 
 
 def _utc_now_iso() -> str:
@@ -448,53 +477,29 @@ class FrameAnalysisService:
 
         - 설정 끔, VR 보호, 검은 여백 없음이면 전체 프레임 유지로 보고 넣지 않음
         - 사용자 지정 활성 화면은 자동 감지와 영상별 제외를 덮어씀
+        - 사용자가 확인하지 않은 여백 확인 필요 영상도 전체 프레임을 유지해 보류를 따름
         """
         records = self._store.load_many([request.key for request in requests])
         excluded = self._store.load_crop_exclusions([request.path for request in requests])
         manual = self._store.load_manual_active_frames(
             {request.path: (request.width, request.height) for request in requests}
         )
-        frames: dict[str, ActiveFrame] = {}
-        for request in requests:
-            record = records.get(request.key)
-            if record is None or not is_usable_analysis_version(
-                record.analysis_version, self._analysis_version
-            ):
-                continue
-            frame = resolve_crop_frame(
+        regions = {
+            request.path: review_region_box(
                 apply_no_bars_ratio(
                     record.active_region,
                     request.width,
                     request.height,
                     thresholds=self._thresholds,
-                ),
-                crop_enabled=crop_enabled,
-                excluded=request.path in excluded,
-                is_vr_protected=record.is_vr_protected,
-                manual_frame=manual.get(request.path),
+                )
             )
-            if frame is not None:
-                frames[request.filename] = frame
-        return frames
-
-    def crop_review_statuses(
-        self,
-        requests: Sequence[FrameAnalysisRequest],
-        *,
-        replace_original: bool,
-        crop_enabled: bool = True,
-    ) -> dict[str, CropReviewStatus]:
-        """어두운 근거로 지점을 무시한 자동 크롭의 표시 상태를 파일명별로 반환
-
-        - flagged는 어두운 근거 무시로 안쪽 경계를 채택한 자동 크롭인지
-        - hold_applies는 원본 교체 인코딩이라 자동 크롭을 보류하는지(사용자 지정 활성 화면이 있으면 거짓)
-        - 판정에 쓸 수 없는 캐시 행(측정 버전 불일치, VR 보호, 검은 여백 면적 상한 초과)은 넣지 않음
-        """
-        records = self._store.load_many([request.key for request in requests])
-        manual = self._store.load_manual_active_frames(
-            {request.path: (request.width, request.height) for request in requests}
+            for request in requests
+            if (record := records.get(request.key)) is not None
+        }
+        acknowledged = (
+            self._store.load_crop_review_acknowledged(regions) if regions else frozenset()
         )
-        statuses: dict[str, CropReviewStatus] = {}
+        frames: dict[str, ActiveFrame] = {}
         for request in requests:
             record = records.get(request.key)
             if record is None or not is_usable_analysis_version(
@@ -507,18 +512,79 @@ class FrameAnalysisService:
                 request.height,
                 thresholds=self._thresholds,
             )
-            if not needs_crop_review(region):
-                continue
-            statuses[request.filename] = CropReviewStatus(
-                flagged=True,
-                hold_applies=review_holds_automatic_crop(
-                    region,
-                    replace_original=replace_original,
-                    crop_enabled=crop_enabled,
-                    is_vr_protected=record.is_vr_protected,
-                    manual_frame=manual.get(request.path),
-                ),
+            review = crop_review_status(
+                region,
+                crop_enabled=crop_enabled,
+                is_vr_protected=record.is_vr_protected,
+                manual_frame=manual.get(request.path),
+                acknowledged=request.path in acknowledged,
+                excluded=request.path in excluded,
             )
+            frame = resolve_crop_frame(
+                region,
+                crop_enabled=crop_enabled,
+                excluded=request.path in excluded or review.hold_applies,
+                is_vr_protected=record.is_vr_protected,
+                manual_frame=manual.get(request.path),
+            )
+            if frame is not None:
+                frames[request.filename] = frame
+        return frames
+
+    def crop_review_statuses(
+        self,
+        requests: Sequence[FrameAnalysisRequest],
+        *,
+        crop_enabled: bool = True,
+    ) -> dict[str, CropReviewStatus]:
+        """여백 확인 필요 표시와 자동 크롭 보류 상태를 파일명별로 반환
+
+        - 사용자가 확인하지 않은 영상만 넣으며, 확인한 영상은 직접 지정, 자동 감지로 되돌리기,
+          전체 화면 유지 중 어느 것을 골라도 빠짐
+        - 판정에 쓸 수 없는 캐시 행(측정 버전 불일치, VR 보호, 검은 여백 면적 상한 초과)은 넣지 않음
+        """
+        records = self._store.load_many([request.key for request in requests])
+        manual = self._store.load_manual_active_frames(
+            {request.path: (request.width, request.height) for request in requests}
+        )
+        excluded = self._store.load_crop_exclusions([request.path for request in requests])
+        regions = {
+            request.path: review_region_box(
+                apply_no_bars_ratio(
+                    record.active_region,
+                    request.width,
+                    request.height,
+                    thresholds=self._thresholds,
+                )
+            )
+            for request in requests
+            if (record := records.get(request.key)) is not None
+        }
+        acknowledged = (
+            self._store.load_crop_review_acknowledged(regions) if regions else frozenset()
+        )
+        statuses: dict[str, CropReviewStatus] = {}
+        for request in requests:
+            record = records.get(request.key)
+            if record is None or not is_usable_analysis_version(
+                record.analysis_version, self._analysis_version
+            ):
+                continue
+            status = crop_review_status(
+                apply_no_bars_ratio(
+                    record.active_region,
+                    request.width,
+                    request.height,
+                    thresholds=self._thresholds,
+                ),
+                crop_enabled=crop_enabled,
+                is_vr_protected=record.is_vr_protected,
+                manual_frame=manual.get(request.path),
+                acknowledged=request.path in acknowledged,
+                excluded=request.path in excluded,
+            )
+            if status.flagged:
+                statuses[request.filename] = status
         return statuses
 
     def load_results(self, requests: Sequence[FrameAnalysisRequest]) -> dict[str, FrameAnalysisResult]:

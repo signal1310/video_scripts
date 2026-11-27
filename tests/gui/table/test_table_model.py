@@ -17,6 +17,7 @@ from src.core.encode.encode_state import EncodeState
 from src.core.models import ActiveFrame
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.table.frame_analysis_columns import crop_review_tooltip
 from src.gui.table.table_cell_tooltips import ratio_cell_tip
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
@@ -30,6 +31,9 @@ _ICON_PX: int = 12
 _DISPLAY = int(Qt.ItemDataRole.DisplayRole)
 _TOOLTIP = int(Qt.ItemDataRole.ToolTipRole)
 _FOREGROUND = int(Qt.ItemDataRole.ForegroundRole)
+_BACKGROUND = int(Qt.ItemDataRole.BackgroundRole)
+_DECORATION = int(Qt.ItemDataRole.DecorationRole)
+_ACCESSIBLE = int(Qt.ItemDataRole.AccessibleTextRole)
 
 
 class EncodeStateColumnModelTests(unittest.TestCase):
@@ -95,7 +99,7 @@ class EncodeStateColumnModelTests(unittest.TestCase):
         )
         self.assertEqual(self.model.data(self._index(1), _DISPLAY), "이전 폐기")
         self.assertIsNotNone(self.model.data(self._index(1), VideoTableModel.BADGE_ROLE))
-        self.assertIn("인코딩 대상에서 뺐습니다", self.model.data(self._index(1), _TOOLTIP))
+        self.assertIn("인코딩 대상에서 제외했습니다", self.model.data(self._index(1), _TOOLTIP))
         book = EncodeBatchBook()
         book.start([path_b])
         book.apply(path_b, EncodeState.DONE, "")
@@ -329,6 +333,97 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.assertIn(
             "사용자 지정 활성 화면입니다.", self.model.data(index, _TOOLTIP)
         )
+
+
+    def test_review_flag_marks_name_and_active_frame_cells(self) -> None:
+        """여백 확인 필요 영상만 두 셀에 경고 아이콘, 접근성 이름, 툴팁, 셀 배경을 받는지 검증"""
+        reviewed = FrameAnalysisResult(
+            active_region=ActiveRegion(1836, 1008, 42, 36, True, dark_outliers_ignored=True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.model.set_frame_analysis_results({"a.mp4": reviewed, "b.mp4": self.result})
+        self.model.set_review_flagged(["a.mp4"])
+        palette = ThemeManager().current_palette
+        for col in (VideoTableModel.COL_NAME, VideoTableModel.COL_ACTIVE_FRAME):
+            icon = self.model.data(self.model.index(0, col), _DECORATION)
+            self.assertIsInstance(icon, QIcon, col)
+            self.assertFalse(icon.isNull())
+        active = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
+        name = self.model.index(0, VideoTableModel.COL_NAME)
+        name_tip = self.model.data(name, _TOOLTIP)
+        active_tip = self.model.data(active, _TOOLTIP)
+        # - 파일 이름 셀은 행 상세 툴팁 앞에 여백 확인 안내를 덧붙여 상세 정보를 잃지 않음
+        self.assertTrue(name_tip.startswith(active_tip))
+        self.assertIn("파일명: a.mp4", name_tip)
+        self.assertEqual(active_tip, crop_review_tooltip(ActiveRegion(1836, 1008, 42, 36, True, dark_outliers_ignored=True)))
+        self.assertIn("여백 확인 필요", active_tip)
+        self.assertIn("1836x1008", active_tip)
+        self.assertEqual(self.model.data(active, _ACCESSIBLE), "여백 확인 필요")
+        self.assertIsNone(self.model.data(name, _ACCESSIBLE))
+        self.assertEqual(self.model.data(active, _BACKGROUND), QColor(palette.badge_pending[0]))
+        self.assertIsNone(self.model.data(self.model.index(1, VideoTableModel.COL_ACTIVE_FRAME), _DECORATION))
+        self.assertIsNone(self.model.data(self.model.index(1, VideoTableModel.COL_NAME), _BACKGROUND))
+        self.assertEqual(self.model.data(active, _DISPLAY), "1836x1008")
+
+    def test_review_flag_clears_when_the_service_drops_it(self) -> None:
+        """서비스가 확인한 영상을 표시 집합에서 빼면 두 셀의 경고가 모두 사라지는지 검증"""
+        flagged = FrameAnalysisResult(
+            active_region=ActiveRegion(1836, 1008, 42, 36, True, dark_outliers_ignored=True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.model.set_frame_analysis_results({"a.mp4": flagged})
+        self.assertIsNone(
+            self.model.data(self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME), _DECORATION)
+        )
+        self.model.set_review_flagged(["a.mp4"])
+        self.model.set_manual_active_frames({"a.mp4": ActiveFrame(1280, 720, 0, 180)})
+        self.model.set_review_flagged([])
+        for col in (VideoTableModel.COL_NAME, VideoTableModel.COL_ACTIVE_FRAME):
+            self.assertIsNone(self.model.data(self.model.index(0, col), _DECORATION), col)
+        self.assertIsNone(
+            self.model.data(self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME), _ACCESSIBLE)
+        )
+        self.assertEqual(self.model.review_flagged_count, 0)
+
+    def test_review_filter_value_keeps_the_size_and_adds_the_name(self) -> None:
+        """활성 화면 열 필터 값이 크기와 여백 확인 필요를 함께 가지는지 검증"""
+        flagged = FrameAnalysisResult(
+            active_region=ActiveRegion(1836, 1008, 42, 36, True, dark_outliers_ignored=True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.model.set_frame_analysis_results({"a.mp4": flagged, "b.mp4": self.result})
+        self.model.set_review_flagged(["a.mp4"])
+        values = self.model.get_filter_values_for(self.evals[0], VideoTableModel.COL_ACTIVE_FRAME)
+        self.assertEqual(values, ("1836x1008", "여백 확인 필요"))
+        self.assertEqual(
+            self.model.get_filter_values_for(self.evals[1], VideoTableModel.COL_ACTIVE_FRAME),
+            ("-",),
+        )
+        counts = dict(self.model.collect_column_value_counts(VideoTableModel.COL_ACTIVE_FRAME))
+        self.assertEqual(counts["1836x1008"], 1)
+        self.assertEqual(counts["여백 확인 필요"], 1)
+        self.assertEqual(counts["-"], 1)
 
 
 class EncodeLabelCacheTests(unittest.TestCase):

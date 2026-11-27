@@ -1,4 +1,4 @@
-"""통합 데이터 정리 및 초기화 대화상자 검증: 범위 전환, 프리셋, 19개 체크박스, 경고와 확인, 테마
+"""통합 데이터 정리 및 초기화 대화상자 검증: 범위 전환, 프리셋, 21개 체크박스, 경고와 확인, 테마
 
 - 미리보기와 확인은 대역 함수를 주입해 실제 저장 데이터를 건드리지 않음
 - 저장 데이터 건수는 백그라운드 결과로 채워지므로, 스레드 시작을 대역으로 바꿔 실행 순서를 결정적으로 만듦
@@ -121,7 +121,7 @@ class DataCleanupDialogStructureTest(_ImmediateLoaderCase):
         self.assertEqual(dialog.windowTitle(), "데이터 정리 및 초기화")
         self.assertEqual(len(dialog._sections), 4)
         self.assertEqual(len(dialog._select_all), 4)
-        self.assertEqual(len(dialog._badges), 20)
+        self.assertEqual(len(dialog._badges), 21)
         self.assertEqual(tuple(dialog._checkboxes), ALL_CLEANUP_ITEM_KEYS)
         for key, checkbox in dialog._checkboxes.items():
             self.assertEqual(checkbox.text(), CLEANUP_ITEM_LABELS[key])

@@ -9,6 +9,8 @@ from src.service.encode.encode_preview import PlannedCommand, plan_approximation
 
 _REFERENCE_NOTE: str = " (원본 보존 행, 인코딩 가정 참고값)"
 _NOT_TARGET_TIP: str = "인코딩 배치 대상이 아닙니다."
+# - 인코딩 대상이 아니라 예정 명령이 없는 행의 인자 열 툴팁
+FFMPEG_ARGS_NO_COMMAND_TIP: str = "인코딩 배치 대상이 아니므로 예정 명령이 없습니다."
 _KEPT_NO_QUALITY_TIP: str = "원본을 보존하는 영상이라 계획한 품질값이 없습니다."
 _REANALYSIS_NO_QUALITY_TIP: str = (
     "재분석 필요 상태라 계획한 품질값이 없습니다. 다시 분석하면 품질값이 정해집니다."
@@ -150,7 +152,7 @@ def ffmpeg_args_line(planned: PlannedCommand | None) -> str:
     """셀 툴팁과 인자 열에 쓰는 한 줄 요약. 명령을 만들 수 없으면 빈 문자열
 
     - 표 모델이 행마다 한 번 계산한 결과를 넘겨 툴팁과 열이 같은 값을 씀
-    - 보존 행은 인코딩을 가정한 값이므로 근사 표시를 붙임
+    - 스트림 구성을 추정한 계획은 근사 표시를 붙임
     - 결과 경로를 쓸 수 없어 명령을 만들지 않았으면 그 사유를 알려 줌
     """
     if planned is None:

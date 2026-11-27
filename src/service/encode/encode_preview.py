@@ -3,10 +3,11 @@
 - 실제 배치가 쓰는 계획 입력(`jobs_from_evaluations`)과 계획 빌더(`build_encode_plan`)를 그대로 재사용해 명령이 어긋나지 않게 함
 - FFmpeg, ffprobe를 실행하지 않고 파일 존재 확인과 통계 조회만 함(화면 스레드에서 호출 가능)
 - 스트림 구성 요약이 없는 영상은 주 영상 한 개로 근사하고, 그 사실을 결과에 표시
+- 인코딩 대상이 아닌 보존, 재분석 필요 행은 예정 명령을 만들지 않음(배치가 그 행을 인코딩하지 않으므로)
 """
 
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from src.core.config import RESULT_POLICY_SEPARATE, ClassifierConfig
 from src.core.encode.encode_impact import parse_stream_summary_layout
@@ -27,12 +28,9 @@ from src.core.encode.stream_layout import KIND_VIDEO, StreamInfo, StreamLayout
 from src.core.encode_tag import ENCODE_TAG_MODE_VISIBLE
 from src.core.encoder_specs import get_encode_codec_family
 from src.core.models import VideoEvaluation
-from src.core.smart_action import SmartAction
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, jobs_from_evaluations
 from src.service.encode.encode_reasons import NAME_EXISTS
 
-# - 보존 행은 인코딩 기본값(과화질 인코딩과 같은 규칙)으로 강제 인코딩했을 때의 명령을 보여 줌
-FORCED_ENCODE_ACTION: SmartAction = SmartAction.ENCODE_OVER
 FALLBACK_VIDEO_INDEX: int = 0
 
 
@@ -52,13 +50,6 @@ class PlannedCommand:
     def display_text(self) -> str:
         """인자 열에 보여 줄 한 줄. 명령이 없으면 사유"""
         return self.summary or self.skip_reason
-
-
-def _forced_evaluation(ev: VideoEvaluation) -> VideoEvaluation:
-    """인코딩 대상이 아닌 행을 강제 인코딩 가정으로 바꿈. 이미 대상이면 그대로"""
-    if ev.is_encode_target:
-        return ev
-    return replace(ev, smart_action=FORCED_ENCODE_ACTION)
 
 
 def _layout_for_evaluation(ev: VideoEvaluation) -> tuple[StreamLayout, bool]:
@@ -117,15 +108,17 @@ def _plan_for_job(
 def planned_command_for_evaluation(
     ev: VideoEvaluation, config: ClassifierConfig, *, root_dir: str = ""
 ) -> PlannedCommand | None:
-    """영상 한 개의 예정 FFmpeg 명령과 인자 요약. 계획 자체를 만들 수 없으면 None
+    """영상 한 개의 예정 FFmpeg 명령과 인자 요약. 계획 자체를 만들 수 없거나 인코딩 대상이 아니면 None
 
-    - 인코딩 대상이 아닌 행은 기본값 인코딩을 가정한 명령을 돌려줌
+    - 인코딩 대상이 아닌 행은 배치가 인코딩하지 않으므로 예정 명령을 만들지 않음
     - 스트림 구성 요약이 없으면 주 영상 한 개로 근사하고 approximate를 참으로 표시
     - 결과 경로를 쓸 수 없어 배치가 건너뛸 항목은 빈 명령과 skip_reason을 돌려줌
     """
+    if not ev.is_encode_target:
+        return None
     settings = EncodeSettings.from_config(config)
     jobs = jobs_from_evaluations(
-        [_forced_evaluation(ev)],
+        [ev],
         root_dir,
         keyframe_increase_rate=config.thresholds.keyframe_1s_increase_rate,
         base_fps=config.bitrate_model.base_fps,

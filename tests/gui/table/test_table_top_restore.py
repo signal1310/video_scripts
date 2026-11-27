@@ -18,11 +18,17 @@ from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.models import VideoEvaluation
 from src.core.settings.app_state import AppState, load_app_state, save_app_state
 from src.core.settings.state_codec import parse_state_mapping, render_state_jsonc, strip_jsonc_comments
-from src.core.settings.ui_state import GROUP_BY_FOLDER, UiFilterState, UiLayoutState, UiState
+from src.core.settings.ui_state import (
+    GROUP_BY_FOLDER,
+    UiFilterState,
+    UiLayoutState,
+    UiState,
+)
 from src.gui.controllers.frame_analysis_controller import FRAME_ANALYSIS_FLUSH_MS
 from src.gui.main_window import MainWindow
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.table_top_restore import ANCHOR_SETTLE_MS
+from src.gui.table.table_viewport_restore import attach_viewport_restore
 from src.gui.table.video_table_view import VideoTableView
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY
@@ -130,6 +136,60 @@ class TestTableTopRestore(GuiTestCase):
         assert top is not None
         self.assertEqual(top, ("f150.mp4", 150 + _INSERTED_COUNT))
         self.assertEqual(self.view.rowAt(0), 150 + _INSERTED_COUNT)
+
+    def test_horizontal_scroll_is_kept_when_rows_are_rebuilt_above_the_anchor(self) -> None:
+        """위쪽에 행이 끼어 기준 영상을 다시 맨 위에 놓아도 가로 스크롤 위치가 남음을 검증
+
+        - 스크롤 기준 복원은 그 행이 보이도록 가로 스크롤까지 옮기므로 위치를 되돌려야 함
+        """
+        self.view.request_top_restore("f150.mp4", 150)
+        self._load(self.evals)
+        _APP.processEvents()
+        bar = self.view.horizontalScrollBar()
+        assert bar is not None
+        self.assertGreater(bar.maximum(), 0)
+        bar.setValue(120)
+
+        self._load([*_evaluations(_INSERTED_COUNT, prefix="a"), *self.evals])
+        _APP.processEvents()
+
+        self.assertEqual(self.view.top_visible_row_key(), ("f150.mp4", 150 + _INSERTED_COUNT))
+        self.assertEqual(bar.value(), 120)
+
+    def test_horizontal_scroll_is_kept_when_anchor_rows_disappear_above(self) -> None:
+        """설정 변경 재평가처럼 위쪽 행이 빠져 기준 영상 행이 당겨져도 가로 스크롤 위치가 남음을 검증"""
+        self.view.request_top_restore("f150.mp4", 150)
+        self._load(self.evals)
+        _APP.processEvents()
+        bar = self.view.horizontalScrollBar()
+        assert bar is not None
+        self.assertGreater(bar.maximum(), 0)
+        bar.setValue(120)
+
+        self._load(self.evals[100:])
+        _APP.processEvents()
+
+        self.assertEqual(self.view.top_visible_row_key(), ("f150.mp4", 50))
+        self.assertEqual(bar.value(), 120)
+
+    def test_restored_horizontal_scroll_survives_a_rebuild_of_the_anchor(self) -> None:
+        """저장 상태에서 복원한 가로 스크롤 위치가 뒤이은 행 재구성 뒤에도 남음을 검증"""
+        restore = attach_viewport_restore(
+            self.view, UiLayoutState(table_left_scroll=200, table_top_filename="f150.mp4")
+        )
+        self.view.request_top_restore("f150.mp4", 150)
+        self._load(self.evals)
+        _APP.processEvents()
+        bar = self.view.horizontalScrollBar()
+        assert bar is not None
+        self.assertEqual(bar.value(), 200)
+
+        self._load([*_evaluations(_INSERTED_COUNT, prefix="a"), *self.evals])
+        _APP.processEvents()
+
+        self.assertIsNone(restore.pending_left)
+        self.assertEqual(self.view.top_visible_row_key(), ("f150.mp4", 150 + _INSERTED_COUNT))
+        self.assertEqual(bar.value(), 200)
 
     def test_anchor_survives_a_rebuild_before_the_saved_file_arrives(self) -> None:
         """저장한 영상이 아직 없는 중간 재구성을 거쳐도 도착한 뒤 맨 위에 놓는지 검증

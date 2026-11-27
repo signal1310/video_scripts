@@ -7,12 +7,14 @@ from unittest import mock
 from PyQt6.QtWidgets import QApplication
 
 from src.core.models import VideoEvaluation
+from src.core.smart_action import SmartAction
 from src.gui.table.table_command_actions import (
     COPIED_NOTICE,
     NO_COMMAND_NOTICE,
     copy_ffmpeg_commands,
     planned_command_lines,
 )
+from src.gui.table.table_model import VideoTableModel
 from tests._factories import make_eval, make_video
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -127,6 +129,29 @@ class CopyFfmpegCommandsTests(unittest.TestCase):
             return_value=1,
         ):
             self.assertEqual(copy_ffmpeg_commands(model, [_TARGET], _Window(None)), 1)
+
+
+class PreservedRowsAreNotCopiedTests(unittest.TestCase):
+    """원본 보존 행만 골랐을 때 클립보드를 건드리지 않는지 실제 표 모델로 검증"""
+
+    def test_preserved_rows_copy_nothing(self) -> None:
+        """보존 행은 예정 명령이 없으므로 클립보드를 그대로 두고 복사할 명령이 없음을 알림"""
+        model = VideoTableModel()
+        preserved = [
+            make_eval(make_video(filename="keep1.mp4"), smart_action=SmartAction.PASS_OPTIMAL),
+            make_eval(make_video(filename="keep2.mp4"), smart_action=SmartAction.PASS_LOW),
+        ]
+        model.set_data_source(preserved, root_dir="work")
+        footer = _Footer()
+        clipboard = QApplication.clipboard()
+        assert clipboard is not None
+        clipboard.setText("sentinel")
+
+        count = copy_ffmpeg_commands(model, preserved, _Window(footer))
+
+        self.assertEqual(count, 0)
+        self.assertEqual(clipboard.text(), "sentinel")
+        self.assertEqual(footer.texts, [NO_COMMAND_NOTICE])
 
 
 if __name__ == "__main__":

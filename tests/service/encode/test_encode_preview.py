@@ -71,19 +71,23 @@ class PlannedCommandTests(unittest.TestCase):
         self.assertIn("scale=", planned.summary)
         self.assertIn("maxrate", planned.summary)
 
-    def test_passthrough_row_is_forced_to_encode_assumption(self) -> None:
-        """보존 행은 인코딩을 가정한 명령을 돌려주고 근사 표시를 남김"""
+    def test_passthrough_row_has_no_planned_command(self) -> None:
+        """보존 행은 배치가 인코딩하지 않으므로 예정 명령을 만들지 않음"""
         ev = make_eval(
             make_video(filename="keep.mp4"),
             smart_action=SmartAction.PASS_OPTIMAL,
         )
         self.assertFalse(ev.is_encode_target)
-        planned = planned_command_for_evaluation(ev, _config())
-        self.assertIsNotNone(planned)
-        assert planned is not None
-        self.assertTrue(planned.approximate)
-        self.assertIn("-c:v:0", planned.command_line)
-        self.assertNotEqual(plan_approximation_note(planned), "")
+        self.assertIsNone(planned_command_for_evaluation(ev, _config()))
+
+    def test_reanalysis_row_has_no_planned_command(self) -> None:
+        """재분석 필요 행도 인코딩 대상이 아니므로 예정 명령을 만들지 않음"""
+        ev = make_eval(
+            make_video(filename="legacy.mp4"),
+            smart_action=SmartAction.LEGACY_FORMAT,
+        )
+        self.assertFalse(ev.is_encode_target)
+        self.assertIsNone(planned_command_for_evaluation(ev, _config()))
 
     def test_missing_stream_summary_falls_back_to_single_video_stream(self) -> None:
         """스트림 요약이 없으면 주 영상 하나로 근사하고 그 사실을 표시"""

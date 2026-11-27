@@ -15,6 +15,7 @@ from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encode.encode_state import EncodeState
 from src.core.models import ActiveFrame
+from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table.frame_analysis_columns import (
@@ -845,6 +846,19 @@ class FfmpegArgsTooltipTests(unittest.TestCase):
         summary = str(self.model.data(self.model.index(0, VideoTableModel.COL_FFMPEG_ARGS)))
         self.assertNotEqual(summary, display)
         self.assertIn("cq", summary)
+
+    def test_preserved_row_has_no_command_to_copy(self) -> None:
+        """원본 보존 행은 예정 명령이 없어 인자 열이 비고 툴팁에 명령줄이 없음"""
+        preserved = make_eval(
+            make_video(filename="keep.mp4"), smart_action=SmartAction.PASS_OPTIMAL
+        )
+        self.model.set_data_source([preserved], root_dir=_ROOT)
+
+        display = self.model.data(self.model.index(0, VideoTableModel.COL_FFMPEG_ARGS))
+        self.assertIn(display, (None, ""))
+        self.assertIsNone(self.model.planned_command_line(preserved))
+        self.assertNotIn("ffmpeg", self._tip(VideoTableModel.COL_FFMPEG_ARGS))
+        self.assertNotIn("FFmpeg 인자", self._tip(VideoTableModel.COL_ACTION))
 
     def test_encode_book_change_clears_the_planned_command_cache(self) -> None:
         """배치 저장소가 바뀌면 파일 시스템 판정이 낡지 않도록 예정 명령 캐시를 비움"""

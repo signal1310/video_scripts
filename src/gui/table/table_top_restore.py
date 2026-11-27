@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import Any
 
 from PyQt6.QtCore import QObject, Qt, QTimer
-from PyQt6.QtWidgets import QAbstractItemView
 
 from src.gui.table.table_grouping import nearest_video_row
 
@@ -128,12 +127,24 @@ class TableTopRestoreController(QObject):
         self._applied = True
         self._settle_timer.start()
         # - 재구성 직후에는 스크롤 범위와 행 위치가 아직 갱신되지 않았을 수 있어 레이아웃을 먼저 맞춤
+        # - scrollTo는 그 행이 보이도록 가로 스크롤도 0으로 옮기므로 쓰지 않고, 세로 스크롤만 그 행의
+        #   뷰포트 위치만큼 옮겨 사용자가 두었거나 복원한 가로 위치를 건드리지 않음
         self._programmatic_scroll = True
         try:
             self._view.updateGeometries()
-            self._view.scrollTo(model.index(target, 0), QAbstractItemView.ScrollHint.PositionAtTop)
+            self._scroll_row_to_top(target)
         finally:
             self._programmatic_scroll = False
+
+    def _scroll_row_to_top(self, row: int) -> None:
+        """행이 뷰포트 맨 위에 오도록 세로 스크롤만 옮김
+
+        - 표의 세로 스크롤은 행 단위(ScrollPerItem)라 행 번호가 곧 스크롤 값이며, 가로 스크롤은 건드리지 않음
+        """
+        bar = self._view.verticalScrollBar()
+        if bar is None:
+            return
+        bar.setValue(min(max(row, bar.minimum()), bar.maximum()))
 
 
 __all__ = ["ANCHOR_SETTLE_MS", "TableTopRestoreController"]

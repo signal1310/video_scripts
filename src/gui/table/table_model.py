@@ -40,7 +40,7 @@ from src.gui.table.frame_analysis_columns import (
     is_frame_analysis_column,
 )
 from src.gui.table.row_spans import contiguous_row_ranges
-from src.gui.table.table_cell_tooltips import ffmpeg_args_line
+from src.gui.table.table_cell_tooltips import FFMPEG_ARGS_NO_COMMAND_TIP, ffmpeg_args_line
 from src.gui.table.table_column_formats import (
     encode_state_badge,
     encode_state_icon_name,
@@ -702,6 +702,8 @@ class VideoTableModel(QAbstractTableModel):
         """인자 열 셀 툴팁: 붙여 넣어 실행할 전체 명령줄. 명령이 없으면 그 사유"""
         planned = self._planned_for(ev)
         if planned is None:
+            if not ev.is_encode_target:
+                return FFMPEG_ARGS_NO_COMMAND_TIP
             return COL_DEF_MAP[self.COL_FFMPEG_ARGS].tooltip_factory(self._config)
         if not planned.command_line:
             return planned.skip_reason or COL_DEF_MAP[self.COL_FFMPEG_ARGS].tooltip_factory(self._config)

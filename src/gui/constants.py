@@ -51,6 +51,11 @@ TOOLBAR_ICON_SIZE_PX: int = 16
 # 헤더 바 좌우 안쪽 여백과 카드 테두리 두께(접힌 탭 줄의 펼치기 버튼이 접기 버튼과 x 위치를 맞추는 기준)
 HEADER_PADDING_X_PX: int = 16
 HEADER_PADDING_Y_PX: int = 10
+# 헤더 한 줄 안의 위젯 사이 간격(접힌 줄도 같은 간격으로 폴더 아이콘과 이름을 띄움)
+HEADER_SPACING_PX: int = 10
+# 작업 폴더 이름 글꼴 크기와 글자 좌우 안쪽 여백(펼친 헤더와 접힌 줄이 같은 크기, 두께와 시작 위치를 씀)
+FOLDER_NAME_FONT_PT: int = 11
+FOLDER_NAME_PAD_X_PX: int = 8
 CARD_BORDER_PX: int = 1
 FILTER_DEBOUNCE_MS: int = 250
 WORKER_CANCEL_WAIT_MS: int = 3000
@@ -124,6 +129,8 @@ __all__ = [
     "CSV_PREVIEW_ROW_LIMIT",
     "CUSTOM_PRESET_LABEL",
     "FILTER_DEBOUNCE_MS",
+    "FOLDER_NAME_FONT_PT",
+    "FOLDER_NAME_PAD_X_PX",
     "FONT_MONO_FAMILY",
     "FONT_STACK_MONO",
     "FONT_STACK_UI",
@@ -135,6 +142,7 @@ __all__ = [
     "FRAME_FORWARD_NOTICE",
     "HEADER_PADDING_X_PX",
     "HEADER_PADDING_Y_PX",
+    "HEADER_SPACING_PX",
     "MAX_LOG_HISTORY",
     "MUTE_NOTICE",
     "ON_ACCENT_COLOR",

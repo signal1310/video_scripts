@@ -762,7 +762,7 @@ class TestGUIWidgetsModule(GuiTestCase):
             self.assertEqual(index_spy.call_count, 0)
 
     def test_default_column_order_puts_decision_columns_first(self) -> None:
-        """기본 시각 순서가 이름, 권장 처리, 품질값, 판정 사유, 화질 등급 순으로 시작하고 모든 열을 한 번씩 포함하는지 검증"""
+        """기본 시각 순서가 이름, 권장 처리, 품질값, 판정 사유, 인코딩 상태 순으로 시작하고 모든 열을 한 번씩 포함하는지 검증"""
         view = VideoTableView()
         self.addCleanup(view.close)
         order = VideoTableView.DEFAULT_COL_ORDER
@@ -774,7 +774,7 @@ class TestGUIWidgetsModule(GuiTestCase):
                 VideoTableModel.COL_ACTION,
                 VideoTableModel.COL_QUALITY_VALUE,
                 VideoTableModel.COL_REASON,
-                VideoTableModel.COL_ZONE,
+                VideoTableModel.COL_ENCODE_STATE,
             ),
         )
         header = view.filter_header

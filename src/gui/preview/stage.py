@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import QRect, QRectF, Qt
+from PyQt6.QtCore import QRect, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPaintEvent, QResizeEvent
 from PyQt6.QtWidgets import QWidget
 
@@ -25,6 +25,9 @@ class PreviewStage(QWidget):
       레터박스를 없애고 바깥 여백을 이 위젯이 고른 색으로 채움
     - 점선은 영상 위젯 바깥에 그려 영상 화소를 가리지 않음
     """
+
+    # - 영상 위젯이 새 영역에 놓일 때마다 알려, 화면 전역 좌표로 놓인 겹침 창이 같은 순간에 따라오게 함
+    video_moved = pyqtSignal()
 
     def __init__(
         self,
@@ -60,10 +63,11 @@ class PreviewStage(QWidget):
         return content_rect((self.width(), self.height()), size)
 
     def update_geometry(self) -> None:
-        """영상비 사각형으로 영상 위젯을 다시 놓고 다시 그림"""
+        """영상비 사각형으로 영상 위젯을 다시 놓고, 자리가 바뀌었으면 함께 알림"""
         rect = self.video_geometry()
         if self._video.geometry() != rect:
             self._video.setGeometry(rect)
+            self.video_moved.emit()
         self.update()
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:

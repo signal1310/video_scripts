@@ -97,8 +97,8 @@ class PresetOrderDefinitionTests(unittest.TestCase):
                     set(ordered_columns_for_preset(preset_key)) - set(hidden_columns_for_preset(preset_key)),
                 )
 
-    def test_default_order_starts_with_decisions_then_effects_then_state(self) -> None:
-        """기본 순서가 판정, 효과, 상태, 사양 순서로 이어지는지 검증"""
+    def test_default_order_starts_with_decisions_then_effects_then_specs(self) -> None:
+        """기본 순서가 판정, 효과, 사양 순서로 이어지는지 검증"""
         order = PRESET_COL_ORDERS[PRESET_DEFAULT]
         self.assertIs(order, DEFAULT_COL_ORDER)
         self.assertEqual(order[0], VideoTableModel.COL_NAME)
@@ -110,10 +110,15 @@ class PresetOrderDefinitionTests(unittest.TestCase):
             order.index(VideoTableModel.COL_QUALITY_VALUE),
             order.index(VideoTableModel.COL_REASON),
         )
-        self.assertLess(
-            order.index(VideoTableModel.COL_REASON), order.index(VideoTableModel.COL_ZONE)
+        # - 인코딩 상태는 판정 사유 바로 뒤에 옴
+        self.assertEqual(
+            order.index(VideoTableModel.COL_ENCODE_STATE),
+            order.index(VideoTableModel.COL_REASON) + 1,
         )
-        # - 효과 묶음은 화질 등급 뒤, 상태 열 앞에 옴
+        self.assertLess(
+            order.index(VideoTableModel.COL_ENCODE_STATE), order.index(VideoTableModel.COL_ZONE)
+        )
+        # - 효과 묶음은 화질 등급 뒤, 사양 열 앞에 옴
         for col in (
             VideoTableModel.COL_SAVED_SIZE,
             VideoTableModel.COL_SIZE,
@@ -121,15 +126,9 @@ class PresetOrderDefinitionTests(unittest.TestCase):
             VideoTableModel.COL_EST_ENCODE_TIME,
         ):
             self.assertGreater(order.index(col), order.index(VideoTableModel.COL_ZONE))
-            self.assertLess(order.index(col), order.index(VideoTableModel.COL_ENCODE_STATE))
-        # - 상태 열은 사양 열보다 앞, FFmpeg 인자 열은 맨 뒤
+            self.assertLess(order.index(col), order.index(VideoTableModel.COL_CODEC))
         self.assertLess(
-            order.index(VideoTableModel.COL_ENCODE_STATE),
-            order.index(VideoTableModel.COL_CODEC),
-        )
-        self.assertLess(
-            order.index(VideoTableModel.COL_ENCODE_STATE),
-            order.index(VideoTableModel.COL_FPS),
+            order.index(VideoTableModel.COL_CODEC), order.index(VideoTableModel.COL_FPS)
         )
         self.assertEqual(order[-1], VideoTableModel.COL_FFMPEG_ARGS)
 
@@ -153,6 +152,11 @@ class PresetOrderDefinitionTests(unittest.TestCase):
         self.assertLess(
             order.index(VideoTableModel.COL_QUALITY_VALUE),
             order.index(VideoTableModel.COL_REASON),
+        )
+        # - 인코딩 상태는 판정 사유 바로 뒤에 옴
+        self.assertEqual(
+            order.index(VideoTableModel.COL_ENCODE_STATE),
+            order.index(VideoTableModel.COL_REASON) + 1,
         )
         self.assertNotIn(VideoTableModel.COL_CODEC, order)
 

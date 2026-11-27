@@ -63,19 +63,19 @@ MIN_COL_WIDTHS: dict[int, int] = {
 FIXED_VALUE_COLUMNS: dict[int, tuple[str, ...]] = {
     VideoTableModel.COL_REASON: SMART_ACTION_REASONS,
 }
-# 판정(권장 처리, 품질값, 판정 사유, 화질 등급) -> 효과(절약, 용량, 길이, 시간) -> 상태 -> 사양 순서
+# 판정(권장 처리, 품질값, 판정 사유, 인코딩 상태, 화질 등급) -> 효과(절약, 용량, 길이, 시간) -> 사양 순서
 DEFAULT_COL_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_NAME,
     VideoTableModel.COL_ACTION,
     VideoTableModel.COL_QUALITY_VALUE,
     VideoTableModel.COL_REASON,
+    VideoTableModel.COL_ENCODE_STATE,
     VideoTableModel.COL_ZONE,
     VideoTableModel.COL_SAVED_SIZE,
     VideoTableModel.COL_SIZE,
     VideoTableModel.COL_DURATION,
     VideoTableModel.COL_EST_ENCODE_TIME,
     VideoTableModel.COL_SAVED_PER_MIN,
-    VideoTableModel.COL_ENCODE_STATE,
     VideoTableModel.COL_OUTPUT_RES,
     VideoTableModel.COL_ACTIVE_FRAME,
     VideoTableModel.COL_DOWNSCALE_CANDIDATE,

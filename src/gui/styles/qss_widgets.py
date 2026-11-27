@@ -1,5 +1,6 @@
 """GUI 범용 위젯(gui/widgets)과 메인 창(gui/) 직속 위젯 전용 QSS 규칙 생성 모듈"""
 
+from src.gui.constants import FOLDER_NAME_FONT_PT, FOLDER_NAME_PAD_X_PX
 from src.gui.styles.palettes import ThemePalette
 
 
@@ -200,8 +201,8 @@ QPushButton#FolderNameButton {{
     color: {p.text_primary};
     border: none;
     border-radius: 6px;
-    padding: 4px 8px;
-    font-size: 11pt;
+    padding: 4px {FOLDER_NAME_PAD_X_PX}px;
+    font-size: {FOLDER_NAME_FONT_PT}pt;
     font-weight: 700;
     text-align: left;
 }}

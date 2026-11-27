@@ -543,6 +543,29 @@ class CropPreviewWindowTests(GuiTestCase):
         moved_rect = QRect(self.window._video.mapToGlobal(QPoint(0, 0)), self.window._video.size())
         self.assertEqual(overlay.geometry(), moved_rect)
 
+    def test_overlay_follows_the_video_geometry_in_the_same_event_turn(self) -> None:
+        """영상 위젯이 새 영역에 놓이는 그 순간 겹침이 같은 자리로 맞춰지는지 검증
+
+        - 창 크기 사건 시점에는 레이아웃이 영상 위젯을 아직 새 크기로 확정하지 않아
+          창 사건에서 바로 맞추면 한 박자 늦음. 무대가 영상 위젯을 놓는 신호에서 겹침을 다시 맞춰야 함
+        """
+        self.window.set_video_info(_crop_info())
+        button = _crop_button(self.window)
+        overlay = _overlay(self.window)
+        button.setChecked(True)
+        _APP.processEvents()
+        matched: list[bool] = []
+        self.window._stage.video_moved.connect(
+            lambda: matched.append(
+                overlay.geometry()
+                == QRect(self.window._video.mapToGlobal(QPoint(0, 0)), self.window._video.size())
+            )
+        )
+        self.window.resize(1010, 705)
+        _APP.processEvents()
+        self.assertTrue(matched)
+        self.assertTrue(all(matched))
+
 
 if __name__ == "__main__":
     unittest.main()

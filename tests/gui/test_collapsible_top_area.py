@@ -5,10 +5,19 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QApplication, QLabel, QWidget
 
 from src.core.settings.ui_state import UiLayoutState
-from src.gui.constants import HEADER_PADDING_X_PX, TOOLBAR_ICON_BTN_SIZE
+from src.gui.constants import (
+    FOLDER_NAME_FONT_PT,
+    FOLDER_NAME_PAD_X_PX,
+    HEADER_PADDING_X_PX,
+    HEADER_SPACING_PX,
+    TOOLBAR_ICON_BTN_SIZE,
+    make_path_font,
+)
 from src.gui.main_window import MainWindow
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets.collapsible_top_area import (
@@ -27,6 +36,19 @@ from tests._gui_helpers import GuiTestCase
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _APP = QApplication.instance() or QApplication([])
+
+
+def _click(button: Qt.MouseButton) -> QMouseEvent:
+    """위젯 가운데를 누르고 떼는 마우스 사건"""
+    point = QPointF(4.0, 4.0)
+    return QMouseEvent(
+        QEvent.Type.MouseButtonRelease,
+        point,
+        point,
+        button,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
 
 
 class CollapsibleTopAreaWidgetTests(GuiTestCase):
@@ -187,6 +209,32 @@ class CollapsibleTopAreaWidgetTests(GuiTestCase):
         assert strip is not None
         self.assertEqual(strip.height(), TOOLBAR_ICON_BTN_SIZE)
         self.assertLess(summary.geometry().right(), self.area.tab_button(0).geometry().left())
+
+    def test_collapsed_summary_matches_the_expanded_folder_name_style(self) -> None:
+        """접힌 줄의 폴더 이름 글꼴과 아이콘 여백이 펼친 헤더의 폴더 이름과 같은지 검증"""
+        self.area.set_summary_text("clips")
+        self.area.set_collapsed(True)
+        summary = self.area.summary_label
+        self.assertEqual(summary.font().pointSize(), FOLDER_NAME_FONT_PT)
+        self.assertTrue(summary.font().bold())
+        self.assertEqual(summary.font().families(), make_path_font().families())
+        margins = summary.contentsMargins()
+        self.assertEqual((margins.left(), margins.right()), (FOLDER_NAME_PAD_X_PX,) * 2)
+        icon = self.area.folder_icon
+        self.area.resize(600, self.area.sizeHint().height())
+        self.host.show()
+        QApplication.processEvents()
+        self.assertEqual(summary.geometry().left() - icon.geometry().right() - 1, HEADER_SPACING_PX)
+
+    def test_left_click_on_the_summary_expands_and_right_click_does_not(self) -> None:
+        """접힌 줄 폴더 이름을 좌클릭하면 펼쳐지고 우클릭은 아무 동작도 하지 않는지 검증"""
+        self.area.set_summary_text("clips")
+        self.area.set_collapsed(True)
+        summary = self.area.summary_label
+        QApplication.sendEvent(summary, _click(Qt.MouseButton.RightButton))
+        self.assertTrue(self.area.collapsed)
+        QApplication.sendEvent(summary, _click(Qt.MouseButton.LeftButton))
+        self.assertFalse(self.area.collapsed)
 
     def test_summary_color_follows_the_theme(self) -> None:
         """요약 라벨 글자색이 활성 테마의 보조 글자 토큰으로 바뀌는지 검증"""

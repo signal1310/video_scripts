@@ -35,6 +35,7 @@ from src.core.workspace_paths import (
 from src.gui.constants import (
     HEADER_PADDING_X_PX,
     HEADER_PADDING_Y_PX,
+    HEADER_SPACING_PX,
     ON_ACCENT_COLOR,
     PATH_EMPTY_TEXT,
     TOOLBAR_ICON_BTN_SIZE,
@@ -59,7 +60,6 @@ from src.gui.widgets.header_encode_button import (
 )
 
 _MODE_POPUP_GAP_Y: int = 3
-_HEADER_SPACING_PX: int = 10
 _ANALYZE_GAP_BEFORE_PX: int = 8
 _ANALYZE_GAP_AFTER_PX: int = 6
 _SCAN_OPTION_GAP_PX: int = 12
@@ -332,7 +332,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         layout.setContentsMargins(
             HEADER_PADDING_X_PX, HEADER_PADDING_Y_PX, HEADER_PADDING_X_PX, HEADER_PADDING_Y_PX
         )
-        layout.setSpacing(_HEADER_SPACING_PX)
+        layout.setSpacing(HEADER_SPACING_PX)
 
         # 폴더 아이콘은 경로 입력 중에도 남도록 스택 바깥에 둠
         self.folder_icon = QLabel(self)

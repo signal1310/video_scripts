@@ -178,6 +178,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._error_label.setWordWrap(True)
         self._error_label.hide()
         self._stage = PreviewStage(self._video, self._video_frame_size)
+        self._stage.video_moved.connect(self._on_video_geometry_changed)
         self._normal_page = QWidget(self)
         self._normal_layout = QVBoxLayout(self._normal_page)
         self._normal_layout.setContentsMargins(0, 0, 0, 0)
@@ -193,6 +194,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._controls.set_always_on_top(self._always_on_top)
         self._crop_overlay = CropOverlay(self, self._video_view_rect)
         self._crop_hud = CropEditHud(self, self._video_view_rect)
+        # - 겹침 갱신이 편집 여백을 바꿔 영상 위젯 크기를 다시 바꾸므로, 그 안쪽 사건은 다시 처리하지 않음
+        self._syncing_crop_geometry: bool = False
         self._apply_manual_active_frame = apply_manual_active_frame
         self._apply_crop_exclusion = apply_crop_exclusion
         self._crop_edit = CropEditSession(self._video, self)
@@ -714,11 +717,28 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._update_crop_overlay()
 
     def resizeEvent(self, event: QResizeEvent | None) -> None:
-        """창 크기가 바뀌면 정보 표시와 안내, 여백 겹침, 편집 도구 모음을 다시 놓음"""
+        """창 크기가 바뀌면 정보 표시와 안내를 다시 놓음
+
+        - 이 시점에는 레이아웃이 영상 위젯을 새 크기로 아직 확정하지 않아 겹침을 옮겨도 한 박자 늦으므로,
+          겹침과 편집 도구 모음은 영상 위젯의 크기, 위치 변경 사건에서 바로 맞춤
+        """
         super().resizeEvent(event)
         self._info.relayout()
-        if self._crop_overlay.isVisible():
+
+    def _on_video_geometry_changed(self) -> None:
+        """영상 위젯이 실제로 새 크기로 놓이면 여백 겹침과 편집 도구 모음을 그 자리로 즉시 맞춤
+
+        - 창 크기 변경과 전체 화면 전환은 레이아웃 확정이 늦어 창 사건 시점의 영상 영역이 낡으므로,
+          무대가 영상 위젯을 새 영역에 놓는 순간 이 경로로 따라오게 함
+        - 갱신 중 편집 여백 변경으로 다시 들어온 사건은 건너뛰어 무한 반복을 막음
+        """
+        if self._syncing_crop_geometry or not self._crop_overlay.isVisible():
+            return
+        self._syncing_crop_geometry = True
+        try:
             self._update_crop_overlay()
+        finally:
+            self._syncing_crop_geometry = False
 
     def nativeEvent(
         self, event_type: QByteArray | bytes | bytearray | memoryview, message: sip.voidptr | None

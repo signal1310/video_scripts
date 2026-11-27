@@ -16,10 +16,14 @@ from PyQt6.QtWidgets import (
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
 from src.gui.constants import (
+    FOLDER_NAME_FONT_PT,
+    FOLDER_NAME_PAD_X_PX,
     HEADER_PADDING_X_PX,
     HEADER_PADDING_Y_PX,
+    HEADER_SPACING_PX,
     TOOLBAR_ICON_BTN_SIZE,
     TOOLBAR_ICON_SIZE_PX,
+    make_path_font,
 )
 from src.gui.styles.icons import create_icon_button, get_icon, set_button_icon
 from src.gui.styles.palettes import ThemePalette
@@ -29,6 +33,8 @@ from src.gui.widgets.floating_popup import FloatingPopupFrame
 
 TOP_AREA_CONTENT_SPACING_PX: int = 12
 TOP_AREA_TAB_STRIP_SPACING_PX: int = 2
+# - 줄 안의 위젯 사이 간격은 레이아웃 spacing과 스페이서의 합이므로, 헤더와 같은 간격이 되도록 그만큼 뺌
+_STRIP_GAP_SPACER_PX: int = HEADER_SPACING_PX - TOP_AREA_TAB_STRIP_SPACING_PX
 TOP_AREA_POPUP_PADDING_PX: int = 8
 TOP_AREA_EXPAND_BASE_TOOLTIP: str = "상단 영역을 펼칩니다."
 TOP_AREA_EXPAND_TOOLTIP: str = format_tooltip_with_shortcut(
@@ -36,10 +42,10 @@ TOP_AREA_EXPAND_TOOLTIP: str = format_tooltip_with_shortcut(
 )
 TOP_AREA_EXPAND_NAME: str = "상단 영역 펼치기"
 TOP_AREA_EXPAND_ICON: str = "panel-top-open"
-# 접힌 줄에서 폴더 아이콘과 폴더 이름 사이 여백
-TOP_AREA_SUMMARY_GAP_PX: int = 8
 TOP_AREA_FOLDER_ICON: str = "folder"
 TOP_AREA_SUMMARY_OBJECT_NAME: str = "TopAreaSummaryLabel"
+# - 폴더 이름을 누르면 상단 영역을 펼친다는 안내(좌클릭 전용)
+TOP_AREA_SUMMARY_TOOLTIP: str = "상단 영역 펼치기\n폴더 이름을 누르면 상단 영역을 펼칩니다."
 
 
 @dataclass(frozen=True)
@@ -53,6 +59,7 @@ class TopAreaSection:
 class TopAreaSummaryLabel(ElidingLabel):
     """접힌 줄의 폴더 이름 라벨. 폭이 모자라면 오른쪽을 말줄임으로 줄임
 
+    - 펼친 헤더의 폴더 이름과 같은 글꼴 크기, 두께, 좌우 여백을 써 접고 펼칠 때 글자가 같은 자리에서 시작
     - 최대 폭을 문구 폭으로 묶어 남는 공간이 탭 앞 여백으로 흘러가지 않게 함
     - 좁은 창에서는 말줄임으로 줄어들어 접힌 줄이 한 줄 높이를 유지
     """
@@ -60,6 +67,10 @@ class TopAreaSummaryLabel(ElidingLabel):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent, pin_width=True)
         self.setObjectName(TOP_AREA_SUMMARY_OBJECT_NAME)
+        self.setFont(make_path_font(FOLDER_NAME_FONT_PT, bold=True))
+        self.setContentsMargins(FOLDER_NAME_PAD_X_PX, 0, FOLDER_NAME_PAD_X_PX, 0)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip(TOP_AREA_SUMMARY_TOOLTIP)
 
 
 class TopAreaPopup(FloatingPopupFrame):
@@ -147,13 +158,14 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
             self._expand_btn, TOP_AREA_EXPAND_ICON, size=TOOLBAR_ICON_SIZE_PX, pad_right=0
         )
         strip_layout.addWidget(self._expand_btn)
-        strip_layout.addSpacing(TOP_AREA_SUMMARY_GAP_PX)
+        strip_layout.addSpacing(_STRIP_GAP_SPACER_PX)
         self._folder_icon = QLabel(self._tab_strip)
         self._folder_icon.setFixedSize(TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX)
         self._folder_icon.setPixmap(self._folder_pixmap())
         strip_layout.addWidget(self._folder_icon)
-        strip_layout.addSpacing(TOP_AREA_SUMMARY_GAP_PX)
+        strip_layout.addSpacing(_STRIP_GAP_SPACER_PX)
         self._summary_label = TopAreaSummaryLabel(self._tab_strip)
+        self._summary_label.clicked.connect(self._expand_from_summary)
         strip_layout.addWidget(self._summary_label)
         strip_layout.addSpacing(TOP_AREA_CONTENT_SPACING_PX)
         self._tab_buttons: list[QPushButton] = []
@@ -300,7 +312,12 @@ class CollapsibleTopArea(QWidget, ThemeAwareMixin):
             self.open_section(index)
         self._refresh_controls()
 
+    def _expand_from_summary(self) -> None:
+        """접힌 줄의 폴더 이름을 좌클릭하면 상단 영역을 펼침"""
+        self.set_collapsed(False)
+
     def _restore_popup_section(self) -> None:
+        """팝업으로 옮겼던 영역 위젯을 원래 순서 자리로 되돌림"""
         index = self._popup_index
         if index is None:
             return

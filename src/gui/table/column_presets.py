@@ -39,9 +39,9 @@ _QUALITY_VISIBLE_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_ZONE,
     VideoTableModel.COL_ACTION,
     VideoTableModel.COL_SAVED_SIZE,
-    VideoTableModel.COL_ENCODE_STATE,
     VideoTableModel.COL_QUALITY_VALUE,
     VideoTableModel.COL_REASON,
+    VideoTableModel.COL_ENCODE_STATE,
 )
 _SPECS_VISIBLE_ORDER: tuple[int, ...] = (
     VideoTableModel.COL_NAME,

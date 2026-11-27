@@ -1,7 +1,7 @@
 """폭이 모자랄 때 오른쪽을 말줄임으로 줄여 그리는 라벨 모듈"""
 
-from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QColor, QPainter, QPaintEvent
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPaintEvent
 from PyQt6.QtWidgets import QLabel, QSizePolicy, QWidget
 
 # - 글자 폭 측정 오차를 흡수하는 여유
@@ -14,7 +14,10 @@ class ElidingLabel(QLabel):
     - 최소 폭을 비워 좁은 자리에서도 줄어들고, 그릴 때 오른쪽을 말줄임으로 자름
     - pin_width를 켜면 최대 폭을 문구 폭으로 묶어 남는 가로 공간을 차지하지 않음
     - 글자색은 QSS 대신 지정한 팔레트 토큰으로 그림
+    - 좌클릭을 떼면 clicked를 방출해 누른 동작을 호출자가 맡게 함(우클릭은 무시)
     """
+
+    clicked = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None, *, pin_width: bool = False) -> None:
         super().__init__("", parent)
@@ -34,7 +37,7 @@ class ElidingLabel(QLabel):
         super().setText(text)
         if self._pin_width:
             self.setMaximumWidth(
-                self.fontMetrics().horizontalAdvance(text) + _TEXT_SPARE_PX
+                self.fontMetrics().horizontalAdvance(text) + _TEXT_SPARE_PX + self._text_pad_x()
             )
         self.updateGeometry()
         self.update()
@@ -53,19 +56,33 @@ class ElidingLabel(QLabel):
         """폭이 모자랄 때 말줄임으로 줄어들 수 있도록 최소 폭을 비움"""
         return QSize(0, super().minimumSizeHint().height())
 
+    def mouseReleaseEvent(self, a0: QMouseEvent | None) -> None:
+        """좌클릭을 떼면 clicked를 방출하고, 우클릭과 다른 버튼은 기본 처리에 맡김"""
+        if a0 is not None and a0.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            a0.accept()
+            return
+        super().mouseReleaseEvent(a0)
+
+    def _text_pad_x(self) -> int:
+        """글자 좌우 안쪽 여백의 합"""
+        margins = self.contentsMargins()
+        return margins.left() + margins.right()
+
     def paintEvent(self, a0: QPaintEvent | None) -> None:
         """말줄임한 문구를 직접 그림"""
         del a0
         if not self._full_text:
             return
         painter = QPainter(self)
+        rect = self.contentsRect()
         text = self.fontMetrics().elidedText(
-            self._full_text, Qt.TextElideMode.ElideRight, self.width()
+            self._full_text, Qt.TextElideMode.ElideRight, rect.width()
         )
         color = self._color or self.palette().color(self.foregroundRole()).name()
         painter.setPen(QColor(color))
         painter.drawText(
-            self.rect(),
+            rect,
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             text,
         )

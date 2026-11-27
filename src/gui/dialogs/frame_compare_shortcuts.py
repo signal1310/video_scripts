@@ -20,6 +20,7 @@ from src.core.settings.shortcuts import (
     normalize_shortcut,
 )
 from src.core.settings.ui_state import (
+    DEFAULT_PREVIEW_BACKGROUND,
     DEFAULT_PREVIEW_SEEK_SECONDS,
     PREVIEW_LARGE_SEEK_MULTIPLIER,
 )
@@ -123,6 +124,11 @@ def _no_notice(_text: str) -> None:
     """알림을 쓰지 않는 기본 처리"""
 
 
+def _no_cycle() -> str:
+    """배경 색을 바꾸지 않는 기본 처리"""
+    return DEFAULT_PREVIEW_BACKGROUND
+
+
 @dataclass(frozen=True, slots=True)
 class CompareShortcutHandlers:
     """단축키 하나가 부를 화질 비교 뷰 동작 묶음과 실행 결과 알림 수단"""
@@ -142,6 +148,7 @@ class CompareShortcutHandlers:
     toggle_fullscreen: Callable[[], None]
     request_preview: Callable[[], None]
     step_video: Callable[[int], None]
+    cycle_background: Callable[[], str] = _no_cycle
     notify: Callable[[str], None] = _no_notice
     notice_state: Callable[[], CompareNoticeState] = CompareNoticeState
 
@@ -170,6 +177,7 @@ class CompareShortcutHandlers:
             "preview.rate_reset": lambda: self._run_after(self.rate_reset, self._rate_notice),
             "preview.toggle_playback": self._toggle_playback_notice,
             "preview.toggle_mute": lambda: self._run_after(self.toggle_mute, self._mute_notice),
+            "preview.cycle_background": self._cycle_background_notice,
             "preview.toggle_fullscreen": self.toggle_fullscreen,
         }
 
@@ -223,6 +231,10 @@ class CompareShortcutHandlers:
 
     def _mute_notice(self) -> str:
         return MUTE_NOTICE if self.notice_state().muted else UNMUTE_NOTICE
+
+    def _cycle_background_notice(self) -> None:
+        """배경 색을 다음 색으로 바꿈, 알림은 부모 창이 바뀐 색으로 띄움"""
+        self.cycle_background()
 
 
 def pressed_candidates(event: QKeyEvent) -> tuple[str, ...]:

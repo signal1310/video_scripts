@@ -499,6 +499,8 @@ class DataCleanupController:
             or ui.preview_playback_rate != base_ui.preview_playback_rate
             or ui.preview_fullscreen != base_ui.preview_fullscreen
             or ui.preview_always_on_top != base_ui.preview_always_on_top
+            or ui.preview_background != base_ui.preview_background
+            or ui.preview_frame_outline != base_ui.preview_frame_outline
             or ui.compare_top_bar_collapsed != base_ui.compare_top_bar_collapsed
         )
 
@@ -607,6 +609,8 @@ class DataCleanupController:
         ui.preview_playback_rate = base_ui.preview_playback_rate
         ui.preview_fullscreen = base_ui.preview_fullscreen
         ui.preview_always_on_top = base_ui.preview_always_on_top
+        ui.preview_background = base_ui.preview_background
+        ui.preview_frame_outline = base_ui.preview_frame_outline
         ui.compare_top_bar_collapsed = base_ui.compare_top_bar_collapsed
         ui.preview_info = base_ui.preview_info
         ui.recursive_scan = base_ui.recursive_scan

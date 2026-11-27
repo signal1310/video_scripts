@@ -44,6 +44,8 @@ from src.core.settings.ui_state import (
     DEFAULT_FILTER_SEARCH,
     DEFAULT_GROUP_BY,
     DEFAULT_PREVIEW_ALWAYS_ON_TOP,
+    DEFAULT_PREVIEW_BACKGROUND,
+    DEFAULT_PREVIEW_FRAME_OUTLINE,
     DEFAULT_PREVIEW_FULLSCREEN,
     DEFAULT_PREVIEW_MUTED,
     DEFAULT_PREVIEW_PLAYBACK_RATE,
@@ -56,6 +58,7 @@ from src.core.settings.ui_state import (
     TEXT_MODE_CONTAINS,
     VALID_ANALYZE_MODES,
     VALID_COLUMN_PRESETS,
+    VALID_PREVIEW_BACKGROUNDS,
     VALID_PREVIEW_PLAYBACK_RATES,
     VALID_PREVIEW_SEEK_SECONDS,
     VALID_TEXT_MODES,
@@ -169,6 +172,8 @@ class AppState:
                 "preview_playback_rate": ui.preview_playback_rate,
                 "preview_fullscreen": ui.preview_fullscreen,
                 "preview_always_on_top": ui.preview_always_on_top,
+                "preview_background": ui.preview_background,
+                "preview_frame_outline": ui.preview_frame_outline,
                 "compare_top_bar_collapsed": ui.compare_top_bar_collapsed,
                 "preview_muted": ui.preview_muted,
                 "recursive_scan": ui.recursive_scan,
@@ -537,6 +542,14 @@ def parse_state_mapping(raw: dict[str, Any]) -> AppState:
             preview_muted=_sanitize_bool(ui_raw.get("preview_muted"), DEFAULT_PREVIEW_MUTED),
             preview_fullscreen=_sanitize_bool(ui_raw.get("preview_fullscreen"), DEFAULT_PREVIEW_FULLSCREEN),
             preview_always_on_top=_sanitize_bool(ui_raw.get("preview_always_on_top"), DEFAULT_PREVIEW_ALWAYS_ON_TOP),
+            preview_background=_sanitize_choice(
+                ui_raw.get("preview_background"),
+                VALID_PREVIEW_BACKGROUNDS,
+                DEFAULT_PREVIEW_BACKGROUND,
+            ),
+            preview_frame_outline=_sanitize_bool(
+                ui_raw.get("preview_frame_outline"), DEFAULT_PREVIEW_FRAME_OUTLINE
+            ),
             compare_top_bar_collapsed=_sanitize_bool(
                 ui_raw.get("compare_top_bar_collapsed"), DEFAULT_COMPARE_TOP_BAR_COLLAPSED
             ),

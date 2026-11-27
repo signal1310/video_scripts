@@ -188,6 +188,23 @@ class CompareButtonTests(GuiTestCase):
         self.assertIn("여백 미리 보기", [entry.label for entry in popover._entries])
         guide.close_guide()
 
+    def test_guide_actions_include_the_background_cycle(self) -> None:
+        """단축키 안내 표에 배경 색 전환 명령이 Shift+B로 들어가는지 검증"""
+        from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
+        from src.gui.preview.video_preview_controls import PREVIEW_GUIDE_ACTIONS
+
+        self.assertIn("preview.cycle_background", PREVIEW_GUIDE_ACTIONS)
+        controls = PlaybackControls(None, lambda: DEFAULT_SHORTCUTS)
+        self.addCleanup(controls.deleteLater)
+        guide = controls.guide_button
+        guide.open_guide()
+        _APP.processEvents()
+        popover = guide._popover
+        assert popover is not None
+        entries = {entry.label: entry.key for entry in popover._entries}
+        self.assertEqual(entries.get("배경 색 전환"), "Shift+B")
+        guide.close_guide()
+
     def test_crop_toggle_keeps_its_bottom_bar_slot_before_fullscreen(self) -> None:
         """여백 미리 보기 토글이 하단 바에서 전체화면 버튼 바로 앞에만 있는지 검증"""
         controls = PlaybackControls()

@@ -251,7 +251,11 @@ class CropEditWindowTests(GuiTestCase):
         self.assertEqual((cleared.left(), cleared.top()), (0, 0))
 
     def test_full_frame_side_handles_sit_inside_the_video_and_keep_window_size(self) -> None:
-        """전체 프레임 유지 영역의 좌우 손잡이를 끌어도 창 크기는 그대로인지 검증"""
+        """전체 프레임 유지 영역의 좌우 손잡이를 끌어도 창 크기는 그대로인지 검증
+
+        - 영상 위젯은 이제 영상비로 무대 안에 놓여 위아래 여백이 무대 배경으로 칠해짐
+        - 편집 중에는 무대가 창 변에서 안쪽으로 들므로 손잡이가 창 크기 조절 영역에 닿지 않음
+        """
         self.manual.clear()
         self.window.set_video_info(_overlay_info())
         _APP.processEvents()
@@ -259,8 +263,10 @@ class CropEditWindowTests(GuiTestCase):
         assert rects is not None
         before = self.window.geometry()
         video = self.window._video
-        self.assertGreater(rects.kept.left(), 0)
-        self.assertLess(rects.kept.left() + rects.kept.width(), video.width())
+        video_left = video.mapTo(self.window, QPoint(0, 0)).x()
+        self.assertGreater(video_left, 0)
+        self.assertEqual(rects.kept.left(), 0)
+        self.assertEqual(rects.kept.width(), video.width())
         left_edge = QPoint(rects.kept.left(), rects.kept.center().y())
         _drag(video, left_edge, QPoint(left_edge.x() + 120, left_edge.y()))
         self.assertEqual(self.window.geometry(), before)

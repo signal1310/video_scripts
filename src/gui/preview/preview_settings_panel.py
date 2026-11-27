@@ -36,6 +36,11 @@ from src.core.settings.preview_info import (
     INFO_SCALE_STEP,
 )
 from src.core.settings.ui_state import VALID_PREVIEW_SEEK_SECONDS, UiState
+from src.gui.media_stage import (
+    STAGE_BACKGROUND_LABELS,
+    STAGE_BACKGROUND_TIP,
+    STAGE_FRAME_OUTLINE_TIP,
+)
 from src.gui.preview.preview_info_items import INFO_GROUPS, INFO_MODE_LABELS, info_label
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.widgets.floating_popup import FloatingPopupFrame
@@ -117,6 +122,14 @@ class PreviewSettingsPanel(QWidget):
         self._combo_seek = self._make_combo(
             tuple((seconds, f"{seconds}초") for seconds in VALID_PREVIEW_SEEK_SECONDS)
         )
+        self._combo_background = self._make_combo(
+            tuple((key, label) for key, label in STAGE_BACKGROUND_LABELS.items())
+        )
+        self._combo_background.setToolTip(STAGE_BACKGROUND_TIP)
+        self._check_outline = QCheckBox(self)
+        self._check_outline.setObjectName("PreviewStageOutlineCheck")
+        self._check_outline.setAccessibleName("영상 테두리")
+        self._check_outline.setToolTip(STAGE_FRAME_OUTLINE_TIP)
         self._combo_mode = self._make_combo(tuple(INFO_MODE_LABELS.items()))
         self._combo_layout = self._make_combo(_LAYOUT_LABELS)
         self._slider_scale = QSlider(Qt.Orientation.Horizontal, self)
@@ -140,6 +153,9 @@ class PreviewSettingsPanel(QWidget):
         layout.setSpacing(_PANEL_SPACING_PX)
         layout.addLayout(self._row("구간 이동 간격", self._combo_seek))
         layout.addWidget(self._separator())
+        layout.addLayout(self._row("배경 색", self._combo_background))
+        layout.addLayout(self._row("영상 테두리", self._check_outline))
+        layout.addWidget(self._separator())
         layout.addLayout(self._row("정보 표시", self._combo_mode))
         layout.addLayout(self._row("정보 배치", self._combo_layout, self._btn_reset_position))
         layout.addLayout(self._row("정보 크기", self._slider_scale, self._label_scale))
@@ -148,6 +164,8 @@ class PreviewSettingsPanel(QWidget):
 
         self.refresh()
         self._combo_seek.currentIndexChanged.connect(self._on_seek_changed)
+        self._combo_background.currentIndexChanged.connect(self._on_background_changed)
+        self._check_outline.toggled.connect(self._on_outline_toggled)
         self._combo_mode.currentIndexChanged.connect(self._on_mode_changed)
         self._combo_layout.currentIndexChanged.connect(self._on_layout_changed)
         self._slider_scale.valueChanged.connect(self._on_scale_changed)
@@ -158,6 +176,8 @@ class PreviewSettingsPanel(QWidget):
         ui = self._get_ui()
         info = ui.preview_info
         self._select(self._combo_seek, ui.preview_seek_seconds)
+        self._select(self._combo_background, ui.preview_background)
+        self._set_checked(self._check_outline, ui.preview_frame_outline)
         self._select(self._combo_mode, info.mode)
         self._select(self._combo_layout, info.layout)
         self._slider_scale.blockSignals(True)
@@ -286,6 +306,16 @@ class PreviewSettingsPanel(QWidget):
 
     def _on_seek_changed(self, _index: int) -> None:
         self._get_ui().preview_seek_seconds = int(self._combo_seek.currentData())
+        self.changed.emit()
+
+    def _on_background_changed(self, _index: int) -> None:
+        """배경 색 콤보를 UI 상태에 쓰고 변경을 알림"""
+        self._get_ui().preview_background = str(self._combo_background.currentData())
+        self.changed.emit()
+
+    def _on_outline_toggled(self, checked: bool) -> None:
+        """영상 테두리 체크를 UI 상태에 쓰고 변경을 알림"""
+        self._get_ui().preview_frame_outline = checked
         self.changed.emit()
 
     def _on_mode_changed(self, _index: int) -> None:

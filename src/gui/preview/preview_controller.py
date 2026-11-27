@@ -19,6 +19,7 @@ from src.core.settings.ui_state import UiState
 from src.gui.diagnostics_qt import note_event
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_worker import FrameExtractor
+from src.gui.media_stage import next_stage_background
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_settings_panel import PreviewSettingsPanel, PreviewSettingsPopup
 from src.gui.preview.video_preview_window import VideoPreviewWindow
@@ -439,10 +440,18 @@ class PreviewController(QObject):
         return PreviewSettingsPopup(panel, parent)
 
     def _on_settings_changed(self) -> None:
-        """설정 패널의 변경을 저장 예약하고 열린 창의 정보 표시를 갱신"""
+        """설정 패널의 변경을 저장 예약하고 열린 창의 정보 표시와 무대 배경을 갱신"""
         self._persist()
         if self._window is not None:
             self._window.refresh_info()
+            self._window.refresh_stage_style()
+
+    def _cycle_preview_background(self) -> str:
+        """배경 색을 검정, 회색, 흰색 순서로 바꿔 저장하고 새 색을 돌려줌"""
+        ui = self._get_ui()
+        ui.preview_background = next_stage_background(ui.preview_background)
+        self._persist()
+        return ui.preview_background
 
     def _ensure_window(self) -> VideoPreviewWindow:
         """내장 창을 처음 요청할 때만 만들어 표와 설정 요청을 연결하고 소유자 정책을 적용"""
@@ -466,6 +475,9 @@ class PreviewController(QObject):
             self._positions,
             get_compare_top_bar_collapsed=lambda: self._get_ui().compare_top_bar_collapsed,
             on_compare_top_bar_collapsed_changed=self._on_compare_top_bar_collapsed_changed,
+            get_stage_background=lambda: self._get_ui().preview_background,
+            get_frame_outline=lambda: self._get_ui().preview_frame_outline,
+            cycle_background=self._cycle_preview_background,
             apply_compare_manual_target=self._compare_manual_target,
             apply_manual_active_frame=self._apply_manual_active_frame,
             apply_crop_exclusion=self._apply_crop_exclusion,

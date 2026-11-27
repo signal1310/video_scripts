@@ -109,6 +109,10 @@ class ThemePalette:
 
     # 미리 보기 조작 바: 검은 레터박스와 이어지도록 테마와 무관하게 어두운 고정 표면
     media_bg: str = "#0B0B0B"
+    # 영상 뒤 배경 색: 테마와 무관한 고정 무대 색과 바깥 경계 점선 색
+    media_stage_gray: str = "#7A7A7A"
+    media_stage_white: str = "#F5F5F5"
+    media_stage_outline: str = "#F59E0B"
     media_fg: str = "#F5F5F5"
     media_muted: str = "#8C8C8C"
     media_track: str = "#333333"

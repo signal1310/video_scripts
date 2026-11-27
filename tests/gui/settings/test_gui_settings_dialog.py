@@ -335,6 +335,18 @@ class TestGUISettingsDialog(GuiSettingsTestCase):
         dialog.sync_preview_settings(ui)
         self.assertTrue(dialog._app_state.ui.compare_top_bar_collapsed)
 
+    def test_sync_preview_settings_keeps_the_stage_background_and_outline(self) -> None:
+        """미리 보기 설정 동기화가 미리 보기에서 바꾼 배경 색과 테두리를 옛 값으로 덮지 않는지 검증"""
+        dialog, _root, _path = self._isolated_dialog()
+        dialog._app_state.ui.preview_background = "black"
+        dialog._app_state.ui.preview_frame_outline = False
+        ui = dialog._app_state.ui.copy()
+        ui.preview_background = "white"
+        ui.preview_frame_outline = True
+        dialog.sync_preview_settings(ui)
+        self.assertEqual(dialog._app_state.ui.preview_background, "white")
+        self.assertTrue(dialog._app_state.ui.preview_frame_outline)
+
     def test_forced_hidden_folder_rows_are_synced_on_open(self) -> None:
         """설정 창을 열 때 결과 파일 처리로 숨긴 폴더 이름 행이 곧바로 검색 조정자에 반영되는지 검증"""
         dialog, _root, _path = self._isolated_dialog()

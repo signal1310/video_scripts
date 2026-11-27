@@ -102,6 +102,26 @@ class TimelineTests(GuiTestCase):
         assert button is not None
         return button
 
+    def test_compare_guide_actions_include_the_background_cycle(self) -> None:
+        """화질 비교 창 단축키 안내와 조작 바가 배경 색 전환 명령을 받는지 검증"""
+        self.assertIn("preview.cycle_background", layout.COMPARE_GUIDE_ACTIONS)
+        controls = PlaybackControls(
+            None,
+            lambda: DEFAULT_SHORTCUTS,
+            show_ms=True,
+            guide_title=layout.GUIDE_TITLE,
+            guide_actions=layout.COMPARE_GUIDE_ACTIONS,
+        )
+        self.addCleanup(controls.deleteLater)
+        guide = controls.guide_button
+        guide.open_guide()
+        _APP.processEvents()
+        popover = guide._popover
+        assert popover is not None
+        entries = {entry.label: entry.key for entry in popover._entries}
+        self.assertEqual(entries.get("배경 색 전환"), "Shift+B")
+        guide.close_guide()
+
     def test_timeline_is_one_row_without_marks_or_shortcut_text(self) -> None:
         """대표 시점 칩과 고정 단축키 문구가 사라지고 프레임 이동 버튼이 남았는지 검증"""
         self.assertIsNone(self.timeline.findChild(QWidget, "CompareMarkChip"))

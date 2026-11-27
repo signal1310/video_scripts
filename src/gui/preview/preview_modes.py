@@ -15,6 +15,7 @@ from PyQt6.QtMultimedia import QMediaMetaData, QMediaPlayer
 from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from src.core.models import SummaryReport, VideoEvaluation
+from src.core.settings.ui_state import DEFAULT_PREVIEW_BACKGROUND
 from src.gui.dialogs.frame_compare_layout import (
     COMPARE_GUIDE_ACTIONS,
 )
@@ -161,6 +162,7 @@ class PreviewModeSwitcher(QObject):
         get_compare_top_bar_collapsed: Callable[[], bool] | None = None,
         on_compare_top_bar_collapsed_changed: Callable[[bool], None] | None = None,
         apply_manual_target: Callable[[VideoEvaluation, str | None], bool] | None = None,
+        cycle_background: Callable[[], str] | None = None,
     ) -> None:
         super().__init__(compare_page)
         self._stack = stack
@@ -177,8 +179,12 @@ class PreviewModeSwitcher(QObject):
         self._get_compare_top_bar_collapsed = get_compare_top_bar_collapsed
         self._on_compare_top_bar_collapsed_changed = on_compare_top_bar_collapsed_changed
         self._apply_manual_target = apply_manual_target
+        self._cycle_background = cycle_background
         self._compare_mode: bool = False
         self._view: FrameCompareView | None = None
+        # - 비교 뷰를 처음 만들 때도 지금 설정을 적용하도록 마지막 값을 기억
+        self._stage_background: str = DEFAULT_PREVIEW_BACKGROUND
+        self._stage_outline: bool = False
 
     @property
     def compare_mode(self) -> bool:
@@ -278,6 +284,13 @@ class PreviewModeSwitcher(QObject):
         if self._view is not None:
             self._view.apply_theme(palette)
 
+    def set_stage_style(self, background: str, outline: bool) -> None:
+        """비교 뷰 캔버스의 배경 색과 영상 테두리를 맞춤, 아직 만들기 전이면 기억해 두었다가 만든 뒤 적용"""
+        self._stage_background = background
+        self._stage_outline = outline
+        if self._view is not None:
+            self._view.set_stage_style(background, outline)
+
     def notice_area_global(self) -> QRect | None:
         """공용 토스트를 놓을 비교 캔버스 영역, 비교 모드가 아니면 None"""
         if not self._compare_mode or self._view is None:
@@ -334,8 +347,10 @@ class PreviewModeSwitcher(QObject):
             ),
             on_collapsed_changed=self._on_compare_top_bar_collapsed_changed,
             apply_manual_target=self._apply_manual_target,
+            cycle_background=self._cycle_background,
         )
         view.apply_theme(get_active_palette())
+        view.set_stage_style(self._stage_background, self._stage_outline)
         self._page_layout().addWidget(view)
         self._connect_view(view)
         self._view = view

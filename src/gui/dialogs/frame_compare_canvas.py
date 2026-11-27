@@ -23,6 +23,13 @@ from src.core.analysis.frame_compare import (
     zoom_around,
     zoom_preset_scale,
 )
+from src.core.settings.ui_state import DEFAULT_PREVIEW_BACKGROUND
+from src.gui.media_stage import (
+    make_outline_pen,
+    stage_color,
+    stage_frame_rect,
+    stage_outline_rect,
+)
 from src.gui.styles.palettes import DARK_PALETTE, ThemePalette
 
 MODE_SPLIT: str = "split"
@@ -58,6 +65,9 @@ class FrameCompareCanvas(QWidget):
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self._palette: ThemePalette = DARK_PALETTE
+        # - 영상 뒤 배경 색과 바깥 경계 점선은 미리 보기 설정을 그대로 따름
+        self._background: str = DEFAULT_PREVIEW_BACKGROUND
+        self._frame_outline: bool = False
         self._original: QImage | None = None
         self._compared: QImage | None = None
         self._mode: str = MODE_SPLIT
@@ -80,6 +90,15 @@ class FrameCompareCanvas(QWidget):
         label.setAttribute(_TRANSPARENT, True)
         label.hide()
         return label
+
+    def apply_stage_style(self, palette: ThemePalette, background: str, outline: bool) -> None:
+        """팔레트와 영상 뒤 배경 색, 바깥 경계 점선 표시를 함께 맞춤
+
+        - 라벨 색은 팔레트만 따르므로 팔레트 적용도 함께 부름
+        """
+        self._background = background
+        self._frame_outline = outline
+        self.apply_palette(palette)
 
     def apply_palette(self, palette: ThemePalette) -> None:
         """팔레트 토큰으로 바탕과 라벨 색을 맞춤
@@ -341,28 +360,56 @@ class FrameCompareCanvas(QWidget):
         """현재 모드에 맞춰 원본과 비교 대상 프레임, 분할선, 라벨을 그림"""
         del event
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(self._palette.media_bg))
+        painter.fillRect(self.rect(), QColor(stage_color(self._palette, self._background)))
         if self._mode == MODE_SIDE:
             self._paint_side(painter)
         elif self._mode == MODE_TOGGLE:
             image = self._original if self.showing_original() else self._compared
-            self._paint_image(painter, image, 0.0)
+            origin_x = 0.0
+            self._paint_image(painter, image, origin_x)
+            self._paint_stage_outline(painter, origin_x)
         else:
             self._paint_split(painter)
         self._update_badge_text()
         self._layout_labels()
         painter.end()
 
+    def _paint_stage_outline(self, painter: QPainter, origin_x: float) -> None:
+        """켜져 있으면 지금 그려진 영상 사각형 바깥에 점선을 그림
+
+        - 영상 사각형은 배율과 오프셋으로 정해지므로 확대, 이동, 창 크기 변경을 그대로 따름
+        """
+        if not self._frame_outline:
+            return
+        image = self._primary_image()
+        if image is None:
+            return
+        reference_width, reference_height = self._reference_size(
+            self._original, self._compared
+        ) or (image.width(), image.height())
+        frame = stage_frame_rect(
+            (reference_width, reference_height),
+            self._transform.scale,
+            self._transform.offset_x,
+            self._transform.offset_y,
+            origin_x,
+        )
+        painter.setPen(make_outline_pen(self._palette.media_stage_outline))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(stage_outline_rect(frame))
+
     def _paint_side(self, painter: QPainter) -> None:
         half = (self.width() - SIDE_GAP_PX) / 2
         painter.save()
         painter.setClipRect(0, 0, int(half), self.height())
         self._paint_image(painter, self._original, 0.0)
+        self._paint_stage_outline(painter, 0.0)
         painter.restore()
         right_x = half + SIDE_GAP_PX
         painter.save()
         painter.setClipRect(int(right_x), 0, self.width(), self.height())
         self._paint_image(painter, self._compared, right_x)
+        self._paint_stage_outline(painter, right_x)
         painter.restore()
         painter.fillRect(int(half), 0, SIDE_GAP_PX, self.height(), QColor(self._palette.border_subtle))
 
@@ -373,6 +420,8 @@ class FrameCompareCanvas(QWidget):
         painter.setClipRect(int(divider_x), 0, self.width(), self.height())
         self._paint_image(painter, self._compared, 0.0)
         painter.restore()
+        # - 두 프레임이 같은 사각형에 겹쳐 그려지므로 점선은 나중에 한 번만 그려 양쪽에서 보이게 함
+        self._paint_stage_outline(painter, 0.0)
         self._paint_divider(painter, divider_x)
 
     def _paint_image(self, painter: QPainter, image: QImage | None, origin_x: float) -> None:

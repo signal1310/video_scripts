@@ -135,6 +135,22 @@ class ModeSwitcherTests(GuiTestCase):
             )
         )
 
+    def test_stage_style_reaches_the_open_compare_view(self) -> None:
+        """배경 색과 영상 테두리가 열린 비교 뷰의 캔버스와 무대 틀에 바로 적용되는지 검증"""
+        self.switcher.show_session(
+            _session(self.path), auto_play=False, rate=1.0, volume=100, muted=False
+        )
+        view = self.switcher.view
+        assert view is not None
+        self.switcher.set_stage_style("white", True)
+        self.assertEqual(view._stage_background, "white")
+        self.assertTrue(view._stage_outline)
+        self.assertEqual(view._canvas._background, "white")
+        self.assertTrue(view._canvas._frame_outline)
+        wrap = view._canvas.parentWidget()
+        assert wrap is not None
+        self.assertEqual(wrap.property("stagebg"), "white")
+
     def test_first_compare_view_applies_the_active_palette_to_canvas_labels(self) -> None:
         """비교 뷰를 처음 만들 때 세 라벨에 현재 팔레트의 HUD 색이 적용되는지 검증"""
         self.switcher.show_session(

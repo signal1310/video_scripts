@@ -87,6 +87,18 @@ def shift_playback_rate(current: float, step: int) -> float:
     return rates[index]
 DEFAULT_PREVIEW_FULLSCREEN: bool = False
 DEFAULT_PREVIEW_ALWAYS_ON_TOP: bool = True
+# - 미리 보기와 화질 비교 창 영상 뒤 배경 색. 기본 검정은 지금과 같은 화면
+PREVIEW_BACKGROUND_BLACK: str = "black"
+PREVIEW_BACKGROUND_GRAY: str = "gray"
+PREVIEW_BACKGROUND_WHITE: str = "white"
+VALID_PREVIEW_BACKGROUNDS: tuple[str, ...] = (
+    PREVIEW_BACKGROUND_BLACK,
+    PREVIEW_BACKGROUND_GRAY,
+    PREVIEW_BACKGROUND_WHITE,
+)
+DEFAULT_PREVIEW_BACKGROUND: str = PREVIEW_BACKGROUND_BLACK
+# - 영상 바깥 경계 점선 표시. 기본은 꺼서 지금 화면을 바꾸지 않음
+DEFAULT_PREVIEW_FRAME_OUTLINE: bool = False
 # - 화질 비교 상단 조작 바의 접힘 상태는 창을 다시 열 때 이어서 적용
 DEFAULT_COMPARE_TOP_BAR_COLLAPSED: bool = False
 PREVIEW_VOLUME_MAX: int = 100
@@ -274,6 +286,14 @@ class UiState:
         default=DEFAULT_PREVIEW_ALWAYS_ON_TOP,
         metadata=setting_meta("내장 미리 보기 창을 다른 창 위에 항상 표시할지 여부"),
     )
+    preview_background: str = field(
+        default=DEFAULT_PREVIEW_BACKGROUND,
+        metadata=setting_meta('미리 보기와 화질 비교 창 영상 뒤 배경 색: "black" | "gray" | "white"'),
+    )
+    preview_frame_outline: bool = field(
+        default=DEFAULT_PREVIEW_FRAME_OUTLINE,
+        metadata=setting_meta("미리 보기와 화질 비교 창 영상 바깥 경계에 점선을 그릴지 여부"),
+    )
     compare_top_bar_collapsed: bool = field(
         default=DEFAULT_COMPARE_TOP_BAR_COLLAPSED,
         metadata=setting_meta("화질 비교 상단 조작 바를 접어 둘지 여부"),
@@ -323,6 +343,8 @@ class UiState:
             preview_playback_rate=self.preview_playback_rate,
             preview_fullscreen=self.preview_fullscreen,
             preview_always_on_top=self.preview_always_on_top,
+            preview_background=self.preview_background,
+            preview_frame_outline=self.preview_frame_outline,
             compare_top_bar_collapsed=self.compare_top_bar_collapsed,
             recursive_scan=self.recursive_scan,
             show_setting_hints=self.show_setting_hints,

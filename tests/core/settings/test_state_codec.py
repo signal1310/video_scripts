@@ -109,6 +109,25 @@ class TestParseStateMapping(unittest.TestCase):
         restored = parse_state_mapping(json.loads(strip_jsonc_comments(text)))
         self.assertFalse(restored.ui.preview_always_on_top)
 
+    def test_preview_background_and_outline_roundtrip_and_unknown_falls_back(self) -> None:
+        """배경 색과 영상 테두리가 기본값, 저장 후 복원에서 같은 값으로 유지되고 알 수 없는 색은 검정으로 되돌아가는지 검증"""
+        self.assertEqual(_parse_ui().ui.preview_background, "black")
+        self.assertFalse(_parse_ui().ui.preview_frame_outline)
+        state = _parse_ui(preview_background="white", preview_frame_outline="on")
+        self.assertEqual(state.ui.preview_background, "white")
+        self.assertTrue(state.ui.preview_frame_outline)
+        self.assertEqual(_parse_ui(preview_background="purple").ui.preview_background, "black")
+        self.assertEqual(_parse_ui(preview_background=7).ui.preview_background, "black")
+        text = render_state_jsonc(state)
+        self.assertIn('"preview_background": "white"', text)
+        self.assertIn('"preview_frame_outline": true', text)
+        restored = parse_state_mapping(json.loads(strip_jsonc_comments(text)))
+        self.assertEqual(restored.ui.preview_background, "white")
+        self.assertTrue(restored.ui.preview_frame_outline)
+        copied = state.ui.copy()
+        self.assertEqual(copied.preview_background, "white")
+        self.assertTrue(copied.preview_frame_outline)
+
     def test_compare_top_bar_collapsed_is_sanitized_and_roundtrips(self) -> None:
         """화질 비교 상단 바 접힘 상태가 기본값, 문자열 표기, 저장 후 복원에서 같은 값으로 유지되는지 검증"""
         self.assertFalse(_parse_ui().ui.compare_top_bar_collapsed)

@@ -120,5 +120,27 @@ class CropPreviewShortcutTests(unittest.TestCase):
         )
 
 
+class BackgroundShortcutTests(unittest.TestCase):
+    """배경 색 전환 단축키가 미리 보기 그룹에 Shift+B로 등록되는지 검증"""
+
+    def test_background_cycle_uses_shift_b_in_the_preview_group(self) -> None:
+        """배경 색 전환이 미리 보기 그룹에 Shift+B로 등록되고 여백 미리 보기의 B와 겹치지 않는지 검증"""
+        spec = next(spec for spec in SHORTCUT_SPECS if spec.action_id == "preview.cycle_background")
+        self.assertEqual(spec.group_key, "preview")
+        self.assertEqual(spec.label, "배경 색 전환")
+        self.assertEqual(spec.default_key, "Shift+B")
+        self.assertEqual(spec.description, "영상 뒤 배경 색을 검정, 회색, 흰색 순서로 바꿉니다.")
+        owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "Shift+B"]
+        self.assertEqual(owners, ["preview.cycle_background"])
+
+    def test_background_cycle_follows_the_crop_preview(self) -> None:
+        """단축키 설정 표에서 여백 미리 보기 바로 뒤에 오는지 검증"""
+        action_ids = [spec.action_id for spec in SHORTCUT_SPECS]
+        self.assertEqual(
+            action_ids.index("preview.cycle_background"),
+            action_ids.index("preview.toggle_crop") + 1,
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

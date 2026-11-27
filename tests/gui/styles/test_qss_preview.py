@@ -82,6 +82,17 @@ class TestQssPreview(unittest.TestCase):
             self.assertNotIn("QToolButton#PreviewCropButton:on", qss)
 
 
+class StageTokenTests(unittest.TestCase):
+    """영상 무대 배경 색과 점선 색 토큰이 테마와 무관하게 같은 값인지 검증"""
+
+    def test_stage_tokens_are_theme_independent(self) -> None:
+        self.assertEqual(DARK_PALETTE.media_stage_gray, LIGHT_PALETTE.media_stage_gray)
+        self.assertEqual(DARK_PALETTE.media_stage_white, LIGHT_PALETTE.media_stage_white)
+        self.assertEqual(DARK_PALETTE.media_stage_outline, LIGHT_PALETTE.media_stage_outline)
+        self.assertNotEqual(DARK_PALETTE.media_stage_gray, DARK_PALETTE.media_bg)
+        self.assertNotEqual(DARK_PALETTE.media_stage_white, DARK_PALETTE.media_stage_gray)
+
+
 class CropActionPaintTests(GuiTestCase):
     """HUD로 옮긴 두 아이콘 버튼이 네이티브 회색 바탕 없이 투명하게 그려지는지 검증"""
 

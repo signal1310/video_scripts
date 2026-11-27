@@ -64,7 +64,7 @@ _RATE_TEXT: str = "재생 배속"
 _RATE_ICON: str = "gauge"
 _RATE_TIP_TEMPLATE: str = "재생 배속을 바꿉니다. 현재 {label}입니다."
 _RATE_LABEL_TEMPLATE: str = "{rate:g}배"
-_SETTINGS_TIP: str = "구간 이동 간격과 정보 표시를 설정합니다."
+_SETTINGS_TIP: str = "구간 이동 간격, 배경 색, 정보 표시를 설정합니다."
 _PLAY_ICON: str = "play"
 _PAUSE_ICON: str = "pause"
 _VOLUME_ICON: str = "volume-2"
@@ -89,6 +89,7 @@ PREVIEW_GUIDE_ACTIONS: tuple[str, ...] = (
     "preview.toggle_fullscreen",
     "preview.toggle_info",
     "preview.toggle_crop",
+    "preview.cycle_background",
     "preview.previous",
     "preview.next",
     "classify.compare_selected",

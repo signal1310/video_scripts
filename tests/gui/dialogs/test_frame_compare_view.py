@@ -620,6 +620,29 @@ class InteractionTests(_ViewCase):
 
 
 
+class BackgroundCycleViewTests(_ViewCase):
+    """화질 비교 뷰의 Shift+B 배경 색 전환이 캔버스와 무대 틀에 반영되는지"""
+
+    def test_shift_b_without_a_parent_keeps_the_current_background(self) -> None:
+        """부모 콜백 없이 Shift+B를 눌러도 배경 색이 바뀌지 않는지 검증"""
+        self.load()
+        self.assertEqual(self.view._stage_background, "black")
+        self.assertTrue(_press(self.view, Qt.Key.Key_B, Qt.KeyboardModifier.ShiftModifier))
+        self.assertEqual(self.view._stage_background, "black")
+        self.assertEqual(self.view._canvas._background, "black")
+
+    def test_shift_b_uses_the_parent_cycle_and_repaints_the_canvas(self) -> None:
+        """부모가 돌려준 새 색을 캔버스와 무대 틀에 바로 적용하는지 검증"""
+        self.view._cycle_background = lambda: "white"
+        self.load()
+        self.assertTrue(_press(self.view, Qt.Key.Key_B, Qt.KeyboardModifier.ShiftModifier))
+        self.assertEqual(self.view._stage_background, "white")
+        self.assertEqual(self.view._canvas._background, "white")
+        wrap = self.view._canvas.parentWidget()
+        assert wrap is not None
+        self.assertEqual(wrap.property("stagebg"), "white")
+
+
 class CloseAndFullscreenTests(_ViewCase):
     """Space, Esc 닫기 순서와 전체화면 요청"""
 

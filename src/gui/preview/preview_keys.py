@@ -33,6 +33,7 @@ from src.core.analysis.frame_compare import (
 )
 from src.core.settings.shortcuts import normalize_shortcut
 from src.core.settings.ui_state import (
+    DEFAULT_PREVIEW_BACKGROUND,
     DEFAULT_PREVIEW_PLAYBACK_RATE,
     PREVIEW_LARGE_SEEK_MULTIPLIER,
     shift_playback_rate,
@@ -78,6 +79,7 @@ ACTION_TOGGLE_MUTE: str = "preview.toggle_mute"
 ACTION_TOGGLE_FULLSCREEN: str = "preview.toggle_fullscreen"
 ACTION_TOGGLE_INFO: str = "preview.toggle_info"
 ACTION_TOGGLE_CROP: str = "preview.toggle_crop"
+ACTION_CYCLE_BACKGROUND: str = "preview.cycle_background"
 ACTION_FRAME_BACKWARD: str = "preview.frame_backward"
 ACTION_FRAME_FORWARD: str = "preview.frame_forward"
 FEEDBACK_MS: int = 1200
@@ -247,6 +249,11 @@ class PreviewPlaybackActions:
         self._ports.notify(PLAY_NOTICE)
 
 
+def _default_background() -> str:
+    """배경 색을 바꾸지 않고 지금 기본 색을 돌려주는 기본 처리"""
+    return DEFAULT_PREVIEW_BACKGROUND
+
+
 @dataclass(frozen=True, slots=True)
 class PreviewActionHandlers:
     """미리 보기 명령 하나가 부를 재생기와 창 동작 묶음"""
@@ -263,6 +270,7 @@ class PreviewActionHandlers:
     hide: Callable[[], None]
     toggle_compare: Callable[[], None]
     toggle_crop: Callable[[], None]
+    cycle_background: Callable[[], str] = _default_background
 
 
 class PreviewKeyRouter:
@@ -370,6 +378,8 @@ class PreviewKeyRouter:
             actions.cycle_info()
         elif action_id == ACTION_TOGGLE_CROP:
             actions.toggle_crop()
+        elif action_id == ACTION_CYCLE_BACKGROUND:
+            actions.cycle_background()
         elif action_id == ACTION_FRAME_BACKWARD:
             actions.step_frame(-1)
         elif action_id == ACTION_FRAME_FORWARD:

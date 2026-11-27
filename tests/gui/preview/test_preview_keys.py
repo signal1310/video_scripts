@@ -183,6 +183,65 @@ class CropToggleActionTests(unittest.TestCase):
         self.assertEqual(keys.crop_notice(False), "여백 미리 보기 해제")
 
 
+class BackgroundCycleActionTests(unittest.TestCase):
+    """배경 색 전환 단축키 판정과 실행"""
+
+    def _router(self, calls: list[str]) -> keys.PreviewKeyRouter:
+        handlers = keys.PreviewActionHandlers(
+            seek_by=lambda _ms: None,
+            step_frame=lambda _direction: None,
+            toggle_playback=lambda: None,
+            toggle_mute=lambda: None,
+            set_rate=lambda _rate: None,
+            toggle_fullscreen=lambda: None,
+            cycle_info=lambda: None,
+            request_step=lambda _direction: None,
+            rate=lambda: 1.0,
+            hide=lambda: None,
+            toggle_compare=lambda: None,
+            toggle_crop=lambda: None,
+            cycle_background=lambda: calls.append("cycle") or "gray",
+        )
+        return keys.PreviewKeyRouter(
+            get_shortcuts=lambda: {"preview.cycle_background": "Shift+B"},
+            forward_key=lambda _key: False,
+            get_actions=lambda: handlers,
+            is_visible=lambda: True,
+            is_active=lambda: True,
+            seek_seconds=lambda: 5,
+        )
+
+    def test_default_handler_keeps_the_default_background(self) -> None:
+        """배경 색 콜백을 넘기지 않은 묶음은 기본 검정을 그대로 돌려주는지 검증"""
+        handlers = keys.PreviewActionHandlers(
+            seek_by=lambda _ms: None,
+            step_frame=lambda _direction: None,
+            toggle_playback=lambda: None,
+            toggle_mute=lambda: None,
+            set_rate=lambda _rate: None,
+            toggle_fullscreen=lambda: None,
+            cycle_info=lambda: None,
+            request_step=lambda _direction: None,
+            rate=lambda: 1.0,
+            hide=lambda: None,
+            toggle_compare=lambda: None,
+            toggle_crop=lambda: None,
+        )
+        self.assertEqual(handlers.cycle_background(), "black")
+
+    def test_shift_b_runs_the_background_cycle(self) -> None:
+        """Shift+B가 배경 색 전환을 실행하고, Shift 없는 B는 실행하지 않는지 검증"""
+        calls: list[str] = []
+        router = self._router(calls)
+        shifted = QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.ShiftModifier
+        )
+        self.assertTrue(router.handle_key(shifted))
+        plain = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.NoModifier)
+        self.assertFalse(router.handle_key(plain))
+        self.assertEqual(calls, ["cycle"])
+
+
 class NoticeTests(unittest.TestCase):
     """재생 상태 알림 문구"""
 

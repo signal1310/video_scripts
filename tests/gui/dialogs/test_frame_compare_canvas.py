@@ -8,7 +8,7 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QMouseEvent, QWheelEvent
 from PyQt6.QtWidgets import QApplication
 
@@ -19,7 +19,8 @@ from src.gui.dialogs.frame_compare_canvas import (
     MODE_TOGGLE,
     FrameCompareCanvas,
 )
-from src.gui.styles.palettes import LIGHT_PALETTE
+from src.gui.media_stage import stage_outline_rect
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -254,6 +255,67 @@ class CanvasTests(GuiTestCase):
         self.canvas.set_images(_image(), _image(color="#0000FF"))
         self.canvas.set_mode(MODE_SIDE)
         self.canvas.grab()
+
+
+class CanvasStageTests(GuiTestCase):
+    """영상 뒤 배경 색과 바깥 경계 점선이 세 모드 모두에 적용되는지"""
+
+    def setUp(self) -> None:
+        self.canvas = FrameCompareCanvas()
+        self.addCleanup(self.canvas.deleteLater)
+        self.canvas.resize(400, 200)
+        self.canvas.show()
+        _APP.processEvents()
+
+    def _outside_color(self) -> str:
+        """영상 프레임 바로 바깥 픽셀의 색, 맞춤 배율에서 프레임이 화면을 가득 채우므로 여백이 있는 크기로 봄"""
+        self.canvas.resize(400, 300)
+        _APP.processEvents()
+        image = _render(self.canvas)
+        return image.pixelColor(2, 2).name().upper()
+
+    def test_chosen_background_fills_the_area_outside_the_frame(self) -> None:
+        self.canvas.set_images(_image(), _image(color="#0000FF"))
+        for key, token in (
+            ("black", DARK_PALETTE.media_bg),
+            ("gray", DARK_PALETTE.media_stage_gray),
+            ("white", DARK_PALETTE.media_stage_white),
+        ):
+            with self.subTest(background=key):
+                self.canvas.apply_stage_style(DARK_PALETTE, key, False)
+                self.assertEqual(self._outside_color(), QColor(token).name().upper())
+
+    def test_outline_rect_is_the_frame_grown_by_the_line_width_in_every_mode(self) -> None:
+        self.canvas.set_images(_image(), _image(color="#0000FF"))
+        self.canvas.apply_zoom_preset("1")
+        self.canvas.apply_stage_style(DARK_PALETTE, "black", True)
+        outline = QColor(DARK_PALETTE.media_stage_outline)
+        for mode in (MODE_SPLIT, MODE_TOGGLE, MODE_SIDE):
+            with self.subTest(mode=mode):
+                self.canvas.set_mode(mode)
+                self.canvas.apply_zoom_preset("1")
+                _APP.processEvents()
+                image = _render(self.canvas)
+                transform = self.canvas._transform
+                left = transform.offset_x
+                top = transform.offset_y
+                right = left + 200 * transform.scale
+                bottom = top + 100 * transform.scale
+                rect = stage_outline_rect(QRectF(left, top, right - left, bottom - top))
+                self.assertLess(rect.left(), left)
+                self.assertLess(rect.top(), top)
+                self.assertGreater(rect.right(), right)
+                self.assertGreater(rect.bottom(), bottom)
+                # - 점선은 선 사이가 비므로 프레임 위쪽 띠 전체에서 점선 색을 찾음
+                rows = range(max(0, round(top) - 2), max(1, round(top)))
+                found = any(
+                    image.pixelColor(x, y).name().upper() == outline.name().upper()
+                    for y in rows
+                    for x in range(max(0, round(left)), min(image.width(), round(right)))
+                )
+                self.assertTrue(found)
+                inside = image.pixelColor(round(left) + 2, round(top) + 2)
+                self.assertNotEqual(inside.name().upper(), outline.name().upper())
 
 
 if __name__ == "__main__":

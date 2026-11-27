@@ -77,6 +77,24 @@ class PreviewControllerTests(unittest.TestCase):
         self.assertTrue(self.harness.ui.compare_top_bar_collapsed)
         self.assertEqual(self.harness.persisted, [True])
 
+    def test_cycle_background_saves_the_next_color_and_returns_it(self) -> None:
+        """Shift+B 순환 저장이 검정 -> 회색 -> 흰색 -> 검정으로 돌고 저장을 요청하는지 검증"""
+        self.assertEqual(self.harness.ui.preview_background, "black")
+        self.assertEqual(self.controller._cycle_preview_background(), "gray")
+        self.assertEqual(self.harness.ui.preview_background, "gray")
+        self.assertEqual(self.controller._cycle_preview_background(), "white")
+        self.assertEqual(self.controller._cycle_preview_background(), "black")
+        self.assertEqual(self.harness.persisted, [True, True, True])
+
+    def test_settings_change_refreshes_an_open_window_stage(self) -> None:
+        """패널에서 배경 색이나 영상 테두리를 바꾸면 열린 창의 무대를 다시 칠하는지 검증"""
+        window = mock.Mock()
+        self.controller._window = window
+        self.controller._on_settings_changed()
+        window.refresh_stage_style.assert_called_once_with()
+        window.refresh_info.assert_called_once_with()
+        self.assertEqual(self.harness.persisted, [True])
+
     def test_attach_compare_applies_the_extractor_to_an_open_window(self) -> None:
         """비교 연결이 이미 열린 창에도 프레임 추출기를 넘기는지 검증"""
         window = mock.Mock()

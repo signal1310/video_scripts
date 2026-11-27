@@ -27,10 +27,11 @@ from PyQt6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from src.core.messages import format_preview_start
 from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
-from src.core.settings.ui_state import UiPreviewInfoState
+from src.core.settings.ui_state import DEFAULT_PREVIEW_BACKGROUND, UiPreviewInfoState
 from src.gui.dialogs.frame_compare_meta import CompareSession
 from src.gui.dialogs.frame_compare_styles import build_compare_qss
 from src.gui.dialogs.frame_compare_worker import FrameExtractor
+from src.gui.media_stage import stage_background_notice, stage_color
 from src.gui.preview import crop_resize_guard, preview_modes
 from src.gui.preview import preview_keys as preview
 from src.gui.preview.crop_edit import (
@@ -50,9 +51,11 @@ from src.gui.preview.crop_overlay import CropOverlay
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_info_presenter import PreviewInfoPresenter
 from src.gui.preview.preview_playback import PreviewPlayback
+from src.gui.preview.preview_window_owner import PreviewOwnerTracker
+from src.gui.preview.stage import PreviewStage
 from src.gui.preview.video_preview_controls import PlaybackControls
 from src.gui.preview.video_preview_overlay import EDGE_MARGIN_PX, TOAST_DURATION_MS
-from src.gui.styles.palettes import ThemePalette
+from src.gui.styles.palettes import DARK_PALETTE, ThemePalette
 from src.gui.theme import ThemeAwareMixin, build_stylesheet
 
 logger = logging.getLogger(__name__)
@@ -113,6 +116,9 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         on_always_on_top_changed: Callable[[bool], None],
         positions: PositionMemory,
         *,
+        get_stage_background: Callable[[], str] | None = None,
+        get_frame_outline: Callable[[], bool] | None = None,
+        cycle_background: Callable[[], str] | None = None,
         get_compare_top_bar_collapsed: Callable[[], bool] | None = None,
         on_compare_top_bar_collapsed_changed: Callable[[bool], None] | None = None,
         apply_compare_manual_target: (
@@ -142,13 +148,27 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         # - 창 플래그를 바꾸는 동안 발생하는 숨김 사건에서 재생과 파일 핸들을 건드리지 않게 하는 표시
         self._toggling_window_flag: bool = False
         # - 소유 창이 함께 닫히는 동안에는 소유 창을 앞으로 올리지 않아, 사라지는 창이 남지 않게 함
-        self._owner_raise_suppressed: bool = False
-        # - 소유 창이 숨거나 지워지면 부모 변경으로 미리 보기 창이 함께 숨지 않게 연결을 끊음
-        self._owner_window: QWidget | None = None
+        self._owner = PreviewOwnerTracker(self, self._set_toggling_window_flag)
         self._video_info: PreviewVideoInfo | None = None
         self._compare_extractor: FrameExtractor | None = None
         # - 여백 미리 보기는 창을 열 때마다 꺼진 상태로 시작
         self._crop_enabled: bool = False
+        # - 배경 색과 영상 테두리 접근자를 창이 기억하고 적용 때 읽음
+        self._get_stage_background: Callable[[], str] = (
+            get_stage_background
+            if get_stage_background is not None
+            else (lambda: DEFAULT_PREVIEW_BACKGROUND)
+        )
+        self._get_frame_outline: Callable[[], bool] = (
+            get_frame_outline if get_frame_outline is not None else (lambda: False)
+        )
+        # - 배경 색 전환 단축키는 저장까지 맡은 호출자가 새 색을 돌려주고, 창은 표시만 갱신
+        self._cycle_background: Callable[[], str] = (
+            cycle_background
+            if cycle_background is not None
+            else (lambda: self._get_stage_background())
+        )
+        self._theme_palette: ThemePalette = DARK_PALETTE
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.resize(PREVIEW_WINDOW_WIDTH, PREVIEW_WINDOW_HEIGHT)
 
@@ -157,11 +177,12 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._error_label.setWordWrap(True)
         self._error_label.hide()
+        self._stage = PreviewStage(self._video, self._video_frame_size)
         self._normal_page = QWidget(self)
         self._normal_layout = QVBoxLayout(self._normal_page)
         self._normal_layout.setContentsMargins(0, 0, 0, 0)
         self._normal_layout.setSpacing(0)
-        self._normal_layout.addWidget(self._video, 1)
+        self._normal_layout.addWidget(self._stage, 1)
         self._normal_layout.addWidget(self._error_label)
         self._compare_page = QWidget(self)
         self._stack = QStackedWidget(self)
@@ -213,6 +234,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             get_compare_top_bar_collapsed=get_compare_top_bar_collapsed,
             on_compare_top_bar_collapsed_changed=on_compare_top_bar_collapsed_changed,
             apply_manual_target=apply_compare_manual_target,
+            cycle_background=self._cycle_stage_background,
         )
         self._audio_sync = preview_modes.PreviewAudioSync(
             self._playback,
@@ -273,12 +295,22 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """독립 창에서도 공용 QSS와 비교 전용 QSS, 배경 규칙을 함께 적용"""
-        self.setStyleSheet(
-            f"{build_stylesheet(palette)}\n{build_compare_qss(palette)}\n"
-            f"VideoPreviewWindow {{ background-color: {palette.media_bg}; }}"
-        )
+        self._theme_palette = palette
+        self._apply_stage_style()
         self._modes.apply_theme(palette)
         self._crop_hud.refresh_icons()
+
+    @staticmethod
+    def _window_stylesheet(palette: ThemePalette, background: str) -> str:
+        """공용 QSS, 비교 전용 QSS, 고른 배경 색의 창 배경 규칙을 합침
+
+        - 창 테두리 띠와 조작 바 바깥 여백은 영상 뒤 배경 색과 같게 칠함
+        """
+        stage = stage_color(palette, background)
+        return (
+            f"{build_stylesheet(palette)}\n{build_compare_qss(palette)}\n"
+            f"VideoPreviewWindow {{ background-color: {stage}; }}"
+        )
 
     @property
     def current_path(self) -> str:
@@ -436,11 +468,43 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         """정보 표시에 쓸 지금 영상의 표 값을 전달하고, 프레임 이동에 쓸 FPS를 기억"""
         self._video_info = info
         self._info.set_video_info(info)
+        self._stage.update_geometry()
         self._sync_crop_controls()
 
     def _video_view_rect(self) -> QRect:
         """영상 위젯의 지금 화면 전역 영역, 영상 내용은 이 안에서 영상비로 가운데 배치됨"""
         return QRect(self._video.mapToGlobal(QPoint(0, 0)), self._video.size())
+
+    def _video_frame_size(self) -> tuple[int, int] | None:
+        """영상 위젯이 영상비로 맞춰질 프레임 크기, 표 값이 없으면 None(무대 전체를 씀)"""
+        info = self._video_info
+        if info is None:
+            return None
+        try:
+            width = int(info.ev.video.width)
+            height = int(info.ev.video.height)
+        except (TypeError, ValueError):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        return (width, height)
+
+    def refresh_stage_style(self) -> None:
+        """배경 색과 영상 테두리 설정을 두 모드에 바로 반영"""
+        self._apply_stage_style()
+
+    def _apply_stage_style(self) -> None:
+        """저장된 배경 색과 영상 테두리를 무대, 창 배경, 비교 모드에 함께 반영
+
+        - 일반 모드는 무대 위젯이 영상 바깥을 칠하고, 비교 모드는 캔버스가 같은 값을 씀
+        - 비교 뷰는 만들기 전이면 값을 기억하므로 테마 적용 때도 항상 넘겨야
+          첫 비교 화면이 저장된 배경과 테두리를 지킴
+        """
+        background = self._get_stage_background()
+        outline = self._get_frame_outline()
+        self._stage.apply_stage_style(self._theme_palette, background, outline)
+        self._modes.set_stage_style(background, outline)
+        self.setStyleSheet(self._window_stylesheet(self._theme_palette, background))
 
     def _crop_active_frame(self) -> ActiveFrame | None:
         """지금 영상의 잘라내기 기준 영역, 편집 대상이 아니거나 비교 모드면 None
@@ -550,6 +614,17 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         button = self._controls.crop_button
         button.toggle()
         self.show_notice(preview.crop_notice(button.isChecked()), duration_ms=preview.FEEDBACK_MS)
+
+    def _cycle_stage_background(self) -> str:
+        """배경 색 전환 단축키: 호출자가 계산해 저장한 새 색을 두 모드에 바로 적용하고 알림
+
+        - 비교 모드에서도 같은 명령을 쓰므로 두 모드를 함께 갱신
+        - 부모 창과 비교 뷰가 같은 경로를 쓰도록 바뀐 색을 돌려줌
+        """
+        background = self._cycle_background()
+        self.refresh_stage_style()
+        self.show_notice(stage_background_notice(background), duration_ms=preview.FEEDBACK_MS)
+        return background
 
     def _reset_crop_preview(self) -> None:
         """여백 미리 보기를 끄고 버튼 체크도 풀어 새로 연 창이 꺼진 상태에서 시작하게 함"""
@@ -726,22 +801,15 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
 
     def set_owner_raise_suppressed(self, suppressed: bool) -> None:
         """숨김이 소유 창을 앞으로 올릴지 정함. 창이 함께 닫히는 동안 올리지 않게 함"""
-        self._owner_raise_suppressed = suppressed
+        self._owner.set_raise_suppressed(suppressed)
+
+    def _set_toggling_window_flag(self, toggling: bool) -> None:
+        """창 플래그 전환 중 표시를 세우고 풀어 숨김 사건 처리 방식을 정함"""
+        self._toggling_window_flag = toggling
 
     def _raise_owner(self) -> None:
-        """미리 보기를 숨길 때 소유 창을 다시 앞으로 올려, 진행 창처럼 뒤에 있던 창이 가려지지 않게 함
-
-        - 숨았거나 지웠거나 최소화한 소유 창은 올리지 않아, 보이지 않는 창이 활성화를 가로채지 않게 함
-        - 앱 종료 정리처럼 창이 함께 닫히는 동안에는 올리지 않음
-        """
-        if self._owner_raise_suppressed:
-            return
-        owner = self._owner_window
-        if owner is None or sip.isdeleted(owner):
-            return
-        if not owner.isVisible() or owner.isMinimized():
-            return
-        owner.raise_()
+        """미리 보기를 숨길 때 소유 창을 다시 앞으로 올림"""
+        self._owner.raise_owner()
 
     def _save_watched_position(self) -> None:
         """지금 영상의 재생 위치를 이번 실행 기억에 남기고, 처음이나 끝 부근이면 지움
@@ -858,6 +926,7 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
             hide=self.hide,
             toggle_compare=self._on_compare_requested,
             toggle_crop=self._toggle_crop_preview,
+            cycle_background=self._cycle_stage_background,
         )
 
     def _on_compare_requested(self) -> None:
@@ -881,74 +950,8 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self.show_notice(preview.pin_notice(pinned), duration_ms=preview.FEEDBACK_MS)
 
     def set_owner(self, owner: QWidget | None) -> None:
-        """창 소유자를 바꿔 앱 범위 고정을 적용하고 위치와 전체화면, 재생 세션을 유지
-
-        - setParent는 창을 숨기므로 숨김 사건 동안 재생과 소스를 건드리지 않게 가드를 세움
-        - 표시 중이던 창이면 소유자 변경 직후 이전 위치와 전체화면 상태로 다시 표시
-        - 이미 지워진 창은 소유자로 두지 않아, 부모 변경이 죽은 객체를 가리키지 않게 함
-        - 활성 창이던 경우 포커스도 되돌려 새 소유자 아래에서 바로 조작할 수 있게 함
-        """
-        if owner is not None and sip.isdeleted(owner):
-            owner = None
-        if self.parentWidget() is owner:
-            self._track_owner(owner)
-            return
-        was_visible = self.isVisible()
-        was_active = self.isActiveWindow()
-        geometry = self.geometry()
-        fullscreen = self.isFullScreen()
-        self._toggling_window_flag = True
-        try:
-            self.setParent(owner, Qt.WindowType.Window)
-        finally:
-            self._toggling_window_flag = False
-        self._track_owner(owner)
-        if not was_visible:
-            return
-        if fullscreen:
-            self.showFullScreen()
-        else:
-            self.show()
-            self.setGeometry(geometry)
-        if was_active:
-            self.raise_()
-            self.activateWindow()
-
-    def _track_owner(self, owner: QWidget | None) -> None:
-        """소유 창을 기억하고, 소유 창이 지워질 때 부모를 미리 풀어 미리 보기 창을 지키게 함"""
-        current = self._owner_window
-        if current is owner:
-            return
-        if current is not None and not sip.isdeleted(current):
-            current.destroyed.disconnect(self._on_owner_destroyed)
-        self._owner_window = owner
-        if owner is not None:
-            owner.destroyed.connect(self._on_owner_destroyed)
-
-    def _on_owner_destroyed(self, _owner: QObject | None = None) -> None:
-        """소유 창이 지워지기 직전에 부모를 풀어, 미리 보기 창이 함께 지워지지 않게 함
-
-        - 지워지는 동안 부모를 그대로 두면 위젯이 소유 창과 함께 지워짐
-        - 부모 변경은 소유 창의 소멸자가 도는 중에도 안전하며, 위치와 표시 상태는 그대로 옮김
-        """
-        self._owner_window = None
-        if sip.isdeleted(self) or self.parentWidget() is None:
-            return
-        was_visible = self.isVisible()
-        geometry = self.geometry()
-        fullscreen = self.isFullScreen()
-        self._toggling_window_flag = True
-        try:
-            self.setParent(None, Qt.WindowType.Window)
-        finally:
-            self._toggling_window_flag = False
-        if not was_visible:
-            return
-        if fullscreen:
-            self.showFullScreen()
-        else:
-            self.show()
-            self.setGeometry(geometry)
+        """창 소유자를 바꿔 앱 범위 고정을 적용하고 위치와 전체화면, 재생 세션을 유지"""
+        self._owner.set_owner(owner)
 
     def _toggle_fullscreen(self) -> None:
         """전체화면이면 이전 창 크기로 되돌리고, 아니면 전체화면으로 전환한 뒤 상태를 저장"""

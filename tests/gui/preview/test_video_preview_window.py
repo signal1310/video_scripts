@@ -21,6 +21,7 @@ from src.core.settings.preview_info import INFO_MODE_SUMMARY
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
 from src.gui.dialogs.frame_compare_meta import CompareSession
+from src.gui.media_stage import next_stage_background
 from src.gui.preview.preview_controller import PreviewPositionMemory
 from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.preview_keys import is_close_key, remove_key_filter
@@ -386,6 +387,134 @@ class FrameStepTests(GuiTestCase):
         self.assertTrue(guide.isVisible())
 
 
+class PreviewStageStyleTests(GuiTestCase):
+    """배경 색과 영상 테두리 설정이 일반 모드 무대와 창 배경에 바로 적용되는지"""
+
+    def _window(self, state: UiState) -> VideoPreviewWindow:
+        window = VideoPreviewWindow(
+            lambda: state.preview_seek_seconds,
+            lambda: (state.preview_volume, state.preview_muted),
+            lambda _volume, _muted: None,
+            lambda: DEFAULT_SHORTCUTS,
+            lambda _text: False,
+            lambda: state.preview_info,
+            lambda: None,
+            lambda: state.preview_playback_rate,
+            lambda _rate: None,
+            lambda: state.preview_fullscreen,
+            lambda _fullscreen: None,
+            lambda: state.preview_always_on_top,
+            lambda _pinned: None,
+            PreviewPositionMemory(),
+            get_stage_background=lambda: state.preview_background,
+            get_frame_outline=lambda: state.preview_frame_outline,
+        )
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.hide)
+        return window
+
+    def test_default_keeps_the_black_stage_without_outline(self) -> None:
+        """기본값에서는 배경이 검정이고 점선이 그려지지 않는지 검증"""
+        state = UiState()
+        window = self._window(state)
+        window.apply_theme(LIGHT_PALETTE)
+        self.assertEqual(window._stage.background_color(), LIGHT_PALETTE.media_bg)
+        self.assertFalse(window._stage._outline)
+        self.assertIn(
+            f"VideoPreviewWindow {{ background-color: {LIGHT_PALETTE.media_bg}; }}",
+            window.styleSheet(),
+        )
+
+    def test_changing_the_setting_applies_immediately(self) -> None:
+        """설정을 바꾼 뒤 새로 고치면 창 배경 규칙과 무대 색, 점선이 함께 바뀌는지 검증"""
+        state = UiState()
+        window = self._window(state)
+        window.apply_theme(DARK_PALETTE)
+        state.preview_background = "white"
+        state.preview_frame_outline = True
+        window.refresh_stage_style()
+        self.assertEqual(window._stage.background_color(), DARK_PALETTE.media_stage_white)
+        self.assertTrue(window._stage._outline)
+        self.assertIn(
+            f"VideoPreviewWindow {{ background-color: {DARK_PALETTE.media_stage_white}; }}",
+            window.styleSheet(),
+        )
+
+
+    def test_apply_theme_forwards_the_stored_stage_style_to_the_compare_view(self) -> None:
+        """실행 직후 테마 적용만으로 저장된 배경 색과 테두리가 비교 모드에 전달되는지 검증
+
+        - 비교 뷰는 처음 비교 화면에 들어갈 때 기억한 값을 쓰므로 테마 적용 때 넘겨야 함
+        """
+        state = UiState()
+        state.preview_background = "gray"
+        state.preview_frame_outline = True
+        window = self._window(state)
+        window.apply_theme(DARK_PALETTE)
+        self.assertEqual(window._modes._stage_background, "gray")
+        self.assertTrue(window._modes._stage_outline)
+
+
+class PreviewStageShortcutTests(GuiTestCase):
+    """Shift+B 배경 색 전환 단축키가 무대, 창 배경, 알림에 반영되는지"""
+
+    def _window(self, state: UiState) -> VideoPreviewWindow:
+        def cycle() -> str:
+            state.preview_background = next_stage_background(state.preview_background)
+            return state.preview_background
+
+        window = VideoPreviewWindow(
+            lambda: state.preview_seek_seconds,
+            lambda: (state.preview_volume, state.preview_muted),
+            lambda _volume, _muted: None,
+            lambda: DEFAULT_SHORTCUTS,
+            lambda _text: False,
+            lambda: state.preview_info,
+            lambda: None,
+            lambda: state.preview_playback_rate,
+            lambda _rate: None,
+            lambda: state.preview_fullscreen,
+            lambda _fullscreen: None,
+            lambda: state.preview_always_on_top,
+            lambda _pinned: None,
+            PreviewPositionMemory(),
+            get_stage_background=lambda: state.preview_background,
+            get_frame_outline=lambda: state.preview_frame_outline,
+            cycle_background=cycle,
+        )
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.hide)
+        window.apply_theme(DARK_PALETTE)
+        return window
+
+    def test_shift_b_cycles_black_gray_white_and_back(self) -> None:
+        """Shift+B가 배경 색을 검정, 회색, 흰색 순서로 돌리고 무대와 창 배경을 함께 바꾸는지 검증"""
+        state = UiState()
+        window = self._window(state)
+        for key, token in (
+            ("gray", DARK_PALETTE.media_stage_gray),
+            ("white", DARK_PALETTE.media_stage_white),
+            ("black", DARK_PALETTE.media_bg),
+        ):
+            _press(window, Qt.Key.Key_B, Qt.KeyboardModifier.ShiftModifier)
+            self.assertEqual(state.preview_background, key)
+            self.assertEqual(window._stage.background_color(), token)
+            self.assertIn(
+                f"VideoPreviewWindow {{ background-color: {token}; }}",
+                window.styleSheet(),
+            )
+
+    def test_shift_b_shows_the_new_background_in_the_notice(self) -> None:
+        """배경 색 전환이 바뀐 색 이름을 토스트로 알리는지 검증"""
+        state = UiState()
+        window = self._window(state)
+        window.show()
+        _APP.processEvents()
+        window.show_notice = mock.Mock()
+        _press(window, Qt.Key.Key_B, Qt.KeyboardModifier.ShiftModifier)
+        window.show_notice.assert_called_once_with("배경 색: 회색", duration_ms=1200)
+
+
 class PreviewWindowThemeTests(GuiTestCase):
     """독립 창이 된 미리 보기 창이 앱 테마 QSS를 직접 받는지"""
 
@@ -684,10 +813,10 @@ class PinToggleTests(GuiTestCase):
         window._raise_owner()
         owner = QWidget(None, Qt.WindowType.Window)
         window.set_owner(owner)
-        window._owner_window = None
+        window._owner.forget()
         owner.deleteLater()
         window._raise_owner()
-        self.assertIsNone(window._owner_window)
+        self.assertIsNone(window._owner.owner)
         window.hide()
 
     def test_suppressed_owner_raise_keeps_a_hidden_owner(self) -> None:
@@ -752,7 +881,7 @@ class PinToggleTests(GuiTestCase):
         _APP.processEvents()
         window.set_owner(owner)
         self.assertIsNone(window.parentWidget())
-        self.assertIsNone(window._owner_window)
+        self.assertIsNone(window._owner.owner)
         window.hide()
 
     def test_minimize_hide_pauses_only_and_keeps_the_session(self) -> None:

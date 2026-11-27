@@ -28,6 +28,7 @@ from src.core.models import SummaryReport, VideoEvaluation
 from src.core.resolution_tiers import KEEP_RESOLUTION_KEY, RESOLUTION_TIER_BY_KEY
 from src.core.settings.shortcuts import format_tooltip_with_shortcut
 from src.core.settings.ui_state import (
+    DEFAULT_PREVIEW_BACKGROUND,
     DEFAULT_PREVIEW_PLAYBACK_RATE,
     PREVIEW_LARGE_SEEK_MULTIPLIER,
     shift_playback_rate,
@@ -57,7 +58,7 @@ from src.gui.menus.manual_target_menu import (
     is_manual_target_blocked,
     manual_target_label,
 )
-from src.gui.styles.palettes import ThemePalette
+from src.gui.styles.palettes import DARK_PALETTE, ThemePalette
 
 IMAGE_DECODE_ERROR: str = "추출한 프레임 이미지를 읽지 못했습니다."
 OUTPUT_APPLIED_TEMPLATE: str = "출력 해상도 지정: {label}"
@@ -122,6 +123,7 @@ class FrameCompareView(QWidget):
         collapsed: bool = False,
         on_collapsed_changed: Callable[[bool], None] | None = None,
         apply_manual_target: Callable[[VideoEvaluation, str | None], bool] | None = None,
+        cycle_background: Callable[[], str] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -132,11 +134,17 @@ class FrameCompareView(QWidget):
         self._initial_collapsed = collapsed
         self._on_collapsed_changed = on_collapsed_changed
         self._apply_manual_target = apply_manual_target
+        # - 배경 색 전환은 저장까지 맡은 부모 창이 하고, 뷰는 새 색으로 다시 칠하기만 함
+        self._cycle_background = cycle_background
         self._session: CompareSession | None = None
         self._target_key: str | None = None
         self._position_sec: float = 0.0
         self._reset_view_pending: bool = True
         self._evaluation: VideoEvaluation | None = None
+        # - 미리 보기 설정의 배경 색과 영상 테두리를 캔버스에 그대로 넘김
+        self._palette: ThemePalette = DARK_PALETTE
+        self._stage_background: str = DEFAULT_PREVIEW_BACKGROUND
+        self._stage_outline: bool = False
         self._build()
         self._status = CompareStatusIndicator(self._stage, self)
         self._extraction = FrameCompareExtraction(extractor, self)
@@ -171,6 +179,9 @@ class FrameCompareView(QWidget):
             self, lambda _scale: self._top.sync_zoom_input(), lambda _show: None
         )
         self._canvas = self._stage.canvas
+        wrap = self._canvas.parentWidget()
+        if wrap is not None:
+            wrap.setProperty("stagebg", self._stage_background)
         outer.addWidget(self._canvas.parentWidget(), stretch=1)
         self._top = CompareTopBar(
             self,
@@ -187,8 +198,26 @@ class FrameCompareView(QWidget):
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """팔레트 토큰으로 캔버스와 상단 바 색, 아이콘을 맞춤"""
-        self._canvas.apply_palette(palette)
+        self._palette = palette
+        self._canvas.apply_stage_style(palette, self._stage_background, self._stage_outline)
         self._top.apply_theme(palette)
+
+    def set_stage_style(self, background: str, outline: bool) -> None:
+        """미리 보기 설정의 배경 색과 영상 테두리를 캔버스와 무대 틀에 바로 반영
+
+        - 무대 틀은 캔버스 가장자리의 얇은 띠라 배경 색에 맞춰 QSS 동적 속성을 바꿈
+        """
+        self._stage_background = background
+        self._stage_outline = outline
+        self._canvas.apply_stage_style(self._palette, background, outline)
+        wrap = self._canvas.parentWidget()
+        if wrap is not None:
+            wrap.setProperty("stagebg", background)
+            style = wrap.style()
+            if style is not None:
+                style.unpolish(wrap)
+                style.polish(wrap)
+            wrap.update()
 
     def load_session(self, session: CompareSession, *, auto_play: bool = False) -> None:
         """새 비교 대상을 뷰에 올리고 재생 엔진과 프레임을 그 대상으로 다시 엶
@@ -628,6 +657,17 @@ class FrameCompareView(QWidget):
         self._engine.apply_audio(self._engine.volume_percent(), muted)
         self.mute_toggled.emit(muted)
 
+    def _cycle_stage_background(self) -> str:
+        """부모 창이 고른 다음 배경 색을 받아 캔버스에 맞추고 그 값을 돌려줌
+
+        - 부모 창이 없으면 지금 배경 색을 그대로 돌려 저장값을 바꾸지 않음
+        """
+        if self._cycle_background is None:
+            return self._stage_background
+        background = self._cycle_background()
+        self.set_stage_style(background, self._stage_outline)
+        return background
+
     def _handlers(self) -> CompareShortcutHandlers:
         """단축키 명령이 부를 비교 뷰 동작 묶음"""
         return CompareShortcutHandlers(
@@ -645,6 +685,7 @@ class FrameCompareView(QWidget):
             toggle_mute=self._toggle_mute,
             toggle_fullscreen=self._request_fullscreen,
             request_preview=self.preview_requested.emit,
+            cycle_background=self._cycle_stage_background,
             notify=self.notice_requested.emit,
             notice_state=lambda: shortcut_notice_state(
                 self._canvas, self._top, self._engine, self._get_seek_seconds()

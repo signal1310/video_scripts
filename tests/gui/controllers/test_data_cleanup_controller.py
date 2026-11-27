@@ -1022,6 +1022,25 @@ class UiResetsTest(unittest.TestCase):
         self.assertEqual(len(self.window._theme_mgr.modes), 1)
         self.assertEqual(self.window.sync_calls, 1)
 
+    def test_stage_background_counts_as_a_general_display_change(self) -> None:
+        """배경 색과 영상 테두리 변경을 일반 표시 설정 변경으로 보는지 검증"""
+        state = self.window._session.state
+        self.assertFalse(self.controller._general_display_changed())
+        state.ui.preview_background = "gray"
+        self.assertTrue(self.controller._general_display_changed())
+        state.ui.preview_background = "black"
+        state.ui.preview_frame_outline = True
+        self.assertTrue(self.controller._general_display_changed())
+
+    def test_general_display_reset_restores_the_stage_background_and_outline(self) -> None:
+        """일반 표시 설정 초기화가 배경 색과 영상 테두리도 기본값으로 되돌리는지 검증"""
+        state = self.window._session.state
+        state.ui.preview_background = "white"
+        state.ui.preview_frame_outline = True
+        self.controller._reset_general_display()
+        self.assertEqual(state.ui.preview_background, "black")
+        self.assertFalse(state.ui.preview_frame_outline)
+
     def test_shortcuts_are_reset(self) -> None:
         """사용자 지정 단축키를 지우고 컨트롤러에 적용하는지 검증"""
         self.window._session.state.ui.shortcuts = {"file.open_dir": "Ctrl+Q"}

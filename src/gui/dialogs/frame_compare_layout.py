@@ -99,6 +99,7 @@ COMPARE_ACTION_ORDER: tuple[str, ...] = (
     "preview.rate_reset",
     "preview.toggle_playback",
     "preview.toggle_mute",
+    "preview.cycle_background",
     "preview.toggle_fullscreen",
 )
 COMPARE_GUIDE_ACTIONS: tuple[str, ...] = COMPARE_ACTION_ORDER

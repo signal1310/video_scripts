@@ -25,6 +25,8 @@ QWidget#CompareTopBar[overlay="true"] {{
     border-radius: {_RADII};
 }}
 QWidget#CompareStageWrap {{ background: {palette.media_bg}; }}
+QWidget#CompareStageWrap[stagebg="gray"] {{ background: {palette.media_stage_gray}; }}
+QWidget#CompareStageWrap[stagebg="white"] {{ background: {palette.media_stage_white}; }}
 QLabel#CompareFileName {{ color: {palette.media_fg}; font-weight: 600; }}
 QLabel#CompareMetaText {{ color: {palette.media_muted}; }}
 QLabel#CompareMetaSeparator {{ color: {palette.media_track}; }}

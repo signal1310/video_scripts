@@ -715,22 +715,38 @@ class PreviewSettingsPanelTests(GuiTestCase):
         combo.setCurrentIndex(combo.findData(data))
 
     def test_panel_lists_every_info_item_for_both_levels(self) -> None:
-        boxes = self.panel.findChildren(QCheckBox)
-        self.assertEqual(len(boxes), len(ALL_INFO_KEYS) * 2)
+        item_boxes = [box for box in self.panel.findChildren(QCheckBox) if box.objectName() != "PreviewStageOutlineCheck"]
+        self.assertEqual(len(item_boxes), len(ALL_INFO_KEYS) * 2)
 
     def test_seek_changes_are_written_to_state(self) -> None:
         self._select(self._combo(0), 30)
         self.assertEqual(self.ui.preview_seek_seconds, 30)
         self.assertEqual(len(self.changes), 1)
 
+    def test_background_row_writes_the_choice_and_the_outline_check(self) -> None:
+        """배경 색 콤보와 영상 테두리 체크가 UI 상태에 바로 쓰이고 변경을 알리는지 검증"""
+        self.assertEqual(self._combo(1).currentData(), "black")
+        self._select(self._combo(1), "white")
+        self.assertEqual(self.ui.preview_background, "white")
+        outline = next(
+            box for box in self.panel.findChildren(QCheckBox) if box.objectName() == "PreviewStageOutlineCheck"
+        )
+        self.assertFalse(outline.isChecked())
+        self.assertEqual(outline.accessibleName(), "영상 테두리")
+        self.assertIn("점선", outline.toolTip())
+        outline.setChecked(True)
+        self.assertTrue(self.ui.preview_frame_outline)
+        self.assertEqual(len(self.changes), 2)
+
     def test_mode_and_layout_changes_are_written_to_state(self) -> None:
-        self._select(self._combo(1), INFO_MODE_DETAIL)
-        self._select(self._combo(2), INFO_LAYOUT_SINGLE_LINE)
+        self._select(self._combo(2), INFO_MODE_DETAIL)
+        self._select(self._combo(3), INFO_LAYOUT_SINGLE_LINE)
         self.assertEqual(self.ui.preview_info.mode, INFO_MODE_DETAIL)
         self.assertEqual(self.ui.preview_info.layout, INFO_LAYOUT_SINGLE_LINE)
 
     def _summary_box_by_key(self) -> dict[str, QCheckBox]:
-        summary_boxes = self.panel.findChildren(QCheckBox)[0::2]
+        item_boxes = [box for box in self.panel.findChildren(QCheckBox) if box.objectName() != "PreviewStageOutlineCheck"]
+        summary_boxes = item_boxes[0::2]
         keys = [key for _title, group in INFO_GROUPS for key in group]
         return dict(zip(keys, summary_boxes, strict=True))
 
@@ -793,9 +809,16 @@ class PreviewSettingsPanelTests(GuiTestCase):
     def test_refresh_reflects_external_state_without_emitting_changes(self) -> None:
         self.ui.preview_info.mode = INFO_MODE_SUMMARY
         self.ui.preview_seek_seconds = 10
+        self.ui.preview_background = "gray"
+        self.ui.preview_frame_outline = True
         self.panel.refresh()
-        self.assertEqual(self._combo(1).currentData(), INFO_MODE_SUMMARY)
+        self.assertEqual(self._combo(2).currentData(), INFO_MODE_SUMMARY)
         self.assertEqual(self._combo(0).currentData(), 10)
+        self.assertEqual(self._combo(1).currentData(), "gray")
+        outline = next(
+            box for box in self.panel.findChildren(QCheckBox) if box.objectName() == "PreviewStageOutlineCheck"
+        )
+        self.assertTrue(outline.isChecked())
         self.assertEqual(self.changes, [])
 
 

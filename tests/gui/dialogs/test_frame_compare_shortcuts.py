@@ -119,6 +119,17 @@ class MatchActionTests(unittest.TestCase):
         self.assertEqual(shortcuts.match_action(custom, ("Z",)), "compare.zoom_in")
         self.assertIsNone(shortcuts.match_action(custom, ("Shift+=",)))
 
+    def test_shift_b_matches_the_background_cycle_in_the_compare_window(self) -> None:
+        """화질 비교 창에서도 Shift+B가 배경 색 전환 명령으로 매칭되는지 검증"""
+        candidates = shortcuts.pressed_candidates(
+            _event(Qt.Key.Key_B, Qt.KeyboardModifier.ShiftModifier)
+        )
+        self.assertIn("Shift+B", candidates)
+        self.assertEqual(
+            shortcuts.match_action(DEFAULT_SHORTCUTS, candidates),
+            "preview.cycle_background",
+        )
+
     def test_compare_group_wins_over_preview_keys(self) -> None:
         effective = _shortcuts_with(**{"compare.toggle_controls": "F"})
         self.assertEqual(
@@ -261,6 +272,67 @@ class KeyControllerTests(unittest.TestCase):
         handlers["preview.previous"]()
         handlers["preview.next"]()
         self.assertEqual(self.calls, ["video:-1", "video:1"])
+
+    def test_default_cycle_handler_keeps_the_default_background(self) -> None:
+        """배경 색 콜백을 넘기지 않은 묶음은 기본 검정을 알림 없이 돌려주는지 검증"""
+        notices: list[str] = []
+        handlers = shortcuts.CompareShortcutHandlers(
+            set_mode=lambda _mode: None,
+            toggle_original=lambda: None,
+            zoom_fit=lambda: None,
+            zoom_in=lambda: None,
+            zoom_out=lambda: None,
+            toggle_controls=lambda: None,
+            seek=lambda _direction, _large: None,
+            step_frame=lambda _direction: None,
+            toggle_playback=lambda: None,
+            rate_step=lambda _step: None,
+            rate_reset=lambda: None,
+            toggle_mute=lambda: None,
+            toggle_fullscreen=lambda: None,
+            request_preview=lambda: None,
+            step_video=lambda _step: None,
+            notify=notices.append,
+        )
+        self.assertEqual(handlers.cycle_background(), "black")
+        handlers.by_action()["preview.cycle_background"]()
+        self.assertEqual(notices, [])
+
+    def test_shift_b_cycles_the_background_through_the_handler(self) -> None:
+        """화질 비교 창의 Shift+B가 부모 창의 배경 색 전환을 부르고 알림은 따로 띄우는지 검증"""
+        cycles: list[bool] = []
+        handlers = shortcuts.CompareShortcutHandlers(
+            set_mode=lambda _mode: None,
+            toggle_original=lambda: None,
+            zoom_fit=lambda: None,
+            zoom_in=lambda: None,
+            zoom_out=lambda: None,
+            toggle_controls=lambda: None,
+            seek=lambda _direction, _large: None,
+            step_frame=lambda _direction: None,
+            toggle_playback=lambda: None,
+            rate_step=lambda _step: None,
+            rate_reset=lambda: None,
+            toggle_mute=lambda: None,
+            toggle_fullscreen=lambda: None,
+            request_preview=lambda: None,
+            step_video=lambda _step: None,
+            cycle_background=lambda: cycles.append(True) or "gray",
+            notify=self.calls.append,
+        )
+        controller = shortcuts.CompareKeyController(
+            get_shortcuts=lambda: DEFAULT_SHORTCUTS,
+            get_handlers=lambda: handlers,
+            focus_in_editor=lambda: False,
+            close_menu=lambda: False,
+            close_guide=lambda: False,
+            is_fullscreen=lambda: False,
+            toggle_fullscreen=lambda: None,
+            close_window=lambda: None,
+        )
+        self.assertTrue(controller.handle(_event(Qt.Key.Key_B, Qt.KeyboardModifier.ShiftModifier)))
+        self.assertEqual(cycles, [True])
+        self.assertEqual(self.calls, [])
 
 
 class ShortcutNoticeTests(unittest.TestCase):

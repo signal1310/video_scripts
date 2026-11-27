@@ -15,6 +15,8 @@ from src.core.models import ActiveFrame
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
 from src.gui.preview.crop_overlay import (
+    OVERLAY_INK_COLOR,
+    OVERLAY_WARN_COLOR,
     CropOverlay,
     CropOverlayRects,
     crop_overlay_rects,
@@ -24,6 +26,7 @@ from src.gui.preview.preview_info_items import PreviewVideoInfo
 from src.gui.preview.video_preview_controls import PlaybackControls
 from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.styles.icons import get_active_palette, get_icon
+from src.gui.styles.palettes import DARK_PALETTE
 from tests._factories import make_eval, make_video
 from tests._gui_helpers import GuiTestCase
 
@@ -234,6 +237,31 @@ class CropOverlayWidgetTests(GuiTestCase):
     def test_overlay_ignores_mouse_input(self) -> None:
         self.assertTrue(self.overlay.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
         self.assertTrue(self.overlay.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
+
+    def test_marks_over_the_video_keep_the_dark_stage_contrast(self) -> None:
+        """무대 색과 무관하게 영상 위 표시는 검정 배경 기준 잉크와 경고색을 쓰는지 검증
+
+        - 겹침 창은 영상 위젯 영역에만 놓이므로 회색, 흰색 무대에서도 검은 여백 위에 그려짐
+        """
+        self.assertEqual(OVERLAY_WARN_COLOR, DARK_PALETTE.fg_maxrate_warn)
+        self.assertEqual(OVERLAY_INK_COLOR, DARK_PALETTE.media_fg)
+        self.overlay.resize(400, 300)
+        rects = crop_overlay_rects((400, 300), (1920, 1080), ActiveFrame(1800, 800, 60, 140))
+        self.overlay.set_crop(rects)
+        image = self.overlay.grab().toImage()
+        largest = max(rects.cuts, key=lambda rect: rect.width() * rect.height())
+        # - 잘림 글자는 가장 넓은 검은 여백 가운데에 밝은 잉크로 그려짐
+        center = largest.center()
+        nearby = [
+            image.pixelColor(center.x() + dx, center.y() + dy).name().upper()
+            for dx in range(-6, 7)
+            for dy in range(-6, 7)
+        ]
+        self.assertIn(OVERLAY_INK_COLOR.upper(), nearby)
+
+    def test_overlay_does_not_change_with_the_stage_background(self) -> None:
+        """배경 색 설정이 겹침 표시 색을 바꾸지 않는지 검증"""
+        self.assertFalse(hasattr(self.overlay, "set_stage_background"))
 
 
 class CropButtonTests(GuiTestCase):

@@ -35,8 +35,11 @@ _LABEL_MARGIN_PX: int = 4
 _LABEL_FONT_PT: float = 8.5
 _HANDLE_SIZE_PX: int = 7
 _MIN_CONTENT_PX: int = 1
-# - 영상 표면은 두 테마 모두에서 어두운 고정 배경이므로 검정 위 대비가 높은 다크 팔레트 경고색을 씀
+# - 겹침 창은 영상 위젯 영역에만 놓이고 모든 표시가 영상 화소(검은 여백 포함) 위에 그려지므로
+#   무대 배경 색과 무관하게 두 테마 모두에서 어두운 영상 위 대비가 높은 색을 씀
 _OVERLAY_PALETTE: ThemePalette = DARK_PALETTE
+OVERLAY_WARN_COLOR: str = _OVERLAY_PALETTE.fg_maxrate_warn
+OVERLAY_INK_COLOR: str = _OVERLAY_PALETTE.media_fg
 
 
 class CropOverlayRects(NamedTuple):
@@ -150,24 +153,25 @@ class CropOverlay(QWidget):
         rects = self._rects
         if rects is None:
             return
-        palette = _OVERLAY_PALETTE
+        warn_color = OVERLAY_WARN_COLOR
+        ink_color = OVERLAY_INK_COLOR
         painter = QPainter(self)
         try:
-            fill = QColor(palette.fg_maxrate_warn)
+            fill = QColor(warn_color)
             fill.setAlpha(_FILL_ALPHA)
-            hatch = QColor(palette.fg_maxrate_warn)
+            hatch = QColor(warn_color)
             hatch.setAlpha(_HATCH_ALPHA)
             for rect in rects.cuts:
                 painter.fillRect(rect, fill)
             _draw_hatch(painter, rects.cuts, hatch)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor(palette.fg_maxrate_warn), _BORDER_WIDTH_PX))
+            painter.setPen(QPen(QColor(warn_color), _BORDER_WIDTH_PX))
             # - 테두리 굵기의 절반이 영역 밖으로 나가 잘리지 않게 안쪽으로 반만큼 들임
             half = _BORDER_WIDTH_PX / 2
             painter.drawRect(QRectF(rects.kept).adjusted(half, half, -half, -half))
-            _draw_handles(painter, rects.kept, QColor(palette.media_fg))
-            _draw_size_label(painter, rects.kept, self._size_label, QColor(palette.media_fg))
-            _draw_label(painter, rects, QColor(palette.media_fg))
+            _draw_handles(painter, rects.kept, QColor(ink_color))
+            _draw_size_label(painter, rects.kept, self._size_label, QColor(ink_color))
+            _draw_label(painter, rects, QColor(ink_color))
         finally:
             painter.end()
 

@@ -25,7 +25,7 @@ BUS_TYPE_USB: int = 7
 _STORAGE_DEVICE_PROPERTY: int = 0
 _STORAGE_DEVICE_SEEK_PENALTY_PROPERTY: int = 7
 _PROPERTY_STANDARD_QUERY: int = 0
-_DRIVE_REMOTE: int = 4
+DRIVE_REMOTE: int = 4
 _FILE_SHARE_READ_WRITE: int = 0x3
 _OPEN_EXISTING: int = 3
 _INVALID_HANDLE_VALUE: int | None = ctypes.c_void_p(-1).value
@@ -109,8 +109,11 @@ def _is_windows() -> bool:
 
 
 @functools.lru_cache(maxsize=1)
-def _kernel32() -> ctypes.WinDLL:
-    """호출 형식을 명시한 kernel32 함수 집합(Windows에서만 로드)"""
+def kernel32() -> ctypes.WinDLL:
+    """호출 형식을 명시한 kernel32 함수 집합(Windows에서만 로드)
+
+    - 저장 장치 판별과 볼륨 식별이 같은 DLL 객체와 서명 선언을 공유
+    """
     dll = ctypes.WinDLL("kernel32", use_last_error=True)
     dll.CreateFileW.argtypes = [
         ctypes.c_wchar_p,
@@ -137,16 +140,30 @@ def _kernel32() -> ctypes.WinDLL:
     dll.CloseHandle.restype = ctypes.c_int
     dll.GetDriveTypeW.argtypes = [ctypes.c_wchar_p]
     dll.GetDriveTypeW.restype = ctypes.c_uint
+    dll.GetVolumePathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong]
+    dll.GetVolumePathNameW.restype = ctypes.c_int
+    dll.GetVolumeInformationW.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.c_wchar_p,
+        ctypes.c_ulong,
+    ]
+    dll.GetVolumeInformationW.restype = ctypes.c_int
     return dll
 
 
-def _drive_type(root: str) -> int:
-    return int(_kernel32().GetDriveTypeW(root))
+def drive_type(root: str) -> int:
+    """드라이브 종류(고정, 이동식, 원격 등) 조회"""
+    return int(kernel32().GetDriveTypeW(root))
 
 
 def _open_volume(drive: str) -> int | None:
     """드라이브 문자의 볼륨을 접근 권한 0으로 열어 핸들 반환, 실패하면 None"""
-    handle = _kernel32().CreateFileW(
+    handle = kernel32().CreateFileW(
         f"{_VOLUME_PATH_PREFIX}{drive}",
         0,
         _FILE_SHARE_READ_WRITE,
@@ -161,7 +178,7 @@ def _open_volume(drive: str) -> int | None:
 
 
 def _close_handle(handle: int) -> None:
-    _kernel32().CloseHandle(ctypes.c_void_p(handle))
+    kernel32().CloseHandle(ctypes.c_void_p(handle))
 
 
 def _device_query(
@@ -180,7 +197,7 @@ def _device_query(
     returned = ctypes.c_ulong(0)
     in_ptr = ctypes.byref(in_struct) if in_struct is not None else None
     in_size = ctypes.sizeof(in_struct) if in_struct is not None else 0
-    ok = _kernel32().DeviceIoControl(
+    ok = kernel32().DeviceIoControl(
         handle,
         code,
         in_ptr,
@@ -229,7 +246,7 @@ def classify_storage(seek_penalty: bool | None) -> StorageKind:
 
 
 def _probe_volume(drive: str) -> StorageInfo:
-    if _drive_type(f"{drive}\\") == _DRIVE_REMOTE:
+    if drive_type(f"{drive}\\") == DRIVE_REMOTE:
         return StorageInfo(StorageKind.NETWORK)
     handle = _open_volume(drive)
     if handle is None:

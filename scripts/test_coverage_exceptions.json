@@ -62,7 +62,6 @@
     "src/gui/widgets/header_bar.py",
     "src/gui/widgets/progress_fill_bar.py",
     "src/gui/window_layout.py",
-    "src/service/analyzed_dirs.py",
     "src/service/encode/encode_placement.py",
     "src/service/encode/encode_ports.py"
   ],

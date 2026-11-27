@@ -6,6 +6,7 @@ from src.core.config import ClassifierConfig
 from src.core.messages import (
     format_action_tooltip,
     format_keyframe_tooltip,
+    format_lookup_summary,
     format_reason_tooltip,
     format_restore_finished,
 )
@@ -36,6 +37,24 @@ class RestoreFinishedTextTests(unittest.TestCase):
         self.assertEqual(
             format_restore_finished(12, 3.0, 1500),
             "이전 분석 결과 복원: 12개 영상 (인코딩 대상 1,500개, 소요 3.0초)",
+        )
+
+
+class LookupSummaryTextTests(unittest.TestCase):
+    """분석 캐시 조회 단계별 재사용 건수 로그 문장을 검증"""
+
+    def test_summary_lists_three_tiers_with_thousands_separators(self) -> None:
+        """단계별 건수가 순서대로 천 단위 구분과 함께 나오는지 검증"""
+        self.assertEqual(
+            format_lookup_summary(location=1200, name=30, fingerprint=4),
+            "캐시 조회: 위치 1,200, 이름 키 30, 지문 4",
+        )
+
+    def test_summary_shows_zero_counts(self) -> None:
+        """캐시에서 얻지 못한 단계도 0으로 남기는지 검증"""
+        self.assertEqual(
+            format_lookup_summary(location=0, name=0, fingerprint=0),
+            "캐시 조회: 위치 0, 이름 키 0, 지문 0",
         )
 
 

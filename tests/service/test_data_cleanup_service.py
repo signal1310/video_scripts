@@ -9,11 +9,12 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
+from src.core.analysis.volume_identity import volume_location
 from src.core.encode.encode_state import EncodeState
 from src.core.encode_fingerprint import EncodeFingerprint
 from src.core.models import ActiveFrame, VideoProps
 from src.service import data_cleanup_service as cleanup_mod
-from src.service.analysis_store import AnalysisStore, StoredEntry
+from src.service.analysis_store import AnalysisStore, LocationRecord, StoredEntry
 from src.service.data_cleanup_service import (
     ALL_CLEANUP_ITEM_KEYS,
     CATEGORY_CLEANUP_ITEM_KEYS,
@@ -342,6 +343,31 @@ class TestPreviewCounts(_CleanupCase):
         for key, count in expected.items():
             self.assertEqual(previews[_key(key)].count, count, key)
         self.assertEqual(previews["part_files"].size_bytes, 20 + 30)
+
+    def test_location_rows_without_name_keys_are_counted_and_cleared_in_scope(self) -> None:
+        """파일명 키가 없는 위치 행도 범위별 미리보기와 실행에서 함께 지우는지 검증"""
+        paths = self.seed_records()
+        for root, name in ((self.root_a, "a.mp4"), (self.root_b, "b.mp4")):
+            location = volume_location(os.path.join(root, name))
+            self.analysis_store.record_locations(
+                [LocationRecord(location.volume_id, location.volume_path, _ROW_SIZE, 7, "9" * 32)]
+            )
+
+        previews = self.make_service().preview(CLEANUP_SCOPE_CURRENT, self.root_a)
+        self.assertEqual(previews["probe_cache"].count, 3)
+        self.assertTrue(previews["probe_cache"].available)
+        result = self.make_service().execute_storage_cleanup(["probe_cache"], CLEANUP_SCOPE_CURRENT, self.root_a)
+        self.assertEqual(result.cleared_counts["probe_cache"], 3)
+
+        location_a = volume_location(os.path.join(self.root_a, "a.mp4"))
+        location_b = volume_location(os.path.join(self.root_b, "b.mp4"))
+        self.assertEqual(
+            self.analysis_store.fetch_locations([(location_a.volume_id, location_a.volume_path)]), []
+        )
+        self.assertEqual(
+            len(self.analysis_store.fetch_locations([(location_b.volume_id, location_b.volume_path)])), 1
+        )
+        self.assertTrue(os.path.isfile(paths["probe_a"]))
 
     def test_preview_deletes_nothing(self) -> None:
         paths = self.seed_records()

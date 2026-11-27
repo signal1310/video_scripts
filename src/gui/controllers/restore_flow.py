@@ -55,6 +55,8 @@ class RestoreFlow:
         """작업 폴더에 이전 분석 결과가 남아 있으면 판정을 백그라운드에서 시작"""
         clf = self._session.classifier
         # - 한 번도 분석되지 않은 폴더는 같은 이름, 크기, 수정 시각의 파일이 다른 폴더 기록과 겹쳐도 자동 분석하지 않음
+        # - 폴더 판정은 볼륨 위치 기록으로 하므로 드라이브 문자나 상위 폴더가 바뀌어도 같은 기록을 찾음
+        # - 화면이 하위 폴더를 포함하면 하위 폴더 포함 기록이 있어야 복원하므로 분석하지 않은 하위 폴더를 몰래 분석하지 않음
         if clf is None or self._tasks.is_running() or not is_analyzed_dir(clf.root_dir, recursive=clf.recursive):
             return
         # - 판정 대기 동안에도 진행 표시가 보이도록 먼저 바쁨 상태로 전환, 판정 결과가 복원 없음이면 해제

@@ -1,6 +1,7 @@
 """분석 캐시를 거쳐 작업 폴더의 비디오 메타데이터를 수집하는 모듈
 
-조회 순서: 파일명, 크기, 수정 시각 일치 -> 같은 크기 후보와 내용 지문 일치(이름 변경 재사용) -> 나머지만 ffprobe 프로빙
+조회 순서: 볼륨 위치, 크기, 수정 시각 일치(파일 읽기 없음) -> 파일명, 크기, 수정 시각 일치(파일 읽기 없음)
+-> 같은 크기 후보와 내용 지문 일치(이름 변경 재사용) -> 나머지만 ffprobe 프로빙
 """
 
 from __future__ import annotations
@@ -21,7 +22,8 @@ from src.core.analysis.probe_version_rules import (
 )
 from src.core.analysis.prober import FFPROBE_EXECUTABLE_DEFAULT, CancelCheck, ProgressCallback, probe_files
 from src.core.analysis.storage_probe import concurrency_limit, default_worker_count, probe_storage
-from src.core.messages import format_analysis_summary, format_storage_kind
+from src.core.analysis.volume_identity import volume_location
+from src.core.messages import format_analysis_summary, format_lookup_summary, format_storage_kind
 from src.core.models import VideoProps
 from src.core.probe_parser import (
     PROBE_VERSION,
@@ -30,7 +32,14 @@ from src.core.probe_parser import (
     summarize_streams_from_probe,
 )
 from src.core.workspace_paths import primary_root_dir, resolve_source_filepath
-from src.service.analysis_store import AnalysisStore, StoredEntry, compute_fingerprint
+from src.service.analysis_store import (
+    AnalysisStore,
+    LocationKey,
+    LocationRecord,
+    StoredEntry,
+    compute_fingerprint,
+    root_scope_key,
+)
 
 logger = logging.getLogger(__name__)
 _DISPLAY_CHUNK_SIZE: int = 500
@@ -43,6 +52,15 @@ class FileEntry:
     filename: str
     filesize_bytes: int
     mtime_ns: int
+
+
+@dataclass(slots=True)
+class TierHits:
+    """조회 단계별로 캐시에서 결과를 얻은 건수"""
+
+    location: int = 0
+    name: int = 0
+    fingerprint: int = 0
 
 
 def list_file_entries(
@@ -99,19 +117,43 @@ def probe_directory_with_store(
 
     resolved: dict[str, VideoProps] = {}
     pending: list[FileEntry] = entries
-    fingerprints: dict[str, str] = {}
     carried: dict[str, float] = {}
     raw: dict[str, bytes] = {}
+    fingerprints: dict[str, str] = {}
+    locations = _entry_locations(root_dir, entries)
+    tier_hits = TierHits()
     if reuse_store:
-        resolved, pending, upgraded, carried = _resolve_by_name(
-            store, entries, include_keyframe, _prescan_rows(prescan)
+        located, pending, upgraded, carried, known = _resolve_by_location(
+            store, entries, locations, include_keyframe
         )
-        store.apply((), upgraded)
-        renamed, pending, fingerprints = _resolve_by_fingerprint(
-            store, root_dir, pending, include_keyframe, renamed_out=renamed_out
+        tier_hits.location = len(located)
+        resolved.update(located)
+        fingerprints.update(known)
+        named, pending, name_upgraded, carried, known = _resolve_by_name(
+            store, root_dir, pending, include_keyframe, _prescan_rows(prescan), carried
         )
-        resolved.update(renamed)
+        tier_hits.name = len(named)
+        resolved.update(named)
+        fingerprints.update(known)
+        store.apply((), [*upgraded, *name_upgraded], root_dir)
+        moved, pending, known = _resolve_by_fingerprint(
+            store,
+            root_dir,
+            pending,
+            include_keyframe,
+            known_fingerprints=fingerprints,
+            renamed_out=renamed_out,
+        )
+        tier_hits.fingerprint = len(moved)
+        resolved.update(moved)
+        fingerprints.update(known)
     reused_count = len(resolved)
+    logger.info(
+        "%s",
+        format_lookup_summary(
+            location=tier_hits.location, name=tier_hits.name, fingerprint=tier_hits.fingerprint
+        ),
+    )
 
     # - 전부 캐시에서 얻은 경우 빈 목록으로 프로빙 계층을 거치지 않도록 생략
     full_names = [entry.filename for entry in pending if entry.filename not in carried]
@@ -136,7 +178,9 @@ def probe_directory_with_store(
         )
         fresh = [*fresh, *(replace(props, keyframe_interval=carried[props.filename]) for props in meta_only)]
     by_name = {entry.filename: entry for entry in pending}
-    _store_fresh(store, root_dir, fresh, by_name, fingerprints, raw)
+    fingerprints.update(_store_fresh(store, root_dir, fresh, by_name, fingerprints, raw))
+    # - 확인한 파일의 위치를 남겨 다음 조회가 파일 읽기 없이 위치로 찾게 함(이름 키와 지문 단계에서 찾은 파일 포함)
+    store.record_locations(_location_records(entries, locations, fingerprints))
     for props in fresh:
         resolved[props.filename] = _for_request(props, include_keyframe)
 
@@ -192,7 +236,7 @@ def count_pending_files(
 ) -> int:
     """분석 시작 전 ffprobe가 필요한 파일 수를 세며, 이름이 바뀐 파일은 지문 대조 없이 대상으로 셈
 
-    - 지문 계산을 생략해 파일 전체를 읽지 않으므로 예상용으로만 사용
+    - 분석과 같은 순서로 볼륨 위치와 이름 키를 먼저 대조해 같은 결과를 내되 지문 계산은 생략(예상용)
     """
     entries = list_file_entries(
         root_dir,
@@ -201,7 +245,12 @@ def count_pending_files(
     )
     if store is None:
         return len(entries)
-    _resolved, pending, _upgraded, _carried = _resolve_by_name(store, entries, include_keyframe)
+    _located, pending, _upgraded, _carried, _known = _resolve_by_location(
+        store, entries, _entry_locations(root_dir, entries), include_keyframe
+    )
+    _named, pending, _upgraded, _carried, _known = _resolve_by_name(
+        store, root_dir, pending, include_keyframe
+    )
     return len(pending)
 
 
@@ -222,7 +271,7 @@ def persist_keyframes(store: AnalysisStore, root_dir: str, updated: Sequence[Vid
             logger.warning("키프레임 저장을 건너뜁니다(파일 읽기 실패): %s", props.filename)
             continue
         entries.append(StoredEntry(props.filename, stat.st_size, stat.st_mtime_ns, fingerprint, props))
-    store.apply((), entries)
+    store.apply((), entries, root_dir)
 
 
 def _for_request(props: VideoProps, include_keyframe: bool) -> VideoProps:
@@ -340,8 +389,9 @@ def load_stored_rows(
 ) -> StoredRows | None:
     """작업 폴더 파일 중 저장된 결과가 있는 행을 ffprobe 없이 읽어 표시용 행을 만듦
 
-    - 판정 단계이므로 DB에 쓰지 않음(결정 30). 이전 형식 행은 저장 값 그대로 표시하고 이름을 legacy_names에 담음
-    - 묶음마다 확인한 파일 수를 알리고, 취소되면 None
+    - 판정 단계이므로 DB에 쓰지 않음(결정 30). 볼륨 위치 조회와 이름 키 조회만 쓰고 지문 읽기와 프로빙은 하지 않음
+    - 이전 형식 행은 저장 값 그대로 표시하고 이름을 legacy_names에 담음
+    - 묶음마다 확인한 파일 수를 알리고, 취소되면 None. 볼륨 위치 키도 묶음마다 계산해 첫 알림 전에 모든 파일을 훑지 않음
     - 파일 목록, 조회한 행, 훑은 범위를 결과에 담아 바로 잇는 분석이 같은 조회와 목록을 다시 하지 않게 함
     """
     entries = list_file_entries(root_dir, recursive=recursive, excluded_dirnames=excluded_dirnames)
@@ -352,9 +402,14 @@ def load_stored_rows(
         if is_cancelled is not None and is_cancelled():
             return None
         chunk = entries[start : start + _DISPLAY_CHUNK_SIZE]
-        index = {hit.key: hit for hit in store.fetch_by_names([entry.filename for entry in chunk])}
+        # - 볼륨 위치 계산은 파일마다 드라이브를 조회하므로 묶음마다 취소 확인 뒤에 계산해 첫 진행 알림을 늦추지 않게 함
+        located = _location_hits(store, chunk, _entry_locations(root_dir, chunk))
+        pending = [entry for entry in chunk if entry.filename not in located]
+        index = _scope_index(store.fetch_by_names([entry.filename for entry in pending]), root_dir)
         for entry in chunk:
-            hit = index.get((entry.filename, entry.filesize_bytes, entry.mtime_ns))
+            hit = located.get(entry.filename)
+            if hit is None:
+                hit = index.get((entry.filename, entry.filesize_bytes, entry.mtime_ns))
             if hit is None:
                 continue
             hits.append(hit)
@@ -385,44 +440,182 @@ def _prescan_rows(prescan: StoredRows | None) -> Sequence[StoredEntry] | None:
     return prescan.stored_entries
 
 
-def _resolve_by_name(
+def _scope_index(stored: Sequence[StoredEntry], root_dir: str) -> dict[tuple[str, int, int], StoredEntry]:
+    """식별 키별로 지금 작업 폴더 범위의 행을 고르고, 없으면 범위를 모르는 옛 행을 고름
+
+    - 같은 이름, 크기, 수정 시각의 키가 작업 폴더마다 따로 있을 수 있어 범위가 다른 행은 다른 파일이므로 쓰지 않음
+    """
+    scope = root_scope_key(root_dir)
+    index: dict[tuple[str, int, int], StoredEntry] = {}
+    for entry in stored:
+        if entry.root_scope not in ("", scope):
+            continue
+        current = index.get(entry.key)
+        if current is None or current.root_scope != scope:
+            index[entry.key] = entry
+    return index
+
+
+def _reuse_hit(hit: StoredEntry, include_keyframe: bool) -> tuple[VideoProps, bool] | None:
+    """행을 그대로 쓰거나 저장된 응답으로 다시 계산할 수 있으면 메타데이터와 다시 저장 필요 여부를 반환
+
+    - 측정 번호가 낮은 행은 번호만 올려 다시 저장해 다음 조회에서 승격 판정을 되풀이하지 않게 함
+    """
+    if _is_reusable(hit, include_keyframe):
+        props = _upgrade_props(hit)
+        return props, props != hit.props or hit.probe_version != PROBE_VERSION
+    if _recomputable(hit, include_keyframe):
+        recomputed = _recompute_from_raw(hit, include_keyframe)
+        return recomputed.props, True
+    return None
+
+
+def _entry_locations(root_dir: str, entries: Sequence[FileEntry]) -> dict[str, LocationKey]:
+    """파일별 볼륨 위치 키. 논리 파일명이 아니라 파일의 절대 경로로 계산해 다중 작업 폴더에서도 소속을 가리지 않음"""
+    return {
+        entry.filename: _location_key(resolve_source_filepath(root_dir, entry.filename))
+        for entry in entries
+    }
+
+
+def _location_key(path: str) -> LocationKey:
+    """파일 경로의 볼륨 위치 키(볼륨 식별자, 볼륨 기준 상대 경로)"""
+    location = volume_location(path)
+    return (location.volume_id, location.volume_path)
+
+
+def _content_hit(content: StoredEntry, entry: FileEntry, fingerprint: str) -> StoredEntry:
+    """내용 행을 현재 파일의 행으로 바꿈(파일명과 수정 시각은 현재 파일 값, 내용은 저장 값)"""
+    return StoredEntry(
+        entry.filename,
+        entry.filesize_bytes,
+        entry.mtime_ns,
+        fingerprint,
+        replace(content.props, filename=entry.filename),
+        probe_version=content.probe_version,
+        keyframe_version=content.keyframe_version,
+        probe_raw=content.probe_raw,
+    )
+
+
+def _location_hits(
+    store: AnalysisStore, entries: Sequence[FileEntry], locations: Mapping[str, LocationKey]
+) -> dict[str, StoredEntry]:
+    """위치 행이 현재 파일과 같은 크기, 수정 시각을 가리키면 그 내용 행을 현재 파일 기준으로 돌려줌(파일 읽기 없음)"""
+    if not entries:
+        return {}
+    records = {
+        (record.volume_id, record.volume_path): record
+        for record in store.fetch_locations([locations[entry.filename] for entry in entries])
+    }
+    matches: list[tuple[FileEntry, LocationRecord]] = []
+    for entry in entries:
+        record = records.get(locations[entry.filename])
+        if record is None:
+            continue
+        if record.filesize_bytes != entry.filesize_bytes or record.mtime_ns != entry.mtime_ns:
+            continue
+        matches.append((entry, record))
+    contents = {
+        (content.filesize_bytes, content.fingerprint): content
+        for content in store.fetch_by_contents([(record.filesize_bytes, record.fingerprint) for _, record in matches])
+    }
+    hits: dict[str, StoredEntry] = {}
+    for entry, record in matches:
+        content = contents.get((record.filesize_bytes, record.fingerprint))
+        if content is not None:
+            hits[entry.filename] = _content_hit(content, entry, record.fingerprint)
+    return hits
+
+
+def _location_records(
+    entries: Sequence[FileEntry], locations: Mapping[str, LocationKey], fingerprints: Mapping[str, str]
+) -> list[LocationRecord]:
+    """확인된 파일 위치를 저장할 위치 행 목록. 지문을 모르는 파일은 위치 행을 남기지 않음"""
+    records: list[LocationRecord] = []
+    for entry in entries:
+        fingerprint = fingerprints.get(entry.filename)
+        key = locations.get(entry.filename)
+        if fingerprint is None or key is None:
+            continue
+        records.append(LocationRecord(key[0], key[1], entry.filesize_bytes, entry.mtime_ns, fingerprint))
+    return records
+
+
+def _resolve_by_location(
     store: AnalysisStore,
     entries: Sequence[FileEntry],
+    locations: Mapping[str, LocationKey],
     include_keyframe: bool,
-    prescan_rows: Sequence[StoredEntry] | None = None,
-) -> tuple[dict[str, VideoProps], list[FileEntry], list[StoredEntry], dict[str, float]]:
-    """이름과 식별 키가 같은 행을 재사용하고, 번호만 올려 써도 되는 옛 행은 현재 번호로 다시 저장할 목록을 반환
+) -> tuple[dict[str, VideoProps], list[FileEntry], list[StoredEntry], dict[str, float], dict[str, str]]:
+    """볼륨 위치가 같은 행을 재사용하고, 나머지는 다음 조회 단계로 넘김
 
-    - 세 번째 값은 번호를 올려 다시 저장할 행, 네 번째 값은 메타데이터만 다시 읽고 이어 받을 키프레임 간격(파일명별)
-    - prescan_rows가 있으면 판정이 읽은 같은 행을 그대로 쓰고 DB를 다시 조회하지 않음. 이름이 같고 식별 키가 같은 행만 쓰므로 결과가 같음
+    - 반환값은 (재사용 결과, 남은 파일, 번호를 올려 저장할 행, 이어 받을 키프레임 값, 확인한 지문)
+    - 읽기만 하므로 복원 판정에서도 씀
     """
-    stored = prescan_rows if prescan_rows is not None else store.fetch_by_names([entry.filename for entry in entries])
-    index = {stored_entry.key: stored_entry for stored_entry in stored}
-
+    hits = _location_hits(store, entries, locations)
     resolved: dict[str, VideoProps] = {}
     pending: list[FileEntry] = []
     upgraded: list[StoredEntry] = []
     carried: dict[str, float] = {}
+    fingerprints: dict[str, str] = {}
+    for entry in entries:
+        hit = hits.get(entry.filename)
+        if hit is None:
+            pending.append(entry)
+            continue
+        fingerprints[entry.filename] = hit.fingerprint
+        reused = _reuse_hit(hit, include_keyframe)
+        if reused is not None:
+            props, changed = reused
+            resolved[entry.filename] = _for_request(props, include_keyframe)
+            if changed:
+                upgraded.append(replace(hit, props=props))
+            continue
+        pending.append(entry)
+        kept = _carried_keyframe(hit) if include_keyframe else None
+        if kept is not None:
+            carried[entry.filename] = kept
+    return resolved, pending, upgraded, carried, fingerprints
+
+
+def _resolve_by_name(
+    store: AnalysisStore,
+    root_dir: str,
+    entries: Sequence[FileEntry],
+    include_keyframe: bool,
+    prescan_rows: Sequence[StoredEntry] | None = None,
+    carried: dict[str, float] | None = None,
+) -> tuple[dict[str, VideoProps], list[FileEntry], list[StoredEntry], dict[str, float], dict[str, str]]:
+    """이름과 식별 키가 같은 행을 재사용하고, 번호만 올려 써도 되는 옛 행은 현재 번호로 다시 저장할 목록을 반환
+
+    - 반환값은 (재사용 결과, 남은 파일, 번호를 올려 저장할 행, 이어 받을 키프레임 값, 확인한 지문)
+    - prescan_rows가 있으면 판정이 읽은 같은 행을 그대로 쓰고 DB를 다시 조회하지 않음. 이름이 같고 식별 키가 같은 행만 쓰므로 결과가 같음
+    """
+    stored = prescan_rows if prescan_rows is not None else store.fetch_by_names([entry.filename for entry in entries])
+    index = _scope_index(stored, root_dir)
+
+    resolved: dict[str, VideoProps] = {}
+    pending: list[FileEntry] = []
+    upgraded: list[StoredEntry] = []
+    fingerprints: dict[str, str] = {}
+    carried_values = {} if carried is None else carried
     for entry in entries:
         hit = index.get((entry.filename, entry.filesize_bytes, entry.mtime_ns))
-        if hit is not None and _is_reusable(hit, include_keyframe):
-            if hit.probe_version != PROBE_VERSION:
-                props = _upgrade_props(hit)
+        if hit is not None:
+            fingerprints[entry.filename] = hit.fingerprint
+            reused = _reuse_hit(hit, include_keyframe)
+            if reused is not None:
+                props, changed = reused
                 resolved[entry.filename] = _for_request(props, include_keyframe)
-                upgraded.append(replace(hit, props=props))
-            else:
-                resolved[entry.filename] = _for_request(hit.props, include_keyframe)
-            continue
-        if hit is not None and _recomputable(hit, include_keyframe):
-            recomputed = _recompute_from_raw(hit, include_keyframe)
-            resolved[entry.filename] = _for_request(recomputed.props, include_keyframe)
-            upgraded.append(recomputed)
-            continue
+                if changed:
+                    upgraded.append(replace(hit, props=props))
+                continue
         pending.append(entry)
         kept = _carried_keyframe(hit) if hit is not None and include_keyframe else None
         if kept is not None:
-            carried[entry.filename] = kept
-    return resolved, pending, upgraded, carried
+            carried_values[entry.filename] = kept
+    return resolved, pending, upgraded, carried_values, fingerprints
 
 
 def _resolve_by_fingerprint(
@@ -431,24 +624,31 @@ def _resolve_by_fingerprint(
     pending: Sequence[FileEntry],
     include_keyframe: bool,
     *,
+    known_fingerprints: Mapping[str, str] | None = None,
     renamed_out: dict[str, str] | None = None,
 ) -> tuple[dict[str, VideoProps], list[FileEntry], dict[str, str]]:
-    """이름이 바뀐 파일을 같은 크기 후보의 내용 지문으로 찾아 행을 옮기고, 계산한 지문을 함께 반환"""
+    """이름이 바뀐 파일을 같은 크기 후보의 내용 지문으로 찾아 결과와 지문을 돌려줌
+
+    - 옛 이름의 조회 키는 지우지 않고, 사라진 옛 경로의 위치 행만 지워 새 위치 행으로 대체
+    """
+    known = dict(known_fingerprints or {})
     if not pending:
-        return {}, [], {}
+        return {}, [], known
     candidates = store.fetch_by_sizes([entry.filesize_bytes for entry in pending])
     by_size: dict[int, list[StoredEntry]] = {}
     for candidate in candidates:
         if _is_reusable(candidate, include_keyframe):
             by_size.setdefault(candidate.filesize_bytes, []).append(candidate)
 
+    missing = [
+        entry for entry in pending if entry.filename not in known and entry.filesize_bytes in by_size
+    ]
+    fingerprints = {**known, **_fingerprints_for(root_dir, missing)}
+
     resolved: dict[str, VideoProps] = {}
     moved: list[tuple[StoredEntry, FileEntry]] = []
     remaining: list[FileEntry] = []
     used: set[tuple[str, int, int]] = set()
-    fingerprints = _fingerprints_for(
-        root_dir, [entry for entry in pending if entry.filesize_bytes in by_size]
-    )
     for entry in pending:
         same_size = by_size.get(entry.filesize_bytes)
         fingerprint = fingerprints.get(entry.filename)
@@ -471,7 +671,7 @@ def _resolve_by_fingerprint(
 
     if moved:
         store.apply(
-            [match.key for match, _ in moved],
+            (),
             [
                 StoredEntry(
                     entry.filename,
@@ -483,8 +683,21 @@ def _resolve_by_fingerprint(
                 )
                 for match, entry in moved
             ],
+            root_dir,
         )
+        store.remove_locations(_stale_location_keys(root_dir, moved))
     return resolved, remaining, fingerprints
+
+
+def _stale_location_keys(root_dir: str, moved: Sequence[tuple[StoredEntry, FileEntry]]) -> list[LocationKey]:
+    """이름이 바뀐 옛 경로의 위치 키 중 실제 파일이 사라진 것만 고름(복사로 남은 경로의 위치는 유지)"""
+    stale: list[LocationKey] = []
+    for match, _entry in moved:
+        old_path = resolve_source_filepath(root_dir, match.filename)
+        if os.path.exists(old_path):
+            continue
+        stale.append(_location_key(old_path))
+    return stale
 
 
 def _fingerprint_or_none(root_dir: str, entry: FileEntry) -> str | None:
@@ -527,7 +740,8 @@ def _store_fresh(
     by_name: dict[str, FileEntry],
     fingerprints: dict[str, str],
     raw: Mapping[str, bytes],
-) -> None:
+) -> dict[str, str]:
+    """새로 분석한 결과를 저장하고, 저장에 쓴 파일별 지문을 돌려줌(위치 행 기록에 재사용)"""
     missing = [
         by_name[props.filename]
         for props in fresh
@@ -547,4 +761,5 @@ def _store_fresh(
                 entry.filename, entry.filesize_bytes, entry.mtime_ns, fingerprint, props, probe_raw=raw.get(entry.filename)
             )
         )
-    store.apply((), records)
+    store.apply((), records, root_dir)
+    return all_fingerprints

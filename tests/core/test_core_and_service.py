@@ -189,20 +189,24 @@ class TestSessionAndRegistry(unittest.TestCase):
             self.assertIs(registry.get(root), cache)
             self.assertIsNone(registry.get(root, recursive=True))
 
-    def test_analyzed_dirs_separate_recursive_mode(self) -> None:
-        """분석 기록이 하위 폴더 포함 여부별로 구분되고 다중 폴더 목록 단위로 기록됨을 검증"""
+    def test_analyzed_dirs_recursive_record_covers_descendants(self) -> None:
+        """비재귀 기록은 하위 폴더를 덮지 않고, 재귀 기록은 상위 폴더를 덮고 다중 폴더 목록은 모두 기록되어야 함을 검증"""
         with tempfile.TemporaryDirectory() as tmp:
             marker = os.path.join(tmp, "analyzed_dirs.json")
             a = os.path.join(tmp, "A")
             b = os.path.join(tmp, "B")
             os.makedirs(a)
             os.makedirs(b)
+            nested = os.path.join(a, "sub")
+            os.makedirs(nested)
             with patch(_ANALYZED_PATCH, return_value=marker):
                 mark_analyzed_dir(a)
                 self.assertTrue(is_analyzed_dir(a))
                 self.assertFalse(is_analyzed_dir(a, recursive=True))
+                self.assertFalse(is_analyzed_dir(nested))
                 mark_analyzed_dir(a, recursive=True)
                 self.assertTrue(is_analyzed_dir(a, recursive=True))
+                self.assertTrue(is_analyzed_dir(nested))
                 self.assertFalse(is_analyzed_dir(f"{a};{b}"))
 
 class TestRootSpecInputs(unittest.TestCase):

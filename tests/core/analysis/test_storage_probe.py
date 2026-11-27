@@ -58,7 +58,7 @@ class TestProbeStorage(unittest.TestCase):
         stack.enter_context(patch(f"{_MOD}._close_handle"))
         stack.enter_context(patch(f"{_MOD}._is_windows", return_value=True))
         stack.enter_context(
-            patch(f"{_MOD}._drive_type", return_value=storage_probe._DRIVE_REMOTE if remote else 3)
+            patch(f"{_MOD}.drive_type", return_value=storage_probe.DRIVE_REMOTE if remote else 3)
         )
         stack.enter_context(patch(f"{_MOD}._query_seek_penalty", return_value=seek))
         stack.enter_context(patch(f"{_MOD}._query_bus_type", return_value=bus))
@@ -169,7 +169,7 @@ class TestIoctlAllowList(unittest.TestCase):
 
     def test_disallowed_code_is_rejected_before_device_call(self) -> None:
         """허용 목록 밖의 제어 코드는 DeviceIoControl 호출 전에 거부되는지 확인"""
-        with patch(f"{_MOD}._kernel32") as kernel, self.assertRaises(ValueError):
+        with patch(f"{_MOD}.kernel32") as kernel, self.assertRaises(ValueError):
             storage_probe._device_query(1, 0x00070000, storage_probe._VolumeDiskExtents)
         kernel.assert_not_called()
 

@@ -7,13 +7,15 @@ from collections.abc import Sequence
 from typing import Any
 from unittest.mock import patch
 
+from src.core.analysis.volume_identity import VolumeLocation
 from src.core.models import VideoProps
 from src.service import analysis_probe as probe_mod
-from src.service.analysis_store import AnalysisStore
+from src.service.analysis_store import AnalysisStore, compute_fingerprint
 from src.service.cache import TableCache
 
 _CONTENT_A: bytes = b"video-content-A" * 4096
 _CONTENT_B: bytes = b"video-content-B-longer" * 4096
+_REMOTE_VOLUME_ID: str = "vol:deadbeef"
 
 
 def _fake_props(filename: str, *, include_keyframe: bool, width: int = 1920) -> VideoProps:
@@ -146,8 +148,9 @@ class TestRenameReuse(_ProbeTestCase):
 
         self.assertEqual(self.recorder.probed, [])
         self.assertEqual(renamed[0], dataclasses.replace(original, filename="new_name.mp4"))
+        # - 옛 파일명 조회 키는 지우지 않고 남겨 다른 위치의 같은 내용을 계속 찾게 함
         keys = [e.key[0] for e in self.store.fetch_by_names(["old_name.mp4", "new_name.mp4"])]
-        self.assertEqual(keys, ["new_name.mp4"])
+        self.assertEqual(sorted(keys), ["new_name.mp4", "old_name.mp4"])
 
     def test_renamed_and_copied_file_with_new_mtime_still_reuses(self) -> None:
         self._write("src.mp4", _CONTENT_A)
@@ -171,13 +174,14 @@ class TestRenameReuse(_ProbeTestCase):
         self._write("dup1.mp4", _CONTENT_A)
         self._write("dup2.mp4", _CONTENT_A)
         self._scan()
+        self.assertEqual(self.store.count_contents(), 1)
         os.rename(os.path.join(self.root, "dup1.mp4"), os.path.join(self.root, "x1.mp4"))
         os.rename(os.path.join(self.root, "dup2.mp4"), os.path.join(self.root, "x2.mp4"))
         self.recorder.calls.clear()
         results = self._scan()
         self.assertEqual(self.recorder.probed, [])
         self.assertEqual(sorted(p.filename for p in results), ["x1.mp4", "x2.mp4"])
-        self.assertEqual(self.store.count(), 2)
+        self.assertEqual(self.store.count_contents(), 1)
 
 
 class TestPersistence(_ProbeTestCase):
@@ -193,6 +197,166 @@ class TestPersistence(_ProbeTestCase):
         with patch("src.service.cache.populate_keyframes", side_effect=fake_populate):
             cache.update_keyframe(True, store=self.store)
         self.assertEqual(self.store.fetch_by_names(["late.mp4"])[0].props.keyframe_interval, 4.5)
+
+class _TierTestCase(_ProbeTestCase):
+    """조회 단계별 재사용을 지문 계산 횟수와 ffprobe 호출 횟수로 확인하는 기반"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.fingerprint_calls: list[str] = []
+        patcher = patch.object(
+            probe_mod, "compute_fingerprint", side_effect=self._counting_fingerprint
+        )
+        self.fingerprint_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _counting_fingerprint(self, path: str, filesize_bytes: int) -> str:
+        self.fingerprint_calls.append(os.path.basename(path))
+        return compute_fingerprint(path, filesize_bytes)
+
+    def _scan_path(self, root_dir: str, *, recursive: bool = False) -> list[VideoProps]:
+        return probe_mod.probe_directory_with_store(
+            root_dir,
+            include_keyframe=False,
+            store=self.store,
+            recursive=recursive,
+        )
+
+
+class TestLocationTier(_TierTestCase):
+    """볼륨 위치 조회가 파일 읽기와 ffprobe 호출 없이 결과를 재사용하는지 검증"""
+
+    def test_parent_and_subfolder_scans_hit_locations_without_reads(self) -> None:
+        os.makedirs(os.path.join(self.root, "sub"))
+        self._write("top.mp4", _CONTENT_A)
+        self._write(os.path.join("sub", "inner.mp4"), _CONTENT_B)
+        sub = os.path.join(self.root, "sub")
+
+        self.assertEqual(len(self._scan_path(self.root, recursive=True)), 2)
+        self.fingerprint_calls.clear()
+        self.recorder.calls.clear()
+        self._scan_path(sub)
+        self.assertEqual(len(self._scan_path(self.root, recursive=True)), 2)
+
+        self.assertEqual(self.fingerprint_calls, [])
+        self.assertEqual(self.recorder.probed, [])
+
+    def test_remounted_volume_hits_location_without_reads(self) -> None:
+        """드라이브 문자가 바뀌어 절대 경로가 달라져도 볼륨 키가 같으면 읽지 않는지 검증"""
+        self._write("a.mp4", _CONTENT_A)
+        with patch.object(probe_mod, "volume_location", side_effect=_remounted_location):
+            self._scan()
+        other = os.path.join(self._tmp_other_path(), "work")
+        os.makedirs(other)
+        target = os.path.join(other, "a.mp4")
+        shutil.copyfile(os.path.join(self.root, "a.mp4"), target)
+        stat = os.stat(os.path.join(self.root, "a.mp4"))
+        os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+        self.fingerprint_calls.clear()
+        self.recorder.calls.clear()
+        with patch.object(probe_mod, "volume_location", side_effect=_remounted_location):
+            results = self._scan_path(other)
+
+        self.assertEqual([props.filename for props in results], ["a.mp4"])
+        self.assertEqual(self.fingerprint_calls, [])
+        self.assertEqual(self.recorder.probed, [])
+
+    def test_pending_count_matches_fresh_scan_for_subfolder(self) -> None:
+        """상위 폴더를 분석한 뒤 하위 폴더만 다시 볼 때 예상 대기 수가 실제 프로빙 수와 같은지 검증"""
+        os.makedirs(os.path.join(self.root, "sub"))
+        self._write("top.mp4", _CONTENT_A)
+        self._write(os.path.join("sub", "inner.mp4"), _CONTENT_B)
+        sub = os.path.join(self.root, "sub")
+        self._scan_path(self.root, recursive=True)
+
+        self.recorder.calls.clear()
+        self.assertEqual(probe_mod.count_pending_files(self.store, sub, include_keyframe=False), 0)
+        self._scan_path(sub)
+        self.assertEqual(self.recorder.probed, [])
+
+    def _tmp_other_path(self) -> str:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        return tmp.name
+
+
+def _remounted_location(path: str) -> VolumeLocation:
+    """드라이브 문자를 바꾼 상황: 볼륨 식별자는 같고 마운트 루트 기준 상대 경로만 남김
+
+    - 테스트 폴더 이름(`work`) 아래 경로를 상대 경로로 써서 다른 드라이브 문자에 복사한 같은 파일이 같은 키를 내게 함
+    """
+    _, tail = os.path.splitdrive(os.path.normcase(os.path.abspath(path)))
+    relative = "/" + tail.replace("\\", "/").lstrip("/")
+    _head, sep, rest = relative.rpartition("/work/")
+    return VolumeLocation(_REMOTE_VOLUME_ID, rest if sep else relative.lstrip("/"))
+
+
+class TestFingerprintTierKeepsKeys(_TierTestCase):
+    def test_rename_replaces_location_and_keeps_content_row(self) -> None:
+        self._write("old_name.mp4", _CONTENT_A)
+        self._scan()
+        old_key = probe_mod._location_key(os.path.join(self.root, "old_name.mp4"))
+
+        os.rename(os.path.join(self.root, "old_name.mp4"), os.path.join(self.root, "new_name.mp4"))
+        self.fingerprint_calls.clear()
+        self.recorder.calls.clear()
+        renamed = self._scan()
+
+        self.assertEqual([props.filename for props in renamed], ["new_name.mp4"])
+        self.assertEqual(self.fingerprint_calls, ["new_name.mp4"])
+        self.assertEqual(self.recorder.probed, [])
+        self.assertEqual(self.store.count_contents(), 1)
+        new_key = probe_mod._location_key(os.path.join(self.root, "new_name.mp4"))
+        self.assertEqual(new_key[1], old_key[1].replace("old_name.mp4", "new_name.mp4"))
+        self.assertEqual(self.store.fetch_locations([old_key]), [])
+        self.assertEqual(len(self.store.fetch_locations([new_key])), 1)
+
+
+class TestRestoreUsesFirstTwoTiers(_TierTestCase):
+    def test_location_keys_are_computed_per_chunk_after_the_cancel_check(self) -> None:
+        """판정이 볼륨 위치 키를 묶음마다 계산하고, 취소되면 키 계산 전에 멈추는지 검증"""
+        for name in ("a.mp4", "b.mp4", "c.mp4", "d.mp4", "e.mp4"):
+            self._write(name, _CONTENT_A + name.encode())
+        self._scan()
+        real = probe_mod._entry_locations
+        calls: list[int] = []
+        progress: list[int] = []
+
+        def _counting(root_dir: str, chunk: Sequence[probe_mod.FileEntry]) -> dict[str, probe_mod.LocationKey]:
+            calls.append(len(chunk))
+            return real(root_dir, chunk)
+
+        with (
+            patch.object(probe_mod, "_DISPLAY_CHUNK_SIZE", 2),
+            patch.object(probe_mod, "_entry_locations", side_effect=_counting),
+        ):
+            stored = probe_mod.load_stored_rows(self.store, self.root, on_progress=progress.append)
+            self.assertEqual(calls, [2, 2, 1])
+            self.assertEqual(progress, [2, 4, 5])
+            assert stored is not None
+            self.assertEqual(len(stored.rows), 5)
+            calls.clear()
+            self.assertIsNone(probe_mod.load_stored_rows(self.store, self.root, is_cancelled=lambda: True))
+        self.assertEqual(calls, [])
+
+    def test_load_stored_rows_writes_nothing(self) -> None:
+        self._write("a.mp4", _CONTENT_A)
+        self._write("b.mp4", _CONTENT_B)
+        self._scan()
+        self.fingerprint_calls.clear()
+        with (
+            patch.object(self.store, "apply", side_effect=AssertionError("복원 판정은 쓰지 않음")),
+            patch.object(
+                self.store, "record_locations", side_effect=AssertionError("복원 판정은 쓰지 않음")
+            ),
+            patch.object(self.store, "remove_locations", side_effect=AssertionError("복원 판정은 쓰지 않음")),
+        ):
+            stored = probe_mod.load_stored_rows(self.store, self.root)
+        assert stored is not None
+        self.assertEqual(sorted(props.filename for props in stored.rows), ["a.mp4", "b.mp4"])
+        self.assertEqual(self.fingerprint_calls, [])
+
 
 class TestPrescanReuse(_ProbeTestCase):
     """복원 판정이 읽은 파일 목록과 저장 행을 이어 받을 때 결과가 같고 DB를 다시 읽지 않는지 검증"""
@@ -276,6 +440,40 @@ class TestPrescanReuse(_ProbeTestCase):
             [(entry.filename, entry.filesize_bytes, entry.mtime_ns) for entry in entries],
             [(entry.filename, entry.filesize_bytes, entry.mtime_ns) for entry in self._stored().file_entries],
         )
+
+
+class TestScopeAwareReuse(_ProbeTestCase):
+    """같은 이름, 크기, 수정 시각의 키가 작업 폴더마다 있을 때 각 폴더가 자기 행을 쓰는지 검증"""
+
+    def test_same_name_size_and_mtime_in_two_roots_resolves_own_props(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root_a = os.path.join(tmp.name, "a")
+        root_b = os.path.join(tmp.name, "b")
+        for path, content in ((root_a, b"a" * 4096), (root_b, b"b" * 4096)):
+            os.makedirs(path)
+            with open(os.path.join(path, "same.mp4"), "wb") as handle:
+                handle.write(content)
+        stat = os.stat(os.path.join(root_a, "same.mp4"))
+        other = os.stat(os.path.join(root_b, "same.mp4"))
+        self.assertEqual((stat.st_size, other.st_size), (4096, 4096))
+        os.utime(os.path.join(root_b, "same.mp4"), ns=(stat.st_atime_ns, stat.st_mtime_ns))
+
+        props_a = _fake_props("same.mp4", include_keyframe=False, width=640)
+        props_b = _fake_props("same.mp4", include_keyframe=False, width=1920)
+        self.store.apply(
+            (), [probe_mod.StoredEntry("same.mp4", stat.st_size, stat.st_mtime_ns, "a" * 32, props_a)], root_a
+        )
+        self.store.apply(
+            (), [probe_mod.StoredEntry("same.mp4", stat.st_size, stat.st_mtime_ns, "b" * 32, props_b)], root_b
+        )
+
+        self.recorder.calls.clear()
+        resolved_a = probe_mod.probe_directory_with_store(root_a, include_keyframe=False, store=self.store)
+        resolved_b = probe_mod.probe_directory_with_store(root_b, include_keyframe=False, store=self.store)
+        self.assertEqual(self.recorder.probed, [])
+        self.assertEqual([props.width for props in resolved_a], [640])
+        self.assertEqual([props.width for props in resolved_b], [1920])
 
 
 class TestStoredRowsScope(unittest.TestCase):

@@ -1,18 +1,21 @@
 """시작 복원 흐름이 판정 범위를 넘기고, 영상별 줄 대신 요약 한 줄만 남기는지 검증"""
 
 import os
+import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QApplication
 
+from src.core.analysis.volume_identity import VolumeLocation
 from src.gui.controllers import restore_flow as restore_flow_mod
 from src.gui.controllers.restore_flow import RESTORE_LABEL, RestoreFlow
 from src.gui.controllers.worker import ClassifierWorker
 from src.service import analysis_probe as probe_mod
+from src.service.analyzed_dirs import mark_analyzed_dir
 from tests._factories import make_video
 
 _APP = QApplication.instance() or QApplication([])
@@ -88,6 +91,63 @@ class RestoreFlowStartTests(unittest.TestCase):
             patch.object(resolver, "start") as start,
         ):
             flow.start()
+        start.assert_not_called()
+
+
+class RestoreFlowAnalyzedDirTests(unittest.TestCase):
+    """분석 폴더 기록 판정이 드라이브 문자나 상위 폴더 변경을 흡수하는지 검증"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        data_dir = os.path.join(self._tmp.name, "data")
+        os.makedirs(data_dir)
+        patcher = patch("src.service.analyzed_dirs.get_data_dir", return_value=data_dir)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_switching_to_a_subfolder_of_a_recursive_record_starts_restore(self) -> None:
+        """F: 루트를 하위 폴더 포함으로 분석한 뒤 F:/sub 로 열어도 복원 판정이 시작되는지 검증
+
+        - 볼륨 위치는 모킹해 실제 드라이브 구성과 무관하게 판정
+        """
+        flow, session, _tasks, resolver, _callbacks = _flow()
+        session.classifier = MagicMock(root_dir="F:/sub", recursive=False)
+        with (
+            patch(
+                "src.service.analyzed_dirs.volume_location",
+                side_effect=lambda path: VolumeLocation("vol:abc", path.strip("/").lower()),
+            ),
+            patch.object(resolver, "start") as start,
+        ):
+            mark_analyzed_dir("F:/", recursive=True)
+            flow.start()
+
+        start.assert_called_once_with("F:/sub", recursive=False, excluded_dirnames=ANY)
+
+    def test_recursive_record_matches_a_nested_root_through_volume_locations(self) -> None:
+        """모킹한 볼륨 위치로 상위 폴더 재귀 기록이 하위 폴더를 덮는지 검증"""
+        with patch(
+            "src.service.analyzed_dirs.volume_location",
+            side_effect=lambda path: VolumeLocation("vol:abc", path.strip("/").lower()),
+        ):
+            mark_analyzed_dir("F:/", recursive=True)
+            self.assertTrue(restore_flow_mod.is_analyzed_dir("F:/sub"))
+
+    def test_recursive_view_without_a_recursive_record_does_not_start_restore(self) -> None:
+        """하위 폴더를 분석하지 않은 폴더를 하위 폴더 포함 화면으로 열면 복원을 시작하지 않는지 검증"""
+        flow, session, _tasks, resolver, _callbacks = _flow()
+        session.classifier = MagicMock(root_dir="F:/", recursive=True)
+        with (
+            patch(
+                "src.service.analyzed_dirs.volume_location",
+                side_effect=lambda path: VolumeLocation("vol:abc", path.strip("/").lower()),
+            ),
+            patch.object(resolver, "start") as start,
+        ):
+            mark_analyzed_dir("F:/")
+            flow.start()
+
         start.assert_not_called()
 
 

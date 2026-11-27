@@ -187,6 +187,11 @@ def format_analysis_summary(total: int, reused: int, fresh: int, failed: int) ->
     )
 
 
+def format_lookup_summary(*, location: int, name: int, fingerprint: int) -> str:
+    """분석 캐시 조회 단계별 재사용 건수 로그 문장 생성"""
+    return f"캐시 조회: 위치 {location:,}, 이름 키 {name:,}, 지문 {fingerprint:,}"
+
+
 def format_probe_failure(label: str, filename: str, reason: str) -> str:
     """개별 파일 측정 실패 1건의 경고 문장 생성"""
     return f"{label} 실패: {filename} ({reason})"

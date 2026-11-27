@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from src.core.analysis.probe_version_rules import KEYFRAME_MEASURE_VERSION
 from src.service import analysis_store as store_mod
+from src.service import analysis_store_schema as schema_mod
 from src.service.analysis_store import (
     ALL_COLUMNS,
     ANALYSIS_TABLE_NAME,
@@ -330,7 +331,7 @@ class SchemaMigrationTests(unittest.TestCase):
         """옮기는 중 DB 오류가 나면 원본 파일을 손상본 이름으로 보존하고 빈 캐시로 다시 만드는지 검증"""
         self._write_old_table(_old_create_sql(extra_column="legacy_note"), version=1)
         with (
-            patch.object(store_mod, "_migrate_content_rows", side_effect=sqlite3.DatabaseError("강제 실패")),
+            patch.object(schema_mod, "_migrate_content_rows", side_effect=sqlite3.DatabaseError("강제 실패")),
             self.assertLogs(store_mod.logger, level=logging.WARNING),
         ):
             store = AnalysisStore(self.db_path)
@@ -345,7 +346,7 @@ class SchemaMigrationTests(unittest.TestCase):
         """옮길 디스크 여유가 없으면 원본 캐시를 건드리지 않고 캐시를 끄는지 검증"""
         self._write_old_table(_old_create_sql(extra_column="legacy_note"), version=1, width=720)
         with (
-            patch.object(store_mod.shutil, "disk_usage", return_value=_NoSpace()),
+            patch.object(schema_mod.shutil, "disk_usage", return_value=_NoSpace()),
             self.assertLogs(store_mod.logger, level=logging.WARNING),
         ):
             store = AnalysisStore(self.db_path)

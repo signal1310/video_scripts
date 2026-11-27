@@ -5,10 +5,12 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QImage
 
 from src.gui.dialogs.frame_compare_playback_rules import (
     SYNC_DRIFT_MS,
+    qt_transformation_mode,
     restart_from_start,
     roundtrip_compare_frame,
     sync_drift_exceeded,
@@ -53,11 +55,29 @@ class RoundtripTests(unittest.TestCase):
         self.assertEqual(result.size(), frame.size())
         self.assertIsNot(result, frame)
 
-    def test_fast_roundtrip_keeps_the_original_size(self) -> None:
-        """실시간 재생용 빠른 왕복도 원본 크기를 유지하는지 검증"""
+    def test_fast_algorithms_use_the_fast_transformation(self) -> None:
+        """계단 현상이 의도인 보간 방식만 빠른 변환으로 사상하는지 검증"""
+        self.assertEqual(
+            qt_transformation_mode("neighbor"), Qt.TransformationMode.FastTransformation
+        )
+        self.assertEqual(
+            qt_transformation_mode("fast_bilinear"),
+            Qt.TransformationMode.FastTransformation,
+        )
+
+    def test_smooth_algorithms_use_the_smooth_transformation(self) -> None:
+        """정밀 보간 방식과 모르는 값은 부드러운 변환으로 사상하는지 검증"""
+        for algorithm in ("bicubic", "lanczos", "spline", "area", "unknown"):
+            with self.subTest(algorithm=algorithm):
+                self.assertEqual(
+                    qt_transformation_mode(algorithm),
+                    Qt.TransformationMode.SmoothTransformation,
+                )
         frame = _image(800, 450)
-        result = roundtrip_compare_frame(frame, 800, 450, "480p", fast=True)
-        self.assertEqual(result.size(), frame.size())
+        self.assertEqual(
+            roundtrip_compare_frame(frame, 800, 450, "480p", algorithm="lanczos").size(),
+            frame.size(),
+        )
 
     def test_roundtrip_frame_falls_back_to_the_original(self) -> None:
         frame = _image(320, 180)

@@ -241,6 +241,51 @@ class EngineTests(GuiTestCase):
             self.engine._on_primary_status(QMediaPlayer.MediaStatus.LoadedMedia)
         seek.assert_called_once_with(25000)
 
+    def test_seek_while_loading_replaces_the_pending_position(self) -> None:
+        """로딩 중 이동 요청이 대기 시점을 바꾸고 재생기는 건드리지 않는지 검증"""
+        with mock.patch.object(self.engine._primary, "setPosition") as primary_seek:
+            self.engine.load(
+                original_path=self.original,
+                compared_path=self.compared,
+                tier_key="720p",
+                frame_width=1600,
+                frame_height=900,
+                position_ms=25000,
+            )
+            self.engine.seek(40000)
+            self.assertEqual(self.engine._pending_position_ms, 40000)
+            primary_seek.assert_not_called()
+            # - 읽기 완료 신호는 BufferedMedia와 LoadedMedia에서 모두 오지만 대기 시점은 한 번만 씀
+            self.engine._on_primary_status(QMediaPlayer.MediaStatus.BufferedMedia)
+            self.engine._on_primary_status(QMediaPlayer.MediaStatus.LoadedMedia)
+        primary_seek.assert_called_once_with(40000)
+        self.assertIsNone(self.engine._pending_position_ms)
+
+    def test_roundtrip_uses_the_configured_scale_algorithm(self) -> None:
+        """재생 축소 왕복이 지정한 보간 방식을 그대로 넘기는지 검증"""
+        self._load()
+        self.engine._scale_algorithm = "lanczos"
+        self.engine._playing = True
+        with mock.patch(
+            "src.gui.dialogs.frame_compare_player.roundtrip_compare_frame",
+            side_effect=lambda image, *_a, **_k: image,
+        ) as roundtrip:
+            self.engine._on_primary_frame(QVideoFrame(_image(1600, 900)))
+        self.assertEqual(roundtrip.call_args.kwargs["algorithm"], "lanczos")
+
+    def test_load_keeps_the_scale_algorithm_for_playback(self) -> None:
+        """세션이 넘긴 보간 방식을 로드가 보관하는지 검증"""
+        self.engine.load(
+            original_path=self.original,
+            compared_path=self.compared,
+            tier_key="720p",
+            frame_width=1600,
+            frame_height=900,
+            position_ms=0,
+            scale_algorithm="spline",
+        )
+        self.assertEqual(self.engine._scale_algorithm, "spline")
+
     def test_stop_clears_the_playing_flag_before_releasing_the_players(self) -> None:
         """정지 중 위치 신호가 창 시점을 덮어쓰지 않게 재생 상태를 먼저 내리는지 검증"""
         seen: list[bool] = []

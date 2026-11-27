@@ -119,6 +119,7 @@ class _FakeEngine(QObject):
         frame_height: int,
         position_ms: int,
         crop: object = None,
+        scale_algorithm: str = "bicubic",
     ) -> None:
         self.loaded = {
             "original_path": original_path,
@@ -126,6 +127,7 @@ class _FakeEngine(QObject):
             "tier_key": tier_key,
             "position_ms": position_ms,
             "crop": crop,
+            "scale_algorithm": scale_algorithm,
         }
         self.calls.append("load")
 
@@ -258,6 +260,7 @@ class _ViewCase(GuiTestCase):
         active_frame: ActiveFrame | None = None,
         result_crop: ActiveFrame | None = None,
         evaluation: VideoEvaluation | None = None,
+        scale_algorithm: str = "bicubic",
     ) -> CompareSession:
         result = (
             result_target(self.result, width=1920, height=1080, size_bytes=580 * 1024 * 1024)
@@ -285,6 +288,7 @@ class _ViewCase(GuiTestCase):
             height=2160 if active_frame is None else active_frame.height,
             source_path=self.source,
             active_frame=active_frame,
+            scale_algorithm=scale_algorithm,
             evaluation=evaluation,
         )
 
@@ -296,6 +300,7 @@ class _ViewCase(GuiTestCase):
         active_frame: ActiveFrame | None = None,
         result_crop: ActiveFrame | None = None,
         evaluation: VideoEvaluation | None = None,
+        scale_algorithm: str = "bicubic",
     ) -> None:
         self.view.load_session(
             self.session(
@@ -304,6 +309,7 @@ class _ViewCase(GuiTestCase):
                 active_frame=active_frame,
                 result_crop=result_crop,
                 evaluation=evaluation,
+                scale_algorithm=scale_algorithm,
             )
         )
         _wait(self.view)
@@ -658,6 +664,11 @@ class PlaybackTests(_ViewCase):
         self.assertEqual(self.engine.loaded["compared_path"], self.result)
         self.assertIsNone(self.engine.loaded["tier_key"])
         self.assertEqual(self.engine.loaded["position_ms"], 10_000)
+
+    def test_load_session_passes_the_configured_scale_algorithm_to_playback(self) -> None:
+        """세션의 축소 보간 방식을 재생 엔진 로드에 넘기는지 검증"""
+        self.load(scale_algorithm="lanczos")
+        self.assertEqual(self.engine.loaded["scale_algorithm"], "lanczos")
 
     def test_result_comparison_crops_the_original_for_extraction_and_playback(self) -> None:
         """결과 비교가 기록된 활성 화면 크롭을 정밀 프레임과 원본 재생에 넘기는지 검증"""

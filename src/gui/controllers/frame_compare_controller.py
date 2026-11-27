@@ -16,8 +16,12 @@ from typing import Protocol
 from PyQt6.QtWidgets import QWidget
 
 from src.core.analysis.frame_analysis import (
+    FrameAnalysisThresholds,
     analysis_version_for_mode,
+    apply_no_bars_ratio,
+    frame_thresholds_from_config,
     is_usable_analysis_version,
+    rejudge_candidate_tier,
     resolve_crop_frame,
 )
 from src.core.analysis.frame_compare import (
@@ -30,6 +34,7 @@ from src.core.analysis.frame_compare import (
 )
 from src.core.config import ClassifierConfig
 from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
+from src.core.quality_probe import METRIC_VMAF
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.controllers.manual_target_controller import ManualTargetController
@@ -147,7 +152,9 @@ class FrameCompareController:
         result = None if pair is None else self._result_source(pair[1])
         filename = os.path.basename(source_path)
         record = self._load_record(filename, info.size_bytes, info.mtime_ns)
-        candidate = None if record is None else record.candidate_tier
+        config = self._config()
+        thresholds = frame_thresholds_from_config(config)
+        candidate = None if record is None else self._rejudged_candidate(record, thresholds)
         scores = () if record is None else record.tier_scores
         # - 원본 교체 모드에서 source_path는 결과 파일이라, 영상별 지정은 결과 파일이 아니라 지금
         #   화면에 띄우는 보관 원본의 식별 값과 맞춰 봄
@@ -162,6 +169,8 @@ class FrameCompareController:
             info.height,
             record,
             identity_override=rendered_identity,
+            config=config,
+            thresholds=thresholds,
         )
         result_crop = None if result is None else self._result_crop(source_path)
         plan = resolve_compare_plan(
@@ -185,6 +194,7 @@ class FrameCompareController:
             height=info.height if active is None else active.height,
             source_path=source_path,
             active_frame=active,
+            scale_algorithm=config.encode.scale_algorithm,
             evaluation=self._find_evaluation(filename),
         )
 
@@ -197,6 +207,27 @@ class FrameCompareController:
             (ev for ev in report.evaluations if ev.video.filename == filename), None
         )
 
+    def _config(self) -> ClassifierConfig:
+        """주입된 설정 제공자나 기본 설정"""
+        return self._config_provider() if self._config_provider is not None else ClassifierConfig()
+
+    def _rejudged_candidate(
+        self, record: FrameAnalysisRecord, thresholds: FrameAnalysisThresholds
+    ) -> str | None:
+        """저장된 규격 점수로 현재 SSIM/VMAF 기준의 축소 후보를 다시 판정
+
+        - 표와 인코딩 경로가 `rejudge_candidate_tier`로 다시 판정하므로 비교 창도 같은 기준을 씀
+        - 저장 점수가 없으면 저장 후보를 그대로 씀
+        """
+        if not record.tier_scores:
+            return record.candidate_tier
+        return rejudge_candidate_tier(
+            record.tier_scores,
+            record.candidate_tier,
+            use_vmaf=record.metric_used == METRIC_VMAF,
+            thresholds=thresholds,
+        )
+
     def _crop_frame(
         self,
         source_path: str,
@@ -205,9 +236,12 @@ class FrameCompareController:
         record: FrameAnalysisRecord | None,
         *,
         identity_override: tuple[int, int] | None,
+        config: ClassifierConfig,
+        thresholds: FrameAnalysisThresholds,
     ) -> ActiveFrame | None:
         """설정과 영상별 제외, 사용자 지정 활성 화면을 확인해 잘라내기 확정 활성 화면 반환. 보류면 None
 
+        - 저장된 활성 화면은 현재 검은 여백 무시 면적 상한으로 다시 판정해 표와 기준을 맞춤
         - 원본 교체 모드에서 source_path는 결과 파일이고 화면에 띄우는 원본은 보관 파일이라,
           영상별 지정은 저장 경로의 결과 파일이 아니라 보관 원본의 식별 값과 맞춰 봄
         - 식별 값이 보관 원본과 맞지 않는 행은 결과 파일용 지정일 수 있어 지우지 않고 무시하며,
@@ -215,7 +249,6 @@ class FrameCompareController:
         """
         if record is None:
             return None
-        config = self._config_provider() if self._config_provider is not None else ClassifierConfig()
         overrides = (
             None if identity_override is None else {source_path: identity_override}
         )
@@ -225,8 +258,9 @@ class FrameCompareController:
         manual = self._store.load_manual_active_frames(
             {source_path: (width, height)}, identity_overrides=overrides
         )
+        region = apply_no_bars_ratio(record.active_region, width, height, thresholds=thresholds)
         frame = resolve_crop_frame(
-            record.active_region,
+            region,
             crop_enabled=config.encode.crop_black_bars,
             excluded=source_path in excluded,
             is_vr_protected=record.is_vr_protected,

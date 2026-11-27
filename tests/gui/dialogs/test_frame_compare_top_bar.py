@@ -297,6 +297,42 @@ class CompareTopBarTests(GuiTestCase):
         self.assertAlmostEqual(self.stage.canvas.scale(), 2.5)
         set_focus.assert_called_once()
 
+    def test_unedited_zoom_input_keeps_fit_mode_and_preset_checks(self) -> None:
+        """편집 없이 확정해도 맞춤 상태와 프리셋 체크가 유지되는지 검증"""
+        self.stage.canvas.set_images(_image(), _image())
+        self.top.set_zoom_checks("fit")
+        with mock.patch.object(self.stage.canvas, "apply_zoom_scale") as apply_scale:
+            self.assertTrue(self.top.apply_zoom_input())
+            self.top.commit_zoom_input()
+        apply_scale.assert_not_called()
+        self.assertTrue(self.stage.canvas._fit_mode)
+        self.assertTrue(self.top.zoom_buttons["fit"].isChecked())
+
+    def test_zoom_input_below_the_minimum_is_not_applied(self) -> None:
+        """최소 배율보다 작아 입력 칸이 10%로 보일 때 확정해도 배율을 바꾸지 않는지 검증"""
+        self.stage.canvas.set_images(_image(), _image())
+        self.top.set_zoom_checks("fit")
+        with (
+            mock.patch.object(self.stage.canvas, "scale", return_value=0.073),
+            mock.patch.object(self.stage.canvas, "apply_zoom_scale") as apply_scale,
+        ):
+            self.assertEqual(self.top._displayed_zoom_percent(), layout.ZOOM_INPUT_MIN_PERCENT)
+            self.top.zoom_input.setValue(layout.ZOOM_INPUT_MIN_PERCENT)
+            self.assertTrue(self.top.apply_zoom_input())
+        apply_scale.assert_not_called()
+        self.assertTrue(self.stage.canvas._fit_mode)
+        self.assertTrue(self.top.zoom_buttons["fit"].isChecked())
+
+    def test_zoom_input_change_after_an_unedited_commit_is_applied(self) -> None:
+        """같은 값으로 한 번 확정한 뒤 실제로 고친 값은 적용되는지 검증"""
+        self.stage.canvas.set_images(_image(), _image())
+        self.top.set_zoom_checks("fit")
+        self.assertTrue(self.top.apply_zoom_input())
+        self.top.zoom_input.setValue(250)
+        self.assertTrue(self.top.apply_zoom_input())
+        self.assertAlmostEqual(self.stage.canvas.scale(), 2.5)
+        self.assertFalse(any(button.isChecked() for button in self.top.zoom_buttons.values()))
+
     def test_manual_zoom_clears_the_preset_checks(self) -> None:
         """휠이나 드래그로 배율이 바뀌면 프리셋 체크를 풀고 입력 칸을 맞추는지 검증"""
         self.stage.canvas.set_images(_image(), _image())

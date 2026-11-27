@@ -290,12 +290,26 @@ class CompareTopBar(QObject):
         self.zoom_input.blockSignals(False)
 
     def apply_zoom_input(self) -> bool:
-        """입력한 배율을 적용하고 프리셋 체크를 풀었으면 참"""
+        """입력한 배율을 적용하고 프리셋 체크를 풀었으면 참
+
+        - 편집 없이 포커스만 옮기거나 Enter를 눌러도 확정 신호가 오므로, 입력 칸에 이미 보이는
+          값이면 아무것도 바꾸지 않아 맞춤 상태와 프리셋 체크를 유지함
+        - 배율이 입력 범위 밖이면 입력 칸은 범위로 자른 값을 보여 주므로 그 값도 같게 봄
+        """
+        if self.zoom_input.value() == self._displayed_zoom_percent():
+            return self._canvas.has_image()
         if not self._canvas.apply_zoom_scale(self.zoom_input.value() / 100.0):
             return False
         self.clear_zoom_checks()
         self.sync_zoom_input()
         return True
+
+    def _displayed_zoom_percent(self) -> int:
+        """지금 캔버스 배율을 입력 칸 범위로 자른 표시 퍼센트"""
+        percent = round(self._canvas.scale() * 100)
+        return min(
+            max(percent, layout.ZOOM_INPUT_MIN_PERCENT), layout.ZOOM_INPUT_MAX_PERCENT
+        )
 
     def _cancel_zoom_input(self) -> None:
         """입력 중인 배율을 현재 캔버스 배율로 되돌리고 포커스를 창에 돌려줌

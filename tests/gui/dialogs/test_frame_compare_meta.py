@@ -38,6 +38,7 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(session.scores, ())
         self.assertEqual((session.width, session.height), (0, 0))
         self.assertEqual(session.source_path, "")
+        self.assertEqual(session.scale_algorithm, "bicubic")
 
 
 class MetaWidgetTests(GuiTestCase):

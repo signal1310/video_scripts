@@ -20,7 +20,7 @@ from src.core.analysis.frame_compare import (
     format_timecode,
 )
 from src.core.models import ActiveFrame, VideoEvaluation
-from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, RESOLUTION_TIER_BY_KEY
 from src.gui.dialogs.frame_compare_canvas import FrameCompareCanvas
 from src.gui.dialogs.frame_compare_layout import (
     ORIGINAL_PATH_TIP,
@@ -58,6 +58,8 @@ class CompareSession:
     height: int = 0
     source_path: str = ""
     active_frame: ActiveFrame | None = None
+    # - 재생 축소 왕복이 정지 화면 추출과 같은 보간 방식을 쓰도록 설정값을 실어 보냄
+    scale_algorithm: str = DEFAULT_SCALE_ALGORITHM
     # - 비교 창의 출력 해상도 1클릭 지정이 쓰는 판정 결과(현재 출력 해상도, 판정 사유)
     evaluation: VideoEvaluation | None = None
 

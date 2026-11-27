@@ -405,6 +405,101 @@ class SessionTests(_ControllerCase):
         assert target is not None
         self.assertEqual(target.crop, ActiveFrame(1216, 2160, 1312, 0))
 
+    def test_active_region_is_rejudged_with_the_current_no_bars_ratio(self) -> None:
+        """면적 상한을 낮춘 뒤에도 비교 창이 표처럼 검은 여백 없음으로 되돌리는지 검증"""
+        info = self.info(self.source)
+        self.store.save(
+            FrameAnalysisRecord(
+                filename="video.mp4",
+                filesize_bytes=info.size_bytes,
+                mtime_ns=info.mtime_ns,
+                active_width=3600,
+                active_height=2000,
+                active_x=120,
+                active_y=80,
+                has_black_bars=True,
+                metric_used="VMAF",
+                vmaf_model="vmaf_v0.6.1",
+                tier_scores=(TierScore(tier="1080p", ssim=0.9983, vmaf=98.7),),
+                candidate_tier="1080p",
+                valid_segments=3,
+                total_segments=3,
+                unmeasurable=False,
+                is_vr_protected=False,
+                measured_at="2026-11-22T00:00:00Z",
+                analysis_version=FRAME_ANALYSIS_VERSION,
+            )
+        )
+        config = ClassifierConfig()
+        config.encode.active_area_no_bars_ratio = 0.5
+        controller = FrameCompareController(
+            self.service, self.store, config_provider=lambda: config
+        )
+        self.addCleanup(controller.shutdown)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = controller.build_session(self.source, 0.0)
+        self.assertIsNone(session.active_frame)
+        self.assertEqual((session.width, session.height), (3840, 2160))
+
+        config.encode.active_area_no_bars_ratio = 0.99
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            kept = controller.build_session(self.source, 0.0)
+        self.assertEqual(kept.active_frame, ActiveFrame(3600, 2000, 120, 80))
+
+    def test_candidate_tier_is_rejudged_with_the_current_thresholds(self) -> None:
+        """SSIM 기준을 올린 뒤 캐시 후보 대신 다시 판정한 후보를 쓰는지 검증"""
+        info = self.info(self.source)
+        self.store.save(
+            FrameAnalysisRecord(
+                filename="video.mp4",
+                filesize_bytes=info.size_bytes,
+                mtime_ns=info.mtime_ns,
+                active_width=3840,
+                active_height=2160,
+                active_x=0,
+                active_y=0,
+                has_black_bars=False,
+                metric_used="VMAF",
+                vmaf_model="vmaf_v0.6.1",
+                tier_scores=(TierScore(tier="1080p", ssim=0.9983, vmaf=98.7),),
+                candidate_tier="1080p",
+                valid_segments=3,
+                total_segments=3,
+                unmeasurable=False,
+                is_vr_protected=False,
+                measured_at="2026-11-22T00:00:00Z",
+                analysis_version=FRAME_ANALYSIS_VERSION,
+            )
+        )
+        config = ClassifierConfig()
+        config.encode.roundtrip_ssim_threshold = 0.999
+        controller = FrameCompareController(
+            self.service, self.store, config_provider=lambda: config
+        )
+        self.addCleanup(controller.shutdown)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = controller.build_session(self.source, 0.0)
+        self.assertIsNone(session.plan.candidate_tier)
+        self.assertNotEqual(session.plan.default_key, "1080p")
+
+        config.encode.roundtrip_ssim_threshold = 0.95
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            relaxed = controller.build_session(self.source, 0.0)
+        self.assertEqual(relaxed.plan.candidate_tier, "1080p")
+        self.assertEqual(relaxed.plan.default_key, "1080p")
+
+    def test_session_carries_the_configured_scale_algorithm(self) -> None:
+        """비교 세션이 재생 축소 왕복에 쓸 크기 조절 방식을 설정에서 실어 보내는지 검증"""
+        config = ClassifierConfig()
+        config.encode.scale_algorithm = "lanczos"
+        controller = FrameCompareController(
+            self.service, self.store, config_provider=lambda: config
+        )
+        self.addCleanup(controller.shutdown)
+        with mock.patch.object(self.service, "probe", side_effect=self._probe):
+            session = controller.build_session(self.source, 0.0)
+        self.assertEqual(session.scale_algorithm, "lanczos")
+
     def _finish_archive_encode(self) -> None:
         """원본 교체 모드로 끝난 인코딩 기록을 남겨 비교 상대를 보관 원본으로 만듦"""
         batch = self.history.create_batch(

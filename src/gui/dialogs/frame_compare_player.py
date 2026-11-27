@@ -17,6 +17,7 @@ from PyQt6.QtMultimedia import QAudioOutput, QMediaMetaData, QMediaPlayer, QVide
 
 from src.core.analysis.frame_compare import clamp_end_position_ms
 from src.core.models import ActiveFrame
+from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM
 from src.core.settings.ui_state import PREVIEW_VOLUME_MAX
 from src.gui.dialogs.frame_compare_playback_rules import (
     MIN_RENDER_INTERVAL_SEC,
@@ -67,6 +68,7 @@ class ComparePlaybackEngine(QObject):
         self._crop: ActiveFrame | None = None
         self._frame_width: int = 0
         self._frame_height: int = 0
+        self._scale_algorithm: str = DEFAULT_SCALE_ALGORITHM
         self._playing: bool = False
         self._rate: float = 1.0
         self._volume_percent: int = PREVIEW_VOLUME_MAX
@@ -110,13 +112,15 @@ class ComparePlaybackEngine(QObject):
         frame_height: int,
         position_ms: int,
         crop: ActiveFrame | None = None,
+        scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
     ) -> None:
-        """재생할 파일과 축소 왕복 규격, 잘라낼 활성 화면을 정하고 지정 위치로 옮김"""
+        """재생할 파일과 축소 왕복 규격, 잘라낼 활성 화면, 축소 보간 방식을 정하고 지정 위치로 옮김"""
         self.stop()
         self._tier_key = tier_key
         self._crop = crop
         self._frame_width = frame_width
         self._frame_height = frame_height
+        self._scale_algorithm = scale_algorithm
         self._dual = tier_key is None
         self._open_source(self._primary, original_path)
         if self._dual:
@@ -165,8 +169,12 @@ class ComparePlaybackEngine(QObject):
         """두 재생기를 같은 위치로 옮기되 끝 여유 안쪽으로 제한
 
         - 정확히 끝에 두면 디코딩할 프레임이 없어 마지막 화면이 비므로 한 프레임 남김
+        - 미디어를 읽는 중이면 재생기에 지정한 위치가 무시되므로 대기 시점만 바꿔 읽은 뒤 한 번 적용
         """
         target = self._clamp_position(position_ms)
+        if self._pending_position_ms is not None:
+            self._pending_position_ms = target
+            return
         self._primary.setPosition(target)
         if self._dual:
             self._secondary.setPosition(target)
@@ -327,7 +335,11 @@ class ComparePlaybackEngine(QObject):
         image = crop_active_frame(image, self._crop)
         if not self._dual:
             compared = roundtrip_compare_frame(
-                image, self._frame_width, self._frame_height, self._tier_key or "", fast=True
+                image,
+                self._frame_width,
+                self._frame_height,
+                self._tier_key or "",
+                algorithm=self._scale_algorithm,
             )
             self.frames_ready.emit(image, compared)
             return

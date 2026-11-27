@@ -27,7 +27,9 @@ from src.core.diagnostics.paths import (
     DEV_LOG_NAME,
     NATIVE_LOG_NAME,
     diagnostics_file,
+    instance_native_log_name,
 )
+from src.core.diagnostics.session import instance_session_filename
 
 _WHEN = datetime(2026, 6, 7, 8, 9, 10)
 
@@ -100,6 +102,23 @@ class CreateReportTests(unittest.TestCase):
             with zipfile.ZipFile(report.archive) as bundle:
                 empty = bundle.read(APP_TAIL_NAME).decode("utf-8")
             self.assertEqual(empty, "")
+
+    def test_instance_markers_and_native_logs_are_collected(self) -> None:
+        """인스턴스별 실행 표식과 네이티브 로그도 파일 이름 그대로 zip에 담는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            marker_name = instance_session_filename(4242)
+            native_name = instance_native_log_name(4242)
+            _write(diagnostics_file(marker_name, tmp), '{"pid": 4242}')
+            _write(diagnostics_file(native_name, tmp), "스택 한 줄\n")
+            report = create_diagnostic_report(tmp, now=_WHEN)
+            with zipfile.ZipFile(report.archive) as bundle:
+                names = set(bundle.namelist())
+                marker_text = bundle.read(marker_name).decode("utf-8")
+                native_text = bundle.read(native_name).decode("utf-8")
+        self.assertIn(marker_name, names)
+        self.assertIn(native_name, names)
+        self.assertIn('"pid": 4242', marker_text)
+        self.assertIn("스택 한 줄", native_text)
 
     def test_second_report_keeps_both_archives(self) -> None:
         """같은 시각에 두 번 만들어도 앞 보고서를 덮어쓰지 않는지 검증"""

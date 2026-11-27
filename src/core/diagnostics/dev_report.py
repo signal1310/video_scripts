@@ -19,13 +19,15 @@ from src.core.diagnostics.paths import (
     APP_LOG_NAME,
     BREADCRUMBS_NAME,
     DEV_LOG_NAME,
+    NATIVE_LOG_INSTANCE_PREFIX,
     NATIVE_LOG_NAME,
+    NATIVE_LOG_SUFFIX,
     REPORT_TAIL_LINES,
     SESSION_FILENAME,
     diagnostics_file,
     read_tail_lines,
 )
-from src.core.diagnostics.session import environment_lines
+from src.core.diagnostics.session import environment_lines, existing_session_markers
 from src.core.paths import write_utf8_file
 
 REPORT_STEM: str = "diagnostic_"
@@ -81,18 +83,42 @@ def format_report_text(*, now: datetime, archive: str) -> str:
 
 
 def collected_files(directory: str, *, now: datetime, archive: str) -> dict[str, str]:
-    """zip에 넣을 파일 이름별 본문 생성. 없는 로그는 빈 본문으로 둠"""
-    tails = (
+    """zip에 넣을 파일 이름별 본문 생성. 없는 로그는 빈 본문으로 둠
+
+    - 인스턴스별 실행 표식과 네이티브 로그도 파일 이름 그대로 모아 동시 실행 사고 자료를 남김
+    """
+    tails = [
         (APP_TAIL_NAME, diagnostics_file(APP_LOG_NAME, directory)),
         (DEV_TAIL_NAME, diagnostics_file(DEV_LOG_NAME, directory)),
         (BREADCRUMBS_TAIL_NAME, diagnostics_file(BREADCRUMBS_NAME, directory)),
         (NATIVE_TAIL_NAME, diagnostics_file(NATIVE_LOG_NAME, directory)),
-    )
+    ]
     files = {SUMMARY_NAME: format_report_text(now=now, archive=archive)}
     for name, path in tails:
         files[name] = _lines_to_text(read_tail_lines(path, REPORT_TAIL_LINES))
     files[SESSION_FILENAME] = _read_text(diagnostics_file(SESSION_FILENAME, directory))
+    for path in existing_session_markers(directory):
+        name = os.path.basename(path)
+        if name not in files:
+            files[name] = _read_text(path)
+    for name in _instance_native_log_names(directory):
+        files[name] = _lines_to_text(
+            read_tail_lines(diagnostics_file(name, directory), REPORT_TAIL_LINES)
+        )
     return files
+
+
+def _instance_native_log_names(directory: str) -> list[str]:
+    """진단 폴더에 있는 인스턴스별 네이티브 로그 파일 이름 목록"""
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    return sorted(
+        name
+        for name in names
+        if name.startswith(NATIVE_LOG_INSTANCE_PREFIX) and name.endswith(NATIVE_LOG_SUFFIX)
+    )
 
 
 def _lines_to_text(lines: list[str]) -> str:

@@ -1,7 +1,8 @@
-"""실행 표식(session.json)과 실행 환경 정보 모듈
+"""실행 표식(session-<pid>.json)과 실행 환경 정보 모듈
 
+- 인스턴스마다 표식을 따로 남겨 동시 실행 중에도 서로 덮어쓰지 않게 함
 - 시작 때 표식을 남기고 정상 종료에서 닫힘 표시를 채워, 다음 시작이 비정상 종료를 알아채게 함
-- 이전 실행 표식은 읽은 뒤 지우지 않고 새 표식으로 교체하므로 사후 보고서가 그대로 인용할 수 있음
+- 이전 버전의 단일 `session.json`도 같은 규칙으로 읽어 사고를 놓치지 않음
 """
 
 from __future__ import annotations
@@ -17,7 +18,13 @@ from datetime import datetime
 from typing import Any
 
 from src.core.app_version import APP_VERSION
-from src.core.diagnostics.paths import SESSION_FILENAME, diagnostics_file
+from src.core.diagnostics.paths import (
+    NATIVE_LOG_NAME,
+    SESSION_FILENAME,
+    SESSION_MARKER_PREFIX,
+    SESSION_MARKER_SUFFIX,
+    diagnostics_file,
+)
 from src.core.paths import get_app_base_dir, write_utf8_file
 
 GIT_HEAD_NAME: str = "HEAD"
@@ -47,11 +54,17 @@ class SessionInfo:
     state: str
     ended_at: str = ""
     native_log_offset: int = 0
+    native_log_name: str = ""
 
     @property
     def is_clean(self) -> bool:
         """정상 종료로 닫힌 표식인지 여부"""
         return self.state == STATE_CLEAN
+
+    @property
+    def native_log_file(self) -> str:
+        """이 실행이 쓴 네이티브 로그 파일 이름. 옛 표식은 공용 로그 이름"""
+        return self.native_log_name or NATIVE_LOG_NAME
 
     def to_dict(self) -> dict[str, object]:
         """저장용 사전 표현"""
@@ -63,12 +76,63 @@ class SessionInfo:
             "state": self.state,
             "ended_at": self.ended_at,
             "native_log_offset": self.native_log_offset,
+            "native_log_name": self.native_log_name,
         }
 
 
 def session_path(directory: str | None = None) -> str:
-    """실행 표식 파일 경로 반환. 실행 중인 인스턴스가 여럿이어도 표식은 하나만 둠"""
+    """옛 단일 실행 표식 파일 경로 반환. 이전 버전이 남긴 표식을 읽을 때만 씀"""
     return diagnostics_file(SESSION_FILENAME, directory)
+
+
+def instance_session_filename(pid: int) -> str:
+    """인스턴스(pid)별 실행 표식 파일 이름 반환"""
+    return f"{SESSION_MARKER_PREFIX}{pid}{SESSION_MARKER_SUFFIX}"
+
+
+def instance_session_path(pid: int, directory: str | None = None) -> str:
+    """인스턴스(pid)별 실행 표식 파일 경로 반환
+
+    - 인스턴스마다 표식을 따로 두어 동시 실행 중에도 서로 덮어쓰지 않게 함
+    """
+    return diagnostics_file(instance_session_filename(pid), directory)
+
+
+def existing_session_markers(directory: str) -> list[str]:
+    """진단 폴더에 있는 실행 표식 파일 경로 목록 반환(옛 단일 표식 포함)
+
+    - 인스턴스별 표식과 이전 버전이 남긴 `session.json`을 함께 읽어 사고를 놓치지 않게 함
+    - session-<숫자>.json만 인정해, 이름만 비슷한 다른 파일을 표식으로 오인하지 않게 함
+    """
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return []
+    found = [
+        os.path.join(directory, name)
+        for name in names
+        if _is_instance_marker_name(name)
+    ]
+    legacy = session_path(directory)
+    if os.path.isfile(legacy):
+        found.append(legacy)
+    return sorted(found)
+
+
+def _is_instance_marker_name(name: str) -> bool:
+    """`session-<숫자>.json` 형식의 파일 이름인지 확인"""
+    if not name.startswith(SESSION_MARKER_PREFIX) or not name.endswith(SESSION_MARKER_SUFFIX):
+        return False
+    digits = name[len(SESSION_MARKER_PREFIX) : -len(SESSION_MARKER_SUFFIX)]
+    return digits.isdigit()
+
+
+def remove_session_marker(path: str) -> None:
+    """정상 종료로 처리한 표식 파일을 지움. 이미 없으면 무시"""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return
 
 
 def is_pid_alive(pid: int) -> bool:
@@ -141,6 +205,7 @@ def read_session(path: str) -> SessionInfo | None:
     state = raw.get("state")
     ended_at = raw.get("ended_at")
     offset = raw.get("native_log_offset")
+    native_name = raw.get("native_log_name")
     return SessionInfo(
         pid=pid if isinstance(pid, int) and not isinstance(pid, bool) else 0,
         started_at=started_at if isinstance(started_at, str) else "",
@@ -149,6 +214,7 @@ def read_session(path: str) -> SessionInfo | None:
         state=state if isinstance(state, str) and state else STATE_RUNNING,
         ended_at=ended_at if isinstance(ended_at, str) else "",
         native_log_offset=offset if isinstance(offset, int) and not isinstance(offset, bool) else 0,
+        native_log_name=native_name if isinstance(native_name, str) else "",
     )
 
 
@@ -157,11 +223,13 @@ def write_session(path: str, info: SessionInfo) -> None:
     write_utf8_file(path, json.dumps(info.to_dict(), ensure_ascii=False, indent=1) + "\n")
 
 
-def start_session(developer_mode: bool, *, now: datetime | None = None) -> SessionInfo:
+def start_session(
+    developer_mode: bool, *, now: datetime | None = None, pid: int | None = None
+) -> SessionInfo:
     """진행 중 상태의 새 표식 생성"""
     started = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
     return SessionInfo(
-        pid=os.getpid(),
+        pid=os.getpid() if pid is None else pid,
         started_at=started,
         version=APP_VERSION,
         developer_mode=developer_mode,
@@ -180,11 +248,14 @@ def close_session(info: SessionInfo, *, now: datetime | None = None) -> SessionI
         state=STATE_CLEAN,
         ended_at=ended,
         native_log_offset=info.native_log_offset,
+        native_log_name=info.native_log_name,
     )
 
 
-def with_native_log_offset(info: SessionInfo, offset: int) -> SessionInfo:
-    """표식에 이번 실행이 네이티브 로그에서 시작한 위치를 기록한 사본 반환"""
+def with_native_log_offset(
+    info: SessionInfo, offset: int, *, native_log_name: str = ""
+) -> SessionInfo:
+    """표식에 이번 실행이 네이티브 로그에서 시작한 위치와 파일 이름을 기록한 사본 반환"""
     return SessionInfo(
         pid=info.pid,
         started_at=info.started_at,
@@ -193,6 +264,7 @@ def with_native_log_offset(info: SessionInfo, offset: int) -> SessionInfo:
         state=info.state,
         ended_at=info.ended_at,
         native_log_offset=max(0, offset),
+        native_log_name=native_log_name or info.native_log_name,
     )
 
 

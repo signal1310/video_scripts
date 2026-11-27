@@ -285,14 +285,14 @@ class TestStallWatchdogWiring(unittest.TestCase):
     def test_stop_closes_the_session_marker_after_the_timer_object_is_gone(self) -> None:
         """앱 정리로 하트비트 타이머 C++ 객체가 먼저 지워져도 종료가 표식을 닫는지 검증"""
         with tempfile.TemporaryDirectory() as tmp:
-            _start_in(tmp, developer_mode=True)
+            runtime = _start_in(tmp, developer_mode=True)
             watchdog = diagnostics_qt.start_stall_watchdog(heartbeat_ms=1)
             heartbeat = diagnostics_qt._heartbeat
             assert heartbeat is not None
             # - QApplication이 사라지면 파이썬만 들고 있던 타이머도 함께 지워지므로 그 상태를 흉내 냄
             sip.delete(heartbeat)
             diagnostics_qt.stop_gui_diagnostics()
-            store = read_session(session_path(tmp))
+            store = read_session(runtime.marker_path or session_path(tmp))
         self.assertIsNotNone(store)
         assert store is not None
         self.assertTrue(store.is_clean)

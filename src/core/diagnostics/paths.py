@@ -16,7 +16,11 @@ from src.core.paths import get_data_dir
 DIAGNOSTICS_DIR_NAME: str = "logs"
 APP_LOG_NAME: str = "app.log"
 NATIVE_LOG_NAME: str = "native_crash.log"
+NATIVE_LOG_INSTANCE_PREFIX: str = "native_crash-"
+NATIVE_LOG_SUFFIX: str = ".log"
 SESSION_FILENAME: str = "session.json"
+SESSION_MARKER_PREFIX: str = "session-"
+SESSION_MARKER_SUFFIX: str = ".json"
 BREADCRUMBS_NAME: str = "breadcrumbs.log"
 DEV_LOG_NAME: str = "dev.log"
 REPORT_DIR_PREFIX: str = "crash_"
@@ -47,6 +51,11 @@ def ensure_diagnostics_dir(directory: str | None = None) -> str:
 def diagnostics_file(name: str, directory: str | None = None) -> str:
     """진단 로그 디렉터리 아래 파일 경로 반환"""
     return os.path.join(directory or diagnostics_dir(), name)
+
+
+def instance_native_log_name(pid: int) -> str:
+    """인스턴스(pid)별 네이티브 로그 파일 이름 반환"""
+    return f"{NATIVE_LOG_INSTANCE_PREFIX}{pid}{NATIVE_LOG_SUFFIX}"
 
 
 def file_size(path: str) -> int:

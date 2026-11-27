@@ -19,9 +19,12 @@ from src.core.diagnostics.session import (
     SessionInfo,
     close_session,
     environment_lines,
+    existing_session_markers,
     git_short_hash,
+    instance_session_path,
     is_pid_alive,
     read_session,
+    remove_session_marker,
     session_path,
     start_session,
     with_native_log_offset,
@@ -86,12 +89,52 @@ class TestSessionMarker(unittest.TestCase):
         info = SessionInfo(
             pid=10, started_at="시작", version="1.2.3", developer_mode=True, state=STATE_RUNNING
         )
-        updated = with_native_log_offset(info, -5)
+        updated = with_native_log_offset(info, -5, native_log_name="native_crash-10.log")
         self.assertEqual(updated.native_log_offset, 0)
         self.assertEqual(updated.pid, 10)
         self.assertTrue(updated.developer_mode)
         self.assertEqual(updated.state, STATE_RUNNING)
+        self.assertEqual(updated.native_log_name, "native_crash-10.log")
         self.assertEqual(updated.to_dict()["version"], "1.2.3")
+
+
+class TestInstanceMarkers(unittest.TestCase):
+    """인스턴스별 표식 경로, 목록, 정리와 옛 단일 표식 호환 검증"""
+
+    def test_instance_path_is_keyed_by_pid(self) -> None:
+        """인스턴스 표식 경로가 pid를 파일 이름에 넣는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(instance_session_path(42, tmp), os.path.join(tmp, "session-42.json"))
+
+    def test_existing_markers_cover_instances_and_legacy_file(self) -> None:
+        """인스턴스 표식과 옛 단일 표식을 함께 찾고 다른 파일은 무시하는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(existing_session_markers(tmp), [])
+            for pid in (2, 1):
+                write_session(instance_session_path(pid, tmp), start_session(False, pid=pid))
+            write_session(session_path(tmp), start_session(False, pid=9))
+            for name in ("session-notes.txt", "session-notes.json", "session-.json", "session-x.json"):
+                with open(os.path.join(tmp, name), "w", encoding="utf-8") as handle:
+                    handle.write('{"pid": 616161, "state": "running"}')
+            found = existing_session_markers(tmp)
+        self.assertEqual(
+            [os.path.basename(path) for path in found],
+            ["session-1.json", "session-2.json", "session.json"],
+        )
+
+    def test_remove_marker_tolerates_missing_file(self) -> None:
+        """없는 표식을 지워도 예외가 없는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            remove_session_marker(os.path.join(tmp, "session-404.json"))
+
+    def test_native_log_name_defaults_to_shared_log(self) -> None:
+        """네이티브 로그 이름이 없는 옛 표식은 공용 로그 이름을 쓰는지 검증"""
+        legacy = SessionInfo(
+            pid=5, started_at="시작", version="1.0", developer_mode=False, state=STATE_RUNNING
+        )
+        self.assertEqual(legacy.native_log_file, "native_crash.log")
+        closed = close_session(legacy)
+        self.assertEqual(closed.native_log_file, "native_crash.log")
 
 
 class TestPidLiveness(unittest.TestCase):

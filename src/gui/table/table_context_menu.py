@@ -17,7 +17,7 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
-from src.gui.table.table_command_actions import copy_ffmpeg_commands, planned_command_lines
+from src.gui.table.table_command_actions import copy_ffmpeg_commands
 from src.gui.table.table_model import VideoTableModel
 
 _MENU_ICON_SIZE: int = 14
@@ -293,8 +293,11 @@ def show_row_context_menu(
         icon_name="copy",
         palette=p,
     )
-    # - 명령을 만들 수 있는 영상이 하나도 없으면 붙여 넣을 내용이 없으므로 비활성
-    copy_commands.setEnabled(len(planned_command_lines(view.table_model, targets)) > 0)
+    # - 활성 여부는 메모리에 있는 선택 상태만으로 정함. 예정 명령 계산은 파일 존재 확인을 하므로
+    #   수천 행을 고른 상태에서 메뉴를 열 때 화면 스레드가 멈추지 않도록 복사 실행 때로 미룸
+    # - 복사 경로에는 워커 스레드 배관이 없고 표 모델이 인자 열에서 이미 계산해 둔 계획을 재사용하므로
+    #   복사할 때 화면 스레드에서 계산하며, 캐시가 빈 행만 그때 확인함
+    copy_commands.setEnabled(count > 0)
 
     if to_add:
         add_n = len(to_add)

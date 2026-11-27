@@ -190,6 +190,16 @@ class CommandHistoryPanelTests(GuiTestCase):
         self.assertEqual(self.panel.table.rowCount(), 0)
         self.assertEqual(self.panel.lbl_empty.text(), EMPTY_RECORDS_TEXT)
 
+    def test_empty_filtered_text_switches_when_commands_accumulate(self) -> None:
+        """맞는 검색어가 없어 표시 서명이 비어 있어도 기록이 쌓이면 조건 불일치 문구로 바뀌는지 검증"""
+        self.panel.search_edit.setText("없는검색어")
+        self.panel.set_records([])
+        self.assertEqual(self.panel.lbl_empty.text(), EMPTY_RECORDS_TEXT)
+        self.panel.set_records([_record(1)])
+        self.assertEqual(self.panel.table.rowCount(), 0)
+        self.assertEqual(self.panel.lbl_empty.text(), EMPTY_FILTERED_TEXT)
+        self.assertTrue(self.panel.lbl_empty.isVisibleTo(self.panel))
+
     def test_copy_button_copies_selected_command_lines(self) -> None:
         """행을 선택하고 복사하면 선택한 명령줄만 줄바꿈으로 이어 붙여 복사되는지 검증"""
         self.panel.table.selectRow(0)

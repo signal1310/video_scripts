@@ -20,6 +20,8 @@ from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table.table_cell_tooltips import ratio_cell_tip
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
+from src.service.encode.encode_preview import PlannedCommand
+from src.service.encode.encode_reasons import NAME_EXISTS
 from tests._factories import make_eval, make_video
 
 _APP = QApplication.instance() or QApplication([])
@@ -543,6 +545,43 @@ class FfmpegArgsTooltipTests(unittest.TestCase):
         summary = str(self.model.data(self.model.index(0, VideoTableModel.COL_FFMPEG_ARGS)))
         self.assertNotEqual(summary, display)
         self.assertIn("cq", summary)
+
+    def test_encode_book_change_clears_the_planned_command_cache(self) -> None:
+        """배치 저장소가 바뀌면 파일 시스템 판정이 낡지 않도록 예정 명령 캐시를 비움"""
+        ev = make_eval(make_video(filename="a.mp4"))
+        with mock.patch(
+            "src.gui.table.table_model.planned_command_for_evaluation",
+            return_value=PlannedCommand(
+                command_line="", summary="", approximate=False, skip_reason=NAME_EXISTS
+            ),
+        ):
+            self.assertIsNone(self.model.planned_command_line(ev))
+        self.model.set_encode_book(EncodeBatchBook())
+        with mock.patch(
+            "src.gui.table.table_model.planned_command_for_evaluation",
+            return_value=PlannedCommand(
+                command_line="ffmpeg -i a.mp4", summary="hevc_nvenc cq 22.0", approximate=False
+            ),
+        ) as planned:
+            self.assertEqual(self.model.planned_command_line(ev), "ffmpeg -i a.mp4")
+        planned.assert_called_once()
+
+    def test_skipped_command_shows_reason_instead_of_a_command(self) -> None:
+        """결과 경로를 쓸 수 없어 명령을 만들지 않으면 인자 열과 툴팁이 사유를 보여 주고 복사는 비움"""
+        ev = make_eval(make_video(filename="a.mp4"))
+        with mock.patch(
+            "src.gui.table.table_model.planned_command_for_evaluation",
+            return_value=PlannedCommand(
+                command_line="", summary="", approximate=False, skip_reason=NAME_EXISTS
+            ),
+        ):
+            display = self.model.data(self.model.index(0, VideoTableModel.COL_FFMPEG_ARGS))
+            tip = self._tip(VideoTableModel.COL_FFMPEG_ARGS)
+            action_tip = self._tip(VideoTableModel.COL_ACTION)
+            self.assertIsNone(self.model.planned_command_line(ev))
+        self.assertEqual(display, NAME_EXISTS)
+        self.assertEqual(tip, NAME_EXISTS)
+        self.assertNotIn("FFmpeg 인자", action_tip)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

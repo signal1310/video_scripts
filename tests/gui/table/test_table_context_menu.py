@@ -17,6 +17,7 @@ from src.gui.table.column_filter_popover import ColumnFilterPopover
 from src.gui.table.column_filters import ColumnFilterRule
 from src.gui.table.filter_header_view import FilterHeaderView
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
+from src.gui.table.table_command_actions import COPIED_NOTICE, NO_COMMAND_NOTICE
 from src.gui.table.table_context_menu import (
     add_menu_action,
     set_row_compare_opener,
@@ -34,10 +35,29 @@ _APP = QApplication.instance() or QApplication([])
 _CODEC = VideoTableModel.COL_CODEC
 
 
-class _Host:
-    """TableContextHost 프로토콜을 만족하며 호출을 기록하는 테스트용 호스트"""
+class _Footer:
+    """하단 상태 줄 호출을 기록하는 가짜 바"""
 
     def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    def set_status_text(self, text: str, tooltip: str = "") -> None:
+        self.texts.append(text)
+
+
+class _TopLevelWindow(QWidget):
+    """상태 줄을 가진 최상위 창 대역"""
+
+    def __init__(self, footer: _Footer) -> None:
+        super().__init__()
+        self.footer_bar = footer
+
+
+class _Host(QWidget):
+    """TableContextHost 프로토콜을 만족하며 호출을 기록하는 테스트용 호스트"""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self.table_model = VideoTableModel(config=ClassifierConfig())
         self.proxy_model = VideoSortFilterProxyModel()
         self.proxy_model.setSourceModel(self.table_model)
@@ -286,18 +306,24 @@ class TestRowContextMenu(unittest.TestCase):
         mixed = self._row_menu([self.clicked, self.other], to_add=[], to_remove=[])
         self.assertFalse(mixed["검은 여백 잘라내기 제외"].isChecked())
 
-    def test_ffmpeg_copy_entry_is_disabled_when_no_command_can_be_built(self) -> None:
-        """명령을 만들 수 있는 영상이 없으면 FFmpeg 명령 복사 항목을 비활성화하고, 있으면 활성화함을 검증"""
-        enabled = self._row_menu([self.clicked], to_add=[], to_remove=[])
-        self.assertTrue(enabled[_FFMPEG_COPY_SINGLE].isEnabled())
-        enabled[_FFMPEG_COPY_SINGLE].trigger()
+    def test_ffmpeg_copy_entry_is_enabled_from_selection_without_planning(self) -> None:
+        """메뉴를 열 때 예정 명령을 계산하지 않고 선택 상태만으로 항목을 활성화함을 검증"""
+        with patch.object(
+            self.host.table_model,
+            "planned_command_line",
+            side_effect=AssertionError("메뉴 생성 중 예정 명령을 계산하면 안 됩니다"),
+        ):
+            actions = self._row_menu([self.clicked, self.other], to_add=[], to_remove=[])
+        self.assertTrue(actions[_FFMPEG_COPY_MULTI].isEnabled())
+        self.copy_mock.assert_not_called()
+
+        actions[_FFMPEG_COPY_MULTI].trigger()
         self.copy_mock.assert_called_once()
 
-        with patch(
-            "src.gui.table.table_context_menu.planned_command_lines", return_value=[]
-        ):
-            disabled = self._row_menu([self.clicked], to_add=[], to_remove=[])
-        self.assertFalse(disabled[_FFMPEG_COPY_SINGLE].isEnabled())
+    def test_ffmpeg_copy_entry_is_disabled_without_targets(self) -> None:
+        """선택 영상이 없으면 복사 항목을 비활성화함을 검증"""
+        actions = self._row_menu([], to_add=[], to_remove=[])
+        self.assertFalse(actions["선택한 0개 FFmpeg 명령 복사"].isEnabled())
 
     def test_menu_is_not_shown_without_viewport(self) -> None:
         """뷰포트가 없으면 메뉴를 띄우지 않음을 검증"""
@@ -305,6 +331,44 @@ class TestRowContextMenu(unittest.TestCase):
         with patch.object(QMenu, "exec") as exec_mock:
             show_row_context_menu(self.host, QPoint(0, 0), self.clicked, [self.clicked], [], [])
         exec_mock.assert_not_called()
+
+
+class TestRowContextMenuCopyFeedback(unittest.TestCase):
+    """행 우클릭 FFmpeg 명령 복사가 실제 복사 경로에서 하단 상태 줄에 결과를 알리는지 검증"""
+
+    def setUp(self) -> None:
+        """상태 줄을 가진 최상위 창 안에 표 뷰 대역 호스트를 둠"""
+        self.window = _TopLevelWindow(_Footer())
+        self.host = _Host(self.window)
+        self.addCleanup(self.host.filter_header.close)
+        self.addCleanup(self.window.close)
+        self.clicked = make_eval(make_video(filename="clicked.mp4"))
+        self.other = make_eval(make_video(filename="other.mp4"))
+
+    def _row_menu(self, targets: list[VideoEvaluation]) -> dict[str, QAction]:
+        return _capture(
+            lambda: show_row_context_menu(self.host, QPoint(3, 3), self.clicked, targets, [], [])
+        )
+
+    def test_copy_reports_the_count_through_the_top_level_footer(self) -> None:
+        """상태 줄이 표 뷰가 아니라 최상위 창에 있어도 복사 건수를 알림"""
+        with patch.object(
+            self.host.table_model, "planned_command_line", return_value="ffmpeg -i clicked.mp4"
+        ):
+            actions = self._row_menu([self.clicked])
+            actions[_FFMPEG_COPY_SINGLE].trigger()
+        self.assertEqual(self.window.footer_bar.texts, [COPIED_NOTICE.format(count=1)])
+
+    def test_skipped_targets_leave_the_clipboard_and_report_no_command(self) -> None:
+        """모든 선택 영상이 건너뛰면 클립보드를 그대로 두고 복사할 명령이 없음을 알림"""
+        clipboard = QApplication.clipboard()
+        assert clipboard is not None
+        clipboard.setText("sentinel")
+        with patch.object(self.host.table_model, "planned_command_line", return_value=None):
+            actions = self._row_menu([self.clicked, self.other])
+            actions[_FFMPEG_COPY_MULTI].trigger()
+        self.assertEqual(clipboard.text(), "sentinel")
+        self.assertEqual(self.window.footer_bar.texts, [NO_COMMAND_NOTICE])
 
 
 class TestRowCompareEntry(unittest.TestCase):

@@ -1,9 +1,16 @@
 """표에 보여 줄 예정 FFmpeg 명령 계산(encode_preview) 단위 테스트"""
 
+import os
+import tempfile
 import unittest
 from unittest import mock
 
-from src.core.config import ClassifierConfig
+from src.core.config import (
+    NAME_CONFLICT_NUMBER,
+    NAME_CONFLICT_SKIP,
+    RESULT_POLICY_SEPARATE,
+    ClassifierConfig,
+)
 from src.core.models import DownscaleReason
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
@@ -12,6 +19,7 @@ from src.service.encode.encode_preview import (
     plan_approximation_note,
     planned_command_for_evaluation,
 )
+from src.service.encode.encode_reasons import NAME_EXISTS
 from tests._factories import make_eval, make_video
 
 
@@ -117,6 +125,55 @@ class PlannedCommandTests(unittest.TestCase):
         """정확한 계획에는 근사 문구를 붙이지 않음"""
         exact = PlannedCommand(command_line="ffmpeg", summary="", approximate=False)
         self.assertEqual(plan_approximation_note(exact), "")
+
+
+class NameConflictPreviewTests(unittest.TestCase):
+    """별도 출력 폴더에 같은 이름 파일이 있을 때 명령을 만들지 않는지 검증"""
+
+    def test_skip_policy_with_existing_output_offers_no_command(self) -> None:
+        """건너뜀 정책이면 배치가 건너뛰는 영상의 명령을 만들지 않고 사유만 남김"""
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = os.path.join(root, "encoded")
+            os.makedirs(output_dir)
+            open(os.path.join(root, "clip.mp4"), "wb").close()
+            open(os.path.join(output_dir, "clip.mp4"), "wb").close()
+            ev = make_eval(
+                make_video(filename="clip.mp4", stream_summary=_LAYOUT_SUMMARY),
+                smart_action=SmartAction.ENCODE_OVER,
+            )
+            config = _config(
+                result_policy=RESULT_POLICY_SEPARATE,
+                output_dirname="encoded",
+                name_conflict=NAME_CONFLICT_SKIP,
+            )
+            planned = planned_command_for_evaluation(ev, config, root_dir=root)
+        self.assertIsNotNone(planned)
+        assert planned is not None
+        self.assertEqual(planned.command_line, "")
+        self.assertEqual(planned.skip_reason, NAME_EXISTS)
+        self.assertEqual(planned.display_text, NAME_EXISTS)
+
+    def test_number_policy_with_free_number_still_offers_command(self) -> None:
+        """번호 정책이면 비어 있는 번호 경로로 명령을 만듦"""
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = os.path.join(root, "encoded")
+            os.makedirs(output_dir)
+            open(os.path.join(root, "clip.mp4"), "wb").close()
+            open(os.path.join(output_dir, "clip.mp4"), "wb").close()
+            ev = make_eval(
+                make_video(filename="clip.mp4", stream_summary=_LAYOUT_SUMMARY),
+                smart_action=SmartAction.ENCODE_OVER,
+            )
+            config = _config(
+                result_policy=RESULT_POLICY_SEPARATE,
+                output_dirname="encoded",
+                name_conflict=NAME_CONFLICT_NUMBER,
+            )
+            planned = planned_command_for_evaluation(ev, config, root_dir=root)
+        self.assertIsNotNone(planned)
+        assert planned is not None
+        self.assertEqual(planned.skip_reason, "")
+        self.assertIn("clip (1).mp4", planned.command_line)
 
 
 if __name__ == "__main__":

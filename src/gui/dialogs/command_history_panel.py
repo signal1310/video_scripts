@@ -243,6 +243,7 @@ class CommandHistoryPanel(QWidget):
         """표시할 기록을 받아 표를 다시 그림. 표시 내용이 그대로면 건너뜀
 
         - 표시 행은 링 버퍼 상한까지만 두어 오래된 기록부터 버림
+        - 빈 상태 문구는 기록 총수에 따라 달라지므로 표를 건너뛰기 전에 항상 갱신
         """
         capped = list(records)[-COMMAND_HISTORY_LIMIT:]
         filtered = filter_records(
@@ -251,11 +252,11 @@ class CommandHistoryPanel(QWidget):
         signature = tuple(
             (record.seq, record.exit_code, record.elapsed_sec) for record in filtered
         )
+        self._update_empty_label(len(capped), len(filtered))
         if signature == self._signature:
             return
         self._signature = signature
         self._fill_table(filtered)
-        self._update_empty_label(len(capped), len(filtered))
 
     def refresh(self) -> None:
         """현재 버퍼 내용을 읽어 표에 반영"""

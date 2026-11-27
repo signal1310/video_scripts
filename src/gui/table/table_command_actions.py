@@ -11,6 +11,7 @@ from src.core.models import VideoEvaluation
 from src.gui.table.table_actions import copy_lines_to_clipboard
 
 COPIED_NOTICE: str = "FFmpeg 명령 {count}개를 복사했습니다."
+NO_COMMAND_NOTICE: str = "복사할 FFmpeg 명령이 없습니다."
 
 
 class _PlannedSource(Protocol):
@@ -38,15 +39,41 @@ def planned_command_lines(model: _PlannedSource, evals: Sequence[VideoEvaluation
     return lines
 
 
+class _StatusFooter(Protocol):
+    """하단 상태 줄에 문구를 남기는 창 구성 요소"""
+
+    def set_status_text(self, text: str, tooltip: str = "") -> None:
+        """상태 줄 문구와 툴팁 설정"""
+        ...
+
+
+def _status_footer(window: object) -> _StatusFooter | None:
+    """하단 상태 줄 객체. 창이 아니면 최상위 창까지 거슬러 올라가 찾음
+
+    - 표 뷰는 상태 줄을 직접 갖지 않고 최상위 창이 갖고 있음
+    """
+    footer = getattr(window, "footer_bar", None)
+    if footer is not None:
+        return footer
+    top_level_getter = getattr(window, "window", None)
+    if callable(top_level_getter):
+        return getattr(top_level_getter(), "footer_bar", None)
+    return None
+
+
 def copy_ffmpeg_commands(
     model: _PlannedSource, evals: Sequence[VideoEvaluation], window: object
 ) -> int:
-    """선택 영상의 예정 명령을 줄바꿈으로 복사하고 건수를 반환, 하단 상태 줄에 알림"""
+    """선택 영상의 예정 명령을 줄바꿈으로 복사하고 건수를 반환, 하단 상태 줄에 알림
+
+    - 복사할 명령이 없으면 클립보드를 건드리지 않고 그 사실만 알림
+    """
     count = copy_lines_to_clipboard(planned_command_lines(model, evals))
-    footer = getattr(window, "footer_bar", None)
-    if count > 0 and footer is not None:
-        footer.set_status_text(COPIED_NOTICE.format(count=count))
+    footer = _status_footer(window)
+    if footer is None:
+        return count
+    footer.set_status_text(COPIED_NOTICE.format(count=count) if count > 0 else NO_COMMAND_NOTICE)
     return count
 
 
-__all__ = ["COPIED_NOTICE", "copy_ffmpeg_commands", "planned_command_lines"]
+__all__ = ["COPIED_NOTICE", "NO_COMMAND_NOTICE", "copy_ffmpeg_commands", "planned_command_lines"]

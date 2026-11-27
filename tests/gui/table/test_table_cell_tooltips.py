@@ -30,6 +30,7 @@ from src.gui.table.table_cell_tooltips import (
     zone_cell_tip,
 )
 from src.service.encode.encode_preview import PlannedCommand
+from src.service.encode.encode_reasons import NAME_EXISTS
 from tests._factories import make_eval, make_video
 
 
@@ -136,3 +137,17 @@ class FfmpegArgsLineTests(unittest.TestCase):
     def test_missing_plan_returns_empty_text(self) -> None:
         """명령을 만들 수 없으면 빈 문자열을 돌려 툴팁이 붙지 않게 함"""
         self.assertEqual(ffmpeg_args_line(None), "")
+
+    def test_skipped_plan_explains_why_there_is_no_command(self) -> None:
+        """결과 경로를 쓸 수 없어 명령을 만들지 않았으면 그 사유를 알려 줌"""
+        planned = PlannedCommand(
+            command_line="", summary="", approximate=False, skip_reason=NAME_EXISTS
+        )
+        self.assertEqual(ffmpeg_args_line(planned), f"FFmpeg 명령을 만들 수 없습니다. {NAME_EXISTS}")
+
+    def test_empty_command_line_reports_the_reason_even_with_a_summary(self) -> None:
+        """명령 없음 판정을 명령줄로 하므로 요약만 남은 계획도 사유를 알려 줌"""
+        planned = PlannedCommand(
+            command_line="", summary="hevc_nvenc cq 22.0", approximate=False, skip_reason=NAME_EXISTS
+        )
+        self.assertEqual(ffmpeg_args_line(planned), f"FFmpeg 명령을 만들 수 없습니다. {NAME_EXISTS}")

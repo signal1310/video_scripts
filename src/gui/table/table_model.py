@@ -550,12 +550,16 @@ class VideoTableModel(QAbstractTableModel):
         self._encode_label_cache.clear()
 
     def set_encode_book(self, book: EncodeBatchBook) -> None:
-        """인코딩 배치의 항목 상태 저장소와 이전 폐기 목록을 갱신하고 상태 열을 다시 그림"""
+        """인코딩 배치의 항목 상태 저장소와 이전 폐기 목록을 갱신하고 상태 열을 다시 그림
+
+        - 배치는 결과 파일을 만들거나 같은 이름 충돌을 없애므로 예정 명령 캐시를 비움(파일 존재 확인 결과가 낡지 않게)
+        """
         self._encode_book = book
         self._previous_discards = (
             frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, self._root_dir)
         )
         self._encode_label_cache.clear()
+        self._planned_cache.clear()
         if self._evaluations:
             # - 진행 중 -> 완료 전환은 행 배경도 함께 바꾸므로 상태 열만이 아니라 행 전체를 다시 그림
             last_row = len(self._evaluations) - 1
@@ -583,7 +587,10 @@ class VideoTableModel(QAbstractTableModel):
         return PREVIOUS_DISCARD_TIP if path in self._previous_discards else None
 
     def _planned_for(self, ev: VideoEvaluation) -> PlannedCommand | None:
-        """영상의 예정 FFmpeg 명령. 행마다 한 번만 계산해 인자 열과 툴팁이 재사용"""
+        """영상의 예정 FFmpeg 명령. 행마다 한 번만 계산해 인자 열과 툴팁이 재사용
+
+        - 명령을 만들 수 없으면 표시용 계획이 돌아올 수 있으므로 명령줄이 비었는지도 확인해야 함
+        """
         cached = self._planned_cache.get(ev.video.filename)
         if cached is None and ev.video.filename not in self._planned_cache:
             cached = planned_command_for_evaluation(ev, self._config, root_dir=self._root_dir)
@@ -606,13 +613,15 @@ class VideoTableModel(QAbstractTableModel):
     def planned_command_line(self, ev: VideoEvaluation) -> str | None:
         """영상의 예정 FFmpeg 명령줄, 만들 수 없으면 None. 우클릭 복사가 그대로 넘김"""
         planned = self._planned_for(ev)
-        return None if planned is None else planned.command_line
+        return None if planned is None or not planned.command_line else planned.command_line
 
     def _ffmpeg_command_tip(self, ev: VideoEvaluation) -> str:
-        """인자 열 셀 툴팁: 붙여 넣어 실행할 전체 명령줄"""
+        """인자 열 셀 툴팁: 붙여 넣어 실행할 전체 명령줄. 명령이 없으면 그 사유"""
         planned = self._planned_for(ev)
         if planned is None:
             return COL_DEF_MAP[self.COL_FFMPEG_ARGS].tooltip_factory(self._config)
+        if not planned.command_line:
+            return planned.skip_reason or COL_DEF_MAP[self.COL_FFMPEG_ARGS].tooltip_factory(self._config)
         return planned.command_line
 
     def _display_data(self, ev: VideoEvaluation, col: int) -> Any:
@@ -620,7 +629,7 @@ class VideoTableModel(QAbstractTableModel):
             return self._encode_label(ev)
         if col == self.COL_FFMPEG_ARGS:
             planned = self._planned_for(ev)
-            return planned.summary if planned is not None else None
+            return None if planned is None else planned.display_text
         if is_frame_analysis_column(col):
             return self._frame_view.display(ev.video.filename, col)
         return display_text_for(ev, col, self._config, self._pending_output_tiers)

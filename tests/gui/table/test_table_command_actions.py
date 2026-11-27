@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QApplication
 from src.core.models import VideoEvaluation
 from src.gui.table.table_command_actions import (
     COPIED_NOTICE,
+    NO_COMMAND_NOTICE,
     copy_ffmpeg_commands,
     planned_command_lines,
 )
@@ -47,6 +48,16 @@ class _Window:
             self.footer_bar = footer
 
 
+class _ChildWidget:
+    """상태 줄을 직접 갖지 않고 최상위 창만 가지는 자식 위젯 대역"""
+
+    def __init__(self, window: _Window) -> None:
+        self._window = window
+
+    def window(self) -> _Window:
+        return self._window
+
+
 class PlannedCommandLineTests(unittest.TestCase):
     """선택 영상의 명령줄 목록 규칙 검증"""
 
@@ -82,13 +93,31 @@ class CopyFfmpegCommandsTests(unittest.TestCase):
         self.assertEqual(footer.texts, [COPIED_NOTICE.format(count=2)])
         self.assertEqual(COPIED_NOTICE.format(count=2), "FFmpeg 명령 2개를 복사했습니다.")
 
-    def test_nothing_to_copy_keeps_the_footer_quiet(self) -> None:
-        """명령을 만들 수 없으면 복사 건수 0을 돌려주고 안내도 띄우지 않음"""
+    def test_copies_through_child_widget_resolving_the_top_level_footer(self) -> None:
+        """표 뷰처럼 상태 줄을 직접 갖지 않는 자식 위젯에서도 최상위 창의 상태 줄에 알림"""
+        model = _Model({"a.mp4": "ffmpeg -i a.mp4"})
+        footer = _Footer()
+        with mock.patch(
+            "src.gui.table.table_command_actions.copy_lines_to_clipboard",
+            return_value=1,
+        ):
+            count = copy_ffmpeg_commands(model, [_TARGET], _ChildWidget(_Window(footer)))
+        self.assertEqual(count, 1)
+        self.assertEqual(footer.texts, [COPIED_NOTICE.format(count=1)])
+
+    def test_empty_copy_keeps_the_clipboard_and_reports_why(self) -> None:
+        """모든 선택 영상이 건너뛰어 0건이면 클립보드는 그대로 두고 복사할 명령이 없음을 알림"""
         model = _Model({"b.mp4": None})
         footer = _Footer()
-        count = copy_ffmpeg_commands(model, [_KEPT], _Window(footer))
+        with mock.patch(
+            "src.gui.table.table_command_actions.copy_lines_to_clipboard",
+            return_value=0,
+        ) as copy:
+            count = copy_ffmpeg_commands(model, [_KEPT], _Window(footer))
         self.assertEqual(count, 0)
-        self.assertEqual(footer.texts, [])
+        copy.assert_called_once_with([])
+        self.assertEqual(footer.texts, [NO_COMMAND_NOTICE])
+        self.assertEqual(NO_COMMAND_NOTICE, "복사할 FFmpeg 명령이 없습니다.")
 
     def test_window_without_footer_still_copies(self) -> None:
         """하단 상태 줄이 없는 창에서도 복사는 수행"""

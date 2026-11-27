@@ -29,6 +29,7 @@ from src.core.encoder_specs import get_encode_codec_family
 from src.core.models import VideoEvaluation
 from src.core.smart_action import SmartAction
 from src.service.encode.encode_job import EncodeJob, EncodeSettings, jobs_from_evaluations
+from src.service.encode.encode_reasons import NAME_EXISTS
 
 # - 보존 행은 인코딩 기본값(과화질 인코딩과 같은 규칙)으로 강제 인코딩했을 때의 명령을 보여 줌
 FORCED_ENCODE_ACTION: SmartAction = SmartAction.ENCODE_OVER
@@ -37,11 +38,20 @@ FALLBACK_VIDEO_INDEX: int = 0
 
 @dataclass(frozen=True, slots=True)
 class PlannedCommand:
-    """표에 보여 줄 예정 명령. approximate는 스트림 구성을 추정했다는 뜻"""
+    """표에 보여 줄 예정 명령. approximate는 스트림 구성을 추정했다는 뜻
+
+    - 명령을 만들지 않는 사유가 있으면 skip_reason에 두고 command_line과 summary를 비움
+    """
 
     command_line: str
     summary: str
     approximate: bool
+    skip_reason: str = ""
+
+    @property
+    def display_text(self) -> str:
+        """인자 열에 보여 줄 한 줄. 명령이 없으면 사유"""
+        return self.summary or self.skip_reason
 
 
 def _forced_evaluation(ev: VideoEvaluation) -> VideoEvaluation:
@@ -62,8 +72,13 @@ def _layout_for_evaluation(ev: VideoEvaluation) -> tuple[StreamLayout, bool]:
     return fallback, True
 
 
-def _plan_for_job(job: EncodeJob, settings: EncodeSettings, layout: StreamLayout) -> EncodePlan:
-    """배치가 쓸 결과 경로와 계획을 같은 정책으로 계산. 같은 이름 충돌은 실제 존재 여부로 판단"""
+def _plan_for_job(
+    job: EncodeJob, settings: EncodeSettings, layout: StreamLayout
+) -> EncodePlan | None:
+    """배치가 쓸 결과 경로와 계획을 같은 정책으로 계산. 같은 이름 충돌은 실제 존재 여부로 판단
+
+    - 같은 이름 건너뜀처럼 쓸 수 있는 결과 경로가 없으면 None(배치도 그 항목을 건너뜀)
+    """
     container = choose_container(
         job.source_ext, layout, settings.container_policy, get_encode_codec_family(settings.encoder)
     )
@@ -74,8 +89,9 @@ def _plan_for_job(job: EncodeJob, settings: EncodeSettings, layout: StreamLayout
     final = candidate
     if final != job.source_path:
         chosen = choose_free_path(candidate, settings.name_conflict, os.path.exists)
-        if chosen is not None:
-            final = chosen
+        if chosen is None:
+            return None
+        final = chosen
     keywords = (settings.encode_tag_name,) if settings.encode_tag_mode == ENCODE_TAG_MODE_VISIBLE else ()
     return build_encode_plan(
         source_path=job.source_path,
@@ -101,10 +117,11 @@ def _plan_for_job(job: EncodeJob, settings: EncodeSettings, layout: StreamLayout
 def planned_command_for_evaluation(
     ev: VideoEvaluation, config: ClassifierConfig, *, root_dir: str = ""
 ) -> PlannedCommand | None:
-    """영상 한 개의 예정 FFmpeg 명령과 인자 요약. 명령을 만들 수 없으면 None
+    """영상 한 개의 예정 FFmpeg 명령과 인자 요약. 계획 자체를 만들 수 없으면 None
 
     - 인코딩 대상이 아닌 행은 기본값 인코딩을 가정한 명령을 돌려줌
     - 스트림 구성 요약이 없으면 주 영상 한 개로 근사하고 approximate를 참으로 표시
+    - 결과 경로를 쓸 수 없어 배치가 건너뛸 항목은 빈 명령과 skip_reason을 돌려줌
     """
     settings = EncodeSettings.from_config(config)
     jobs = jobs_from_evaluations(
@@ -122,6 +139,8 @@ def planned_command_for_evaluation(
         plan = _plan_for_job(jobs[0], settings, layout)
     except ValueError:
         return None
+    if plan is None:
+        return PlannedCommand(command_line="", summary="", approximate=approximate, skip_reason=NAME_EXISTS)
     args = build_ffmpeg_args(plan, resolve_ffmpeg_executable(settings.ffmpeg_path))
     return PlannedCommand(
         command_line=format_command_line(args),

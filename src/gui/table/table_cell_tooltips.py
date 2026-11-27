@@ -151,7 +151,10 @@ def ffmpeg_args_line(planned: PlannedCommand | None) -> str:
 
     - 표 모델이 행마다 한 번 계산한 결과를 넘겨 툴팁과 열이 같은 값을 씀
     - 보존 행은 인코딩을 가정한 값이므로 근사 표시를 붙임
+    - 결과 경로를 쓸 수 없어 명령을 만들지 않았으면 그 사유를 알려 줌
     """
     if planned is None:
         return ""
+    if not planned.command_line:
+        return f"FFmpeg 명령을 만들 수 없습니다. {planned.skip_reason}" if planned.skip_reason else ""
     return f"FFmpeg 인자: {planned.summary}{plan_approximation_note(planned)}"

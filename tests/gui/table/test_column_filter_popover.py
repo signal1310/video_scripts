@@ -44,6 +44,7 @@ class TestColumnFilterPopover(GuiTestCase):
         values: list[tuple[str, int]] | None = None,
         bounds: tuple[float | None, float | None, int] = (0.5, 8.0, 2),
         buckets: list[tuple[str, str, int]] | None = None,
+        special_values: list[tuple[str, int]] | None = None,
         toggle_rect: QRect | None = None,
     ) -> ColumnFilterPopover:
         popover = ColumnFilterPopover(
@@ -52,6 +53,7 @@ class TestColumnFilterPopover(GuiTestCase):
             spec,
             current_rule=rule,
             value_counts=values,
+            special_value_counts=special_values,
             numeric_bounds=bounds,
             number_bucket_counts=buckets,
             toggle_rect_global=toggle_rect,
@@ -68,6 +70,29 @@ class TestColumnFilterPopover(GuiTestCase):
     def _set_null_mode(popover: ColumnFilterPopover, mode: str) -> None:
         combo = _need(popover.combo_null_mode)
         combo.setCurrentIndex(combo.findData(mode))
+
+    def test_special_values_are_appended_after_the_cell_values(self) -> None:
+        """필터 전용 특수 항목이 셀 값 목록 뒤에 따로 붙고 선택 시 필터 값이 되는지 검증"""
+        popover = self._popover(
+            ColumnSpec(_COL, ColumnDataType.CATEGORY),
+            values=[("1836x1008", 2)],
+            special_values=[("구간별 여백 차이 존재", 1)],
+        )
+        checklist = _need(popover._checklist)
+        items = [
+            _need(checklist.list_values.item(row))
+            for row in range(checklist.list_values.count())
+        ]
+        self.assertEqual(
+            [item.text() for item in items],
+            ["1836x1008 (2)", "구간별 여백 차이 존재 (1)"],
+        )
+        self.assertIsNone(popover.build_rule())
+        item = _need(checklist.list_values.item(0))
+        item.setCheckState(Qt.CheckState.Unchecked)
+        rule = popover.build_rule()
+        assert rule is not None
+        self.assertEqual(rule.selected_values, frozenset({"구간별 여백 차이 존재"}))
 
     def test_number_rule_depends_on_range_and_null_mode(self) -> None:
         """범위 입력과 미측정 처리 모드의 조합이 규칙으로 변환되고, 조건이 없으면 필터 없음이 됨을 검증"""

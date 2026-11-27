@@ -81,6 +81,8 @@ class ThemePalette:
 
     # 셀 텍스트 강조 전경색
     fg_cell_muted: str
+    # - 쓰지 않는 값을 흐리게 보일 때 쓰는 전경색. text_muted보다 배경에 가까움
+    fg_cell_inactive: str
     fg_ratio_over: str
     fg_ratio_opt: str
     fg_ratio_low: str
@@ -178,6 +180,7 @@ DARK_PALETTE = ThemePalette(
     row_paused_bg="#3D2B0D",
     row_paused_accent="#F59E0B",
     fg_cell_muted="#4B4B4B",
+    fg_cell_inactive="#6E6E6E",
     fg_ratio_over="#FCA5A5",
     fg_ratio_opt="#86EFAC",
     fg_ratio_low="#93C5FD",
@@ -243,6 +246,7 @@ LIGHT_PALETTE = ThemePalette(
     row_paused_bg="#FDE68A",
     row_paused_accent="#D97706",
     fg_cell_muted="#BCC7D4",
+    fg_cell_inactive="#8290A3",
     fg_ratio_over="#DC2626",
     fg_ratio_opt="#16A34A",
     fg_ratio_low="#2563EB",

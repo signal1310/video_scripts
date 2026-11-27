@@ -81,6 +81,10 @@ from src.gui.table.table_grouping import (
 )
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.table_overlay_layout import TableOverlays
+from src.gui.table.table_search_highlight import (
+    SEARCH_QUERY_ATTRIBUTE,
+    SearchHighlightDelegate,
+)
 from src.gui.table.table_top_restore import TableTopRestoreController
 from src.gui.widgets.edge_fade_overlay import HorizontalEdgeFadeOverlay
 
@@ -182,6 +186,8 @@ class VideoTableView(QTableView):
 
         self.name_delegate = GroupHeaderDelegate(self)
         self.setItemDelegateForColumn(VideoTableModel.COL_NAME, self.name_delegate)
+        # - 사용자 지정 델리게이트가 없는 열도 검색 강조를 그리도록 기본 델리게이트를 둠
+        self.setItemDelegate(SearchHighlightDelegate(self))
         self.badge_delegate, self.icon_text_delegate, self._hover_tracker = install_table_delegates(self)
 
         self.filter_header = FilterHeaderView(Qt.Orientation.Horizontal, self)
@@ -212,6 +218,9 @@ class VideoTableView(QTableView):
         self.proxy_model.column_filters_changed.connect(
             self._sync_column_filter_indicators
         )
+        # - 검색어가 바뀌면 셀 강조가 같은 값을 쓰도록 뷰 속성으로 옮기고 다시 그림
+        setattr(self, SEARCH_QUERY_ATTRIBUTE, "")
+        self.proxy_model.search_text_changed.connect(self._on_search_text_changed)
 
         self.reset_columns()
         self.reset_table_sort()
@@ -222,10 +231,6 @@ class VideoTableView(QTableView):
 
         self._init_overlays()
         self.update_empty_state(total_count=0, visible_count=0)
-
-    def _sync_edge_fade_overlays(self) -> None:
-        if hasattr(self, "_overlays"):
-            self._overlays.sync_edge_fades()
 
     def _init_overlays(self) -> None:
         self._overlays = TableOverlays(self, self.filter_header.viewport())
@@ -258,15 +263,7 @@ class VideoTableView(QTableView):
 
     def update_empty_state(self, total_count: int, visible_count: int) -> None:
         """전체, 가시 행 수에 맞춰 빈 데이터 또는 필터 결과 없음 오버레이 전환"""
-        if visible_count > 0:
-            self.empty_overlay.hide()
-            self._sync_edge_fade_overlays()
-            return
-        self.empty_overlay.apply_state(total_count)
-        self._sync_empty_overlay_geometry()
-        self.empty_overlay.raise_()
-        self.empty_overlay.show()
-        self._sync_edge_fade_overlays()
+        self._overlays.update_empty_state(total_count, visible_count)
 
     def _sync_empty_overlay_geometry(self) -> None:
         if hasattr(self, "_overlays"):
@@ -465,6 +462,13 @@ class VideoTableView(QTableView):
         if col >= 0 and not self.filter_header.isSortIndicatorShown():
             self.filter_header.setSortIndicatorShown(True)
 
+    def _on_search_text_changed(self, query: str) -> None:
+        """검색어를 뷰 속성에 옮기고 표 전체를 다시 그려 셀 강조를 맞춤"""
+        setattr(self, SEARCH_QUERY_ATTRIBUTE, query)
+        viewport = self.viewport()
+        if viewport is not None:
+            viewport.update()
+
     def _sync_column_filter_indicators(self) -> None:
         active = set(self.proxy_model.get_active_column_filters())
         self.filter_header.set_active_filter_columns(active)
@@ -493,6 +497,9 @@ class VideoTableView(QTableView):
             spec=spec,
             current_rule=self.proxy_model.get_column_filter(col),
             value_counts=self.table_model.collect_column_value_counts(col) if is_cat else [],
+            special_value_counts=(
+                self.table_model.collect_column_special_value_counts(col) if is_cat else []
+            ),
             numeric_bounds=(
                 self.table_model.collect_numeric_bounds(col)
                 if is_num

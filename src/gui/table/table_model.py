@@ -19,7 +19,6 @@ from src.core.encoder_specs import get_encode_codec_label
 from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.resolution_tiers import ResolutionTier
 from src.core.workspace_paths import resolve_source_filepath
-from src.gui.constants import FONT_MONO_FAMILY, FONT_UI_FAMILY, FONT_UI_PT, make_path_font
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.column_filters import (
@@ -40,17 +39,12 @@ from src.gui.table.frame_analysis_columns import (
     is_frame_analysis_column,
 )
 from src.gui.table.row_spans import contiguous_row_ranges
+from src.gui.table.table_cell_fonts import FONT_KINDS, CellFonts
 from src.gui.table.table_cell_tooltips import FFMPEG_ARGS_NO_COMMAND_TIP, ffmpeg_args_line
 from src.gui.table.table_column_formats import (
     encode_state_badge,
     encode_state_icon_name,
     format_duration,
-)
-from src.gui.table.table_column_styles import (
-    FONT_BOLD,
-    FONT_MONO,
-    FONT_MONO_BOLD,
-    FONT_PATH,
 )
 from src.gui.table.table_columns import (
     ALIGN_RIGHT,
@@ -68,6 +62,7 @@ from src.gui.table.table_tooltips import format_output_res_tooltip, format_row_t
 from src.gui.table.table_value_collection import (
     collect_numeric_bounds,
     collect_numeric_bucket_counts,
+    collect_special_value_counts,
     collect_value_counts,
 )
 from src.gui.theme import ThemeManager
@@ -183,10 +178,7 @@ class VideoTableModel(QAbstractTableModel):
         self._frame_vr_handler: Callable[[list[VideoEvaluation], bool], None] | None = None
         self._frame_crop_handler: Callable[[list[VideoEvaluation], bool], None] | None = None
         self._frame_manual_handler: Callable[[list[VideoEvaluation], ActiveFrame | None], None] | None = None
-        self._mono_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT)
-        self._mono_bold_font = QFont(FONT_MONO_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
-        self._bold_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
-        self._path_font = make_path_font(FONT_UI_PT)
+        self._fonts = CellFonts()
 
     @classmethod
     def get_column_spec(cls, col: int) -> ColumnSpec:
@@ -418,9 +410,18 @@ class VideoTableModel(QAbstractTableModel):
         return col_def.filter_value(ev) if col_def is not None else None
 
     def collect_column_value_counts(self, col: int) -> list[tuple[str, int]]:
-        """열거형, 범주형 열에 대해 현재 데이터셋의 고유 값별 행 수 목록 반환"""
+        """열거형, 범주형 열에 대해 현재 데이터셋의 고유 값별 행 수 목록 반환
+
+        - 필터 전용 특수 항목 값은 셀 값 집합에 섞지 않고 따로 집계함
+        """
         return collect_value_counts(
-            self._evaluations, col, self.get_column_spec(col), self.get_filter_values_for
+            self._evaluations, col, self.get_column_spec(col), self.get_count_filter_values_for
+        )
+
+    def collect_column_special_value_counts(self, col: int) -> list[tuple[str, int]]:
+        """열 필터 팝오버에 따로 붙일 특수 항목별 행 수 목록"""
+        return collect_special_value_counts(
+            self._evaluations, col, self.get_special_filter_values_for
         )
 
     def collect_numeric_bounds(
@@ -626,6 +627,22 @@ class VideoTableModel(QAbstractTableModel):
                 ev.video.filename, col, crop_enabled=self._config.encode.crop_black_bars
             )
         return (self.get_filter_value_for(ev, col),)
+
+    def get_count_filter_values_for(
+        self, ev: VideoEvaluation, col: int
+    ) -> tuple[str | float | None, ...]:
+        """팝오버 값별 행 수를 셀 때 쓰는 값 목록. 필터 전용 특수 항목 값은 뺌"""
+        if is_frame_analysis_column(col):
+            return self._frame_view.counted_filter_values(
+                ev.video.filename, col, crop_enabled=self._config.encode.crop_black_bars
+            )
+        return (self.get_filter_value_for(ev, col),)
+
+    def get_special_filter_values_for(self, ev: VideoEvaluation, col: int) -> tuple[str, ...]:
+        """팝오버에 특수 항목으로 따로 붙일 값 목록"""
+        if is_frame_analysis_column(col):
+            return self._frame_view.special_filter_values(ev.video.filename, col)
+        return ()
 
     def set_previous_discard_provider(self, provider: Callable[[Sequence[VideoEvaluation], str], frozenset[str]]) -> None:
         """이전 결과 폐기 기록을 구하는 함수를 연결. 연결 뒤 데이터를 설정할 때 상태 표기가 이전 폐기를 보여 줌"""
@@ -859,9 +876,19 @@ class VideoTableModel(QAbstractTableModel):
         return icon
 
     def column_font_varies(self, col: int) -> bool:
-        """열 글꼴이 행 값에 따라 달라질 수 있는지, 값 기반 글꼴 결정 함수가 있는 열만 True"""
+        """열 글꼴이 행 값에 따라 달라질 수 있는지, 값 기반 글꼴 결정 함수가 있는 열만 True
+
+        - 화질 분석 활성 화면은 잘라내기 꺼짐 행에 취소선 글꼴을 쓰므로 행마다 달라질 수 있음
+        """
+        if col == self.COL_ACTIVE_FRAME:
+            return True
         col_def = COL_DEF_MAP.get(col)
         return col_def is not None and col_def.font_kind_getter is not None
+
+    def _strikeout_font(self, col: int) -> QFont:
+        """열 기본 글꼴에 취소선만 더한 글꼴, 열별로 한 번 만들어 재사용"""
+        col_def = COL_DEF_MAP.get(col)
+        return self._fonts.strikeout_for(col, None if col_def is None else col_def.font_kind)
 
     def data(
         self, index: QModelIndex, role: int = int(Qt.ItemDataRole.DisplayRole)
@@ -886,6 +913,13 @@ class VideoTableModel(QAbstractTableModel):
                 return col_def.align_factory(self._config)
             return col_def.align
         if role == int(Qt.ItemDataRole.FontRole):
+            if is_frame_analysis_column(col):
+                # - 잘라내기 꺼짐으로 흐려진 자동 감지 활성 화면 셀은 값 전체에 취소선을 그음
+                strike = self._frame_view.strikeout(
+                    ev.video.filename, col, crop_enabled=self._config.encode.crop_black_bars
+                )
+                if strike:
+                    return self._strikeout_font(col)
             col_def = COL_DEF_MAP.get(col)
             if col_def is None:
                 return None
@@ -894,14 +928,8 @@ class VideoTableModel(QAbstractTableModel):
                 if col_def.font_kind_getter is not None
                 else col_def.font_kind
             )
-            if font_kind == FONT_BOLD:
-                return self._bold_font
-            if font_kind == FONT_PATH:
-                return self._path_font
-            if font_kind == FONT_MONO_BOLD:
-                return self._mono_bold_font
-            if font_kind == FONT_MONO:
-                return self._mono_font
+            if font_kind in FONT_KINDS:
+                return self._fonts.for_kind(font_kind)
             return None
         if role == self.BADGE_ROLE:
             return self._badge_data(ev, col)

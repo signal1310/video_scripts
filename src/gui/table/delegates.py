@@ -19,6 +19,12 @@ from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_VR_TEXT,
 )
 from src.gui.table.table_model import VideoTableModel
+from src.gui.table.table_search_highlight import (
+    draw_cell_text,
+    paint_plain_cell_with_search,
+    paint_search_cell,
+    search_query_of,
+)
 from src.gui.theme import ThemeManager
 
 _ICON_TEXT_GAP_PX: int = 4
@@ -151,10 +157,13 @@ class PillBadgeDelegate(_PaletteDelegateBase):
             elided_text = fm.elidedText(
                 text, Qt.TextElideMode.ElideRight, int(badge_w - pad_x)
             )
-            painter.drawText(
-                pill_rect,
-                int(Qt.AlignmentFlag.AlignCenter),
+            draw_cell_text(
+                painter,
+                QRectF(pill_rect),
                 elided_text,
+                option,
+                palette=p,
+                color=self._get_color(fg_hex),
             )
             painter.restore()
             return
@@ -170,10 +179,13 @@ class PillBadgeDelegate(_PaletteDelegateBase):
             painter,
             QRect(round(content_x), round(icon_y), _CELL_ICON_PX, _CELL_ICON_PX),
         )
-        painter.drawText(
+        draw_cell_text(
+            painter,
             QRectF(content_x + icon_w, pill_rect.y(), content_w - icon_w, pill_rect.height()),
-            int(Qt.AlignmentFlag.AlignCenter),
             elided_text,
+            option,
+            palette=p,
+            color=self._get_color(fg_hex),
         )
         painter.restore()
 
@@ -228,15 +240,19 @@ class QuietDotDelegate(_PaletteDelegateBase):
 
         painter.setPen(self._get_color(badge_info[1]))
         elided = fm.elidedText(text, Qt.TextElideMode.ElideRight, text_w)
-        painter.drawText(
-            QRect(
+        draw_cell_text(
+            painter,
+            QRectF(
                 start_x + dot + _QUIET_DOT_GAP_PX,
                 option.rect.y(),
                 text_w,
                 option.rect.height(),
             ),
-            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             elided,
+            option,
+            palette=p,
+            color=self._get_color(badge_info[1]),
+            alignment=int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
         )
         painter.restore()
 
@@ -281,10 +297,13 @@ class PlainTextDelegate(_PaletteDelegateBase):
         elided = fm.elidedText(
             text, Qt.TextElideMode.ElideRight, max(text_rect.width(), 0)
         )
-        painter.drawText(
-            text_rect,
-            int(Qt.AlignmentFlag.AlignCenter),
+        draw_cell_text(
+            painter,
+            QRectF(text_rect),
             elided,
+            option,
+            palette=p,
+            color=color,
         )
         painter.restore()
 
@@ -337,7 +356,14 @@ class OutlineChipDelegate(_PaletteDelegateBase):
         elided = fm.elidedText(
             text, Qt.TextElideMode.ElideRight, max(int(chip_w - _CHIP_PAD_X_PX), 1)
         )
-        painter.drawText(chip_rect, int(Qt.AlignmentFlag.AlignCenter), elided)
+        draw_cell_text(
+            painter,
+            QRectF(chip_rect),
+            elided,
+            option,
+            palette=p,
+            color=self._get_color(p.text_secondary),
+        )
         painter.restore()
 
 
@@ -359,7 +385,9 @@ class IconTextDelegate(_PaletteDelegateBase):
         icon = index.data(Qt.ItemDataRole.DecorationRole)
         text: str | None = index.data(Qt.ItemDataRole.DisplayRole)
         if not isinstance(icon, QIcon) or icon.isNull() or not text:
-            super().paint(painter, option, index)
+            # - 아이콘 없는 값(크기 글자, 감지 실패 등)도 다른 열처럼 검색어를 강조
+            if not paint_search_cell(painter, option, index, ThemeManager().current_palette):
+                super().paint(painter, option, index)
             return
 
         p = ThemeManager().current_palette
@@ -390,10 +418,14 @@ class IconTextDelegate(_PaletteDelegateBase):
             text_w,
             option.rect.height(),
         )
-        painter.drawText(
-            text_rect,
-            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+        draw_cell_text(
+            painter,
+            QRectF(text_rect),
             elided_text,
+            option,
+            palette=p,
+            color=fg_color,
+            alignment=int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
         )
         painter.restore()
 
@@ -464,10 +496,14 @@ class ActiveFrameDelegate(IconTextDelegate):
                 painter,
                 QRect(round(content_x), round(icon_y), _CELL_ICON_PX, _CELL_ICON_PX),
             )
-        painter.drawText(
+        draw_cell_text(
+            painter,
             QRectF(content_x + icon_w, pill_rect.y(), content_w - icon_w, pill_rect.height()),
-            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             elided,
+            option,
+            palette=p,
+            color=self._get_color(fg_hex),
+            alignment=int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
         )
         painter.restore()
 
@@ -502,7 +538,15 @@ class NameAccentDelegate(ClipTextDelegate):
         """
         if painter is None:
             return
-        super().paint(painter, option, index)
+        palette = ThemeManager().current_palette
+        query = search_query_of(cast("QWidget | None", option.widget))
+        if not (
+            query
+            and paint_plain_cell_with_search(
+                painter, option, index, query=query, palette=palette, elide=False
+            )
+        ):
+            super().paint(painter, option, index)
         accent: QColor | None = index.data(VideoTableModel.ACCENT_ROLE)
         if not isinstance(accent, QColor):
             return

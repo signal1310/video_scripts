@@ -5,6 +5,7 @@
 
 from collections import Counter
 from collections.abc import Callable, Sequence
+from typing import Any
 
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
@@ -15,6 +16,24 @@ from src.gui.table.table_columns import COL_DEF_MAP
 
 FilterValueGetter = Callable[[VideoEvaluation, int], str | float | None]
 FilterValuesGetter = Callable[[VideoEvaluation, int], Sequence[str | float | None]]
+SpecialValuesGetter = Callable[[VideoEvaluation, int], Sequence[str]]
+
+
+def collect_special_value_counts(
+    evaluations: Sequence[VideoEvaluation],
+    col: int,
+    get_special_values: SpecialValuesGetter,
+    sort_key: Callable[[str], Any] | None = None,
+) -> list[tuple[str, int]]:
+    """필터 전용 특수 항목별 행 수 목록
+
+    - 셀 값 집합에는 섞지 않고, 팝오버에서 특수 항목으로 따로 보여 줄 때만 씀
+    """
+    counts: Counter[str] = Counter()
+    for ev in evaluations:
+        counts.update(get_special_values(ev, col))
+    key = sort_key or natural_sort_key
+    return sorted(counts.items(), key=lambda item: key(item[0]))
 
 
 def collect_value_counts(

@@ -52,6 +52,7 @@ class ColumnFilterPopover(FloatingPopupFrame):
         spec: ColumnSpec,
         current_rule: ColumnFilterRule | None = None,
         value_counts: list[tuple[str, int]] | None = None,
+        special_value_counts: list[tuple[str, int]] | None = None,
         numeric_bounds: tuple[float | None, float | None, int] = (None, None, 0),
         number_bucket_counts: list[tuple[str, str, int]] | None = None,
         toggle_rect_global: QRect | None = None,
@@ -65,6 +66,8 @@ class ColumnFilterPopover(FloatingPopupFrame):
         self._col = col
         self._spec = spec
         self._value_counts = list(value_counts or [])
+        # - 셀 값 집합과 섞지 않는 필터 전용 특수 항목(구간별 여백 차이 존재), 목록 맨 뒤에 붙임
+        self._special_value_counts = list(special_value_counts or [])
         self._numeric_bounds = numeric_bounds
         self._number_bucket_counts = list(number_bucket_counts or [])
         if toggle_rect_global is not None:
@@ -93,6 +96,9 @@ class ColumnFilterPopover(FloatingPopupFrame):
             items = [
                 (val, val or "(비어 있음)", count) for val, count in self._value_counts
             ]
+            items.extend(
+                (val, val, count) for val, count in self._special_value_counts
+            )
             self._attach_checklist(
                 root,
                 items,

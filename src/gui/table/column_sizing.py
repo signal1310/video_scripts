@@ -58,6 +58,7 @@ MIN_COL_WIDTHS: dict[int, int] = {
     VideoTableModel.COL_REASON: 74,
     VideoTableModel.COL_OUT_BITRATE: 50,
     VideoTableModel.COL_FFMPEG_ARGS: 90,
+    VideoTableModel.COL_ENCODE_STATE: 64,
 }
 # - 값 목록이 고정된 열은 표본 행 대신 목록 전체의 폭으로 잼. 표본 밖 행에만 있는 긴 값이 잘리는 것을 막음
 FIXED_VALUE_COLUMNS: dict[int, tuple[str, ...]] = {
@@ -110,21 +111,6 @@ DEFAULT_HIDDEN_COLS: frozenset[int] = frozenset(
 )
 
 
-HEADER_TEXT_H_MARGIN_PX: int = 20
-
-
-def _header_text_width(view: QTableView, col: int, base_font: QFont) -> int:
-    """열 제목을 한 줄에 담는 폭"""
-    header = view.horizontalHeader()
-    model = None if header is None else header.model()
-    text = "" if model is None else str(model.headerData(col, Qt.Orientation.Horizontal) or "")
-    if not text:
-        return 0
-    bold_font = QFont(base_font)
-    bold_font.setBold(True)
-    return QFontMetrics(bold_font).horizontalAdvance(text) + HEADER_TEXT_H_MARGIN_PX
-
-
 ICON_COLUMNS: frozenset[int] = frozenset(
     {
         VideoTableModel.COL_ROTATE,
@@ -167,10 +153,11 @@ def _compact_reduction() -> int:
 def auto_fit_visible_columns(
     model: VideoTableModel, view: QTableView, *, compact: bool = False
 ) -> dict[int, int]:
-    """보이는 열을 실제 표시 내용과 열 제목 폭에 맞춰 1회 조정하고 적용한 폭을 반환
+    """보이는 열을 표 셀에 적힌 값 폭에 맞춰 1회 조정하고 적용한 폭을 반환
 
+    - 열 제목 폭은 세지 않음. 제목이 두 줄로 줄바꿈되어도 값 폭만 따름
     - 파일명 열은 내용 폭을 NAME_COL_MAX_WIDTH로 제한하고 좁게 보기면 여백 감소분만큼 줄임
-    - 나머지 열은 내용 폭, 열 제목 폭, 최소 폭 중 큰 값을 씀
+    - 나머지 열은 내용 폭과 최소 폭 중 큰 값을 씀
     """
     header = view.horizontalHeader()
     if header is None:
@@ -184,12 +171,11 @@ def auto_fit_visible_columns(
     for col in order:
         if view.isColumnHidden(col):
             continue
-        header_w = _header_text_width(view, col, base_font)
         content_w = max(0, _displayed_content_width(model, col, base_font, cache) - reduction)
         if col == VideoTableModel.COL_NAME:
-            width = min(max(header_w, content_w), NAME_COL_MAX_WIDTH)
+            width = min(max(NAME_COL_DEFAULT_WIDTH, content_w), NAME_COL_MAX_WIDTH)
         else:
-            width = max(header_w, content_w, MIN_COL_WIDTHS.get(col, 0))
+            width = max(content_w, MIN_COL_WIDTHS.get(col, 0))
         header.resizeSection(col, width)
         applied[col] = width
     return applied

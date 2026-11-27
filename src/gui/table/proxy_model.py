@@ -27,6 +27,8 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
 
     column_filters_changed = pyqtSignal()
     sort_keys_changed = pyqtSignal()
+    # - 표 셀 검색 강조가 따라갈 지금 검색어, 강조를 그리는 델리게이트가 이 신호로 다시 그림
+    search_text_changed = pyqtSignal(str)
     # - 재평가 한 번의 시작과 끝, 그룹 프록시가 이 사이의 행 변경 신호를 모아 한 번만 다시 만듦
     filter_batch_started = pyqtSignal()
     filter_batch_finished = pyqtSignal()
@@ -34,6 +36,7 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)
         self._search_text: str = DEFAULT_FILTER_SEARCH
+        self._search_display: str = ""
         self._column_filters: dict[int, ColumnFilterRule] = {}
         # - 여백 확인 필요 칩이 켜지면 보류 영상만 남김. 열 필터와 별개로 저장하지 않음
         self._review_only: bool = False
@@ -139,9 +142,22 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         return None
 
     def set_search_text(self, text: str) -> None:
-        """검색어 필터 문자열 갱신 및 필터 재평가"""
-        self._search_text = text.strip().lower()
+        """검색어 필터 문자열 갱신 및 필터 재평가
+
+        - 표 셀 강조가 같은 값을 쓰도록 입력 표기 그대로를 신호로 알림(값이 그대로면 알리지 않음)
+        """
+        display = text.strip()
+        previous = self._search_display
+        self._search_display = display
+        self._search_text = display.lower()
+        if display != previous:
+            self.search_text_changed.emit(display)
         self._refilter()
+
+    @property
+    def search_text(self) -> str:
+        """지금 적용 중인 검색어(사용자가 입력한 표기 그대로)"""
+        return self._search_display
 
     def set_column_filter(self, col: int, rule: ColumnFilterRule | None) -> None:
         """지정 열의 동적 필터 조건을 설정하거나 비활성 시 제거"""

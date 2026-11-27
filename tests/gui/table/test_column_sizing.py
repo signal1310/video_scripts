@@ -36,6 +36,7 @@ from src.gui.table.column_sizing import (
     CONTENT_SAMPLE_ROWS,
     DEFAULT_HIDDEN_COLS,
     ICON_CELL_EXTRA_PX,
+    MIN_COL_WIDTHS,
     NAME_COL_DEFAULT_WIDTH,
     NAME_COL_MAX_WIDTH,
     NORMAL_ROW_HEIGHT_PX,
@@ -199,7 +200,7 @@ class _TableViewFixture:
 
 
 class AutoFitVisibleColumnsTests(unittest.TestCase):
-    """모든 열 크기 맞춤이 보이는 열만 실측 폭으로 조정하는지 검증"""
+    """모든 열 너비 맞춤이 보이는 열만 실측 폭으로 조정하는지 검증"""
 
     def test_visible_columns_get_measured_widths_and_hidden_columns_are_skipped(self) -> None:
         view = _TableViewFixture.build()
@@ -229,6 +230,20 @@ class AutoFitVisibleColumnsTests(unittest.TestCase):
         compact = auto_fit_visible_columns(model, view, compact=True)
         self.assertLessEqual(compact[VideoTableModel.COL_ACTION], normal[VideoTableModel.COL_ACTION])
 
+    def test_header_text_width_is_not_counted(self) -> None:
+        """열 제목 폭이 셀 값 폭보다 넓어도 제목 폭을 세지 않고 값 폭에 맞추는지 검증"""
+        view = _TableViewFixture.build()
+        model = view.model()
+        assert isinstance(model, VideoTableModel)
+        col = VideoTableModel.COL_TARGET_RATIO
+        header_text = str(model.headerData(col, Qt.Orientation.Horizontal, int(Qt.ItemDataRole.DisplayRole)) or "")
+        self.assertTrue(header_text)
+        bold = QFont()
+        bold.setBold(True)
+        header_width = QFontMetrics(bold).horizontalAdvance(header_text)
+        applied = auto_fit_visible_columns(model, view)
+        self.assertLess(applied[col], header_width)
+
 
 class CompactModeTests(unittest.TestCase):
     """좁게 보기가 QSS 속성과 행 높이를 함께 바꾸는지 검증"""
@@ -251,3 +266,12 @@ class CompactModeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class EveryColumnHasMinimumWidthTests(unittest.TestCase):
+    """셀 값만으로 맞춰도 헤더가 잘리지 않도록 이름 열 밖의 모든 열에 최소 폭이 있는지 검증"""
+
+    def test_every_model_column_has_a_minimum_width(self) -> None:
+        model = VideoTableModel()
+        missing = [col for col in range(model.columnCount()) if col not in MIN_COL_WIDTHS]
+        self.assertEqual(missing, [])

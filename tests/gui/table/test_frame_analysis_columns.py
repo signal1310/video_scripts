@@ -12,6 +12,7 @@ from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_FAILED_TEXT,
     ACTIVE_FRAME_FULL_TEXT,
     ACTIVE_FRAME_KEEP_FULL_TEXT,
+    ACTIVE_FRAME_MARGINS_VARY_TEXT,
     ACTIVE_FRAME_VR_TEXT,
     CROP_REVIEW_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
@@ -135,9 +136,9 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         self.assertIn("화질 분석 전", active_frame_tooltip(None))
         self.assertIn("축소 후보는 정상 측정", active_frame_tooltip(_result(vr=True)))
         self.assertIn(
-            "검은 띠를 뺀", active_frame_tooltip(_result(active=ActiveRegion(1920, 800, 0, 140, True)))
+            "검은 여백을 뺀", active_frame_tooltip(_result(active=ActiveRegion(1920, 800, 0, 140, True)))
         )
-        self.assertIn("검은 띠가 없어", active_frame_tooltip(_result()))
+        self.assertIn("검은 여백이 없어", active_frame_tooltip(_result()))
 
     def test_crop_off_tooltip_says_the_bars_will_not_be_cropped(self) -> None:
         """검은 여백 잘라내기를 끄면 활성 화면 크기 툴팁이 자르지 않는다고 알리는지 검증"""
@@ -191,7 +192,7 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
             active=ActiveRegion(1920, 1080, 0, 0, False, margins_vary=True),
         )
         self.assertIn(_MARGINS_VARY_SENTENCE, active_frame_tooltip(varying))
-        self.assertIn("검은 띠가 없어", active_frame_tooltip(varying))
+        self.assertIn("검은 여백이 없어", active_frame_tooltip(varying))
         self.assertNotIn(_MARGINS_VARY_SENTENCE, active_frame_tooltip(_result()))
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": varying})
@@ -285,7 +286,7 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         """전체 화질 분석의 측정 불가는 감지 실패가 아니므로 활성 화면 문구를 바꾸지 않음"""
         result = _result(unmeasurable=True, candidate=None)
         self.assertEqual(active_frame_text(result), ACTIVE_FRAME_FULL_TEXT)
-        self.assertIn("검은 띠가 없어", active_frame_tooltip(result))
+        self.assertIn("검은 여백이 없어", active_frame_tooltip(result))
 
     def test_failed_crop_only_metric_tooltip_replaces_detection_notice(self) -> None:
         """감지에 실패한 감지 전용 행의 측정 지표 툴팁이 감지 성공 안내를 쓰지 않는지 검증"""
@@ -408,7 +409,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), "1600x1000")
         self.assertEqual(
             view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN),
-            "검은 띠를 뺀 활성 화면 크기입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다.",
+            "검은 여백을 뺀 활성 화면 크기입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다.",
         )
 
     def test_manual_active_frame_is_shown_with_extra_tooltip_sentence(self) -> None:
@@ -475,12 +476,15 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
         self.assertEqual(
             view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE, crop_enabled=False),
-            _PALETTE.text_muted,
+            _PALETTE.fg_cell_inactive,
         )
+        self.assertTrue(view.strikeout("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False))
+        self.assertFalse(view.strikeout("a.mp4", ACTIVE_FRAME_COLUMN))
+        self.assertFalse(view.strikeout("b.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False))
         self.assertEqual(
             foreground_color(ev_a, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
                              encode_label=None, encode_state_col=99, crop_enabled=False),
-            _PALETTE.text_muted,
+            _PALETTE.fg_cell_inactive,
         )
         self.assertIsNone(
             foreground_color(ev_a, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
@@ -493,6 +497,8 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         )
         view.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
         self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE, crop_enabled=False))
+        # - 직접 지정 셀은 취소선도 긋지 않고 굵은 글씨로만 구분
+        self.assertFalse(view.strikeout("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False))
 
     def test_foreground_color_delegates_frame_and_output_columns(self) -> None:
         """셀 글자색 계산은 화질 분석 열과 열 정의, 인코딩 상태를 같은 규칙으로 처리"""
@@ -502,7 +508,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertEqual(
             foreground_color(ev, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
                              encode_label=None, encode_state_col=99, crop_enabled=False),
-            _PALETTE.text_muted,
+            _PALETTE.fg_cell_inactive,
         )
         # - 잘라내기를 쓰는 동안의 제외 지정은 전체 화면 유지 알약이라 흐린 글자색을 쓰지 않음
         view.set_crop_excluded(["a.mp4"])
@@ -562,6 +568,30 @@ class CropReviewMarkerTests(unittest.TestCase):
         )
         self.assertEqual(view.filter_values("b.mp4", ACTIVE_FRAME_COLUMN), ("-",))
         self.assertEqual(view.filter_values("a.mp4", QUALITY_METRIC_COLUMN), ("VMAF",))
+
+    def test_special_filter_value_adds_a_filter_only_entry(self) -> None:
+        """구간별 여백 차이 영상이 필터 전용 특수 값과 행 수로만 잡히는지 검증"""
+        varying = _result(
+            active=ActiveRegion(1836, 1008, 42, 36, True, margins_vary=True)
+        )
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": varying, "b.mp4": _result()})
+        self.assertEqual(
+            view.special_filter_values("a.mp4", ACTIVE_FRAME_COLUMN),
+            (ACTIVE_FRAME_MARGINS_VARY_TEXT,),
+        )
+        self.assertEqual(view.special_filter_values("b.mp4", ACTIVE_FRAME_COLUMN), ())
+        self.assertEqual(view.special_filter_values("a.mp4", QUALITY_METRIC_COLUMN), ())
+        # - 필터 일치 판정에는 함께 쓰고, 값별 행 수 집계에는 섞지 않음
+        self.assertIn(
+            ACTIVE_FRAME_MARGINS_VARY_TEXT,
+            view.filter_values("a.mp4", ACTIVE_FRAME_COLUMN),
+        )
+        self.assertEqual(
+            view.counted_filter_values("a.mp4", ACTIVE_FRAME_COLUMN), ("1836x1008",)
+        )
+        # - 셀 표시 문구는 크기 그대로
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), "1836x1008")
 
     def test_flag_does_not_change_cells_of_unflagged_or_reviewed_rows(self) -> None:
         view = FrameAnalysisResults()

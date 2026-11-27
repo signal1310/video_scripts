@@ -40,7 +40,6 @@ from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY
 from src.gui.styles.icons import get_icon
 from src.gui.table.column_filters import ColumnDataType
 from src.gui.table.delegates import NameAccentDelegate
-from src.gui.table.group_collapse_state import CollapsedGroupStore
 from src.gui.table.row_spans import contiguous_row_ranges
 from src.gui.table.table_columns import COL_DEF_MAP, COL_DEFS
 from src.gui.table.table_model import VideoTableModel
@@ -48,9 +47,7 @@ from src.gui.theme import ThemeManager
 
 __all__ = [
     "GroupHeaderDelegate",
-    "RowGroupingCoordinator",
     "VideoGroupProxyModel",
-    "attach_row_grouping",
     "cursor_index",
     "filename_at_row",
     "group_label",
@@ -121,6 +118,34 @@ def group_options() -> list[tuple[str, str]]:
             continue
         options.append((f"{GROUP_BY_COLUMN_PREFIX}{col_def.col_id}", col_def.menu_title))
     return options
+
+
+def visible_group_labels(proxy: Any, group_by: str) -> set[str]:
+    """지금 필터를 통과한 행이 만들 그룹 이름 집합
+
+    - 화질 분석처럼 한 행이 값을 두 개 가져도 그룹은 첫 값(표시 값) 하나로 묶임
+    - 표시 값이 빈 행은 그룹 프록시와 같은 `(값 없음)` 이름을 씀
+    """
+    column = parse_group_by_column(group_by)
+    labels: set[str] = set()
+    for row in range(proxy.rowCount()):
+        if column is None:
+            ev = proxy.data(proxy.index(row, 0), VideoTableModel.EVAL_ROLE)
+            labels.add(
+                _folder_label(ev.video.filename) if isinstance(ev, VideoEvaluation) else ROOT_GROUP_LABEL
+            )
+            continue
+        value = proxy.data(proxy.index(row, column), Qt.ItemDataRole.DisplayRole)
+        labels.add(EMPTY_GROUP_LABEL if value is None or value == "" else str(value))
+    return labels
+
+
+def group_option_counts(proxy: Any) -> dict[str, int]:
+    """행 묶기 메뉴 항목별 그룹 수. 지금 필터를 통과한 행만 셈"""
+    return {
+        key: len(visible_group_labels(proxy, key))
+        for key, _label in group_options()
+    }
 
 
 def _folder_label(filename: str) -> str:
@@ -911,86 +936,3 @@ def install_group_proxy(view: Any) -> VideoGroupProxyModel:
     model.modelReset.connect(lambda: sync_group_spans(view, model))
     sync_group_spans(view, model)
     return model
-
-
-class RowGroupingCoordinator:
-    """행 묶기 선택을 표, 필터 바 버튼, 저장 상태에 함께 반영"""
-
-    def __init__(
-        self,
-        table_view: Any,
-        filter_bar: Any,
-        ui_state: Any,
-        persist: Any,
-    ) -> None:
-        self._view = table_view
-        self._filter_bar = filter_bar
-        self._ui = ui_state
-        self._persist = persist
-        filter_bar.row_group_selected.connect(self.apply_group_by)
-        filter_bar.expand_all_groups_requested.connect(self._view.group_model.expand_all_groups)
-        filter_bar.collapse_all_groups_requested.connect(self._view.group_model.collapse_all_groups)
-        # - 필터, 검색, 정렬, 데이터 변경으로 그룹 구성이 다시 만들어지면 버튼의 그룹 수를 갱신
-        self._view.group_model.groups_rebuilt.connect(self._refresh_button)
-        self._view.group_model.collapsed_changed.connect(self._on_collapsed_changed)
-        # - 작업 폴더가 바뀌면 이전 폴더의 그룹 이름은 의미가 없으므로 접힘 기억을 함께 놓음
-        self._view.table_model.root_changed.connect(self._reset_collapsed)
-        self._collapsed_store = CollapsedGroupStore(self._view.group_model, self._ui)
-        self.sync_from_state()
-
-    @property
-    def group_by(self) -> str:
-        """지금 적용 중인 묶기 키"""
-        return self._view.group_model.group_by
-
-    def apply_group_by(self, group_by: str) -> None:
-        """사용자가 고른 묶기 키를 표와 저장 상태에 적용
-
-        - 묶기 키를 바꾸면 그룹 모델이 접힘을 버리므로 먼저 지금 키의 접힘을 저장해야 기억이 남음
-        - 새 키에 저장된 접힘이 있으면 그 그룹 체계에서만 다시 적용
-        """
-        self._collapsed_store.store()
-        self._view.group_model.set_group_by(group_by)
-        self._ui.filters.group_by = self._view.group_model.group_by
-        self._collapsed_store.restore()
-        self.sync_options()
-        self._persist()
-
-    def sync_from_state(self) -> None:
-        """저장된 묶기 키와 그 키의 접힌 그룹을 표에 적용, 숨김 열의 묶기도 그대로 유지"""
-        self._view.group_model.set_group_by(self._ui.filters.group_by)
-        self._collapsed_store.restore()
-        self.sync_options()
-
-    def _on_collapsed_changed(self) -> None:
-        """사용자가 그룹을 접거나 펼쳤으면 저장 상태에 반영하고 즉시 기록"""
-        self._collapsed_store.store()
-        self._persist()
-
-    def _reset_collapsed(self) -> None:
-        """작업 폴더 전환 시 접힘 상태와 저장값을 비워 새 폴더를 모두 펼친 상태로 보여 줌"""
-        self._collapsed_store.reset()
-        self._persist()
-
-    def sync_options(self) -> None:
-        """묶기 메뉴 항목과 버튼 글자를 지금 상태에 맞춤"""
-        self._filter_bar.set_row_group_options(group_options())
-        self._refresh_button()
-
-    def _refresh_button(self) -> None:
-        """지금 묶기 키와 그룹 수만 버튼에 반영, 메뉴는 다음에 열 때 다시 만듦"""
-        self._filter_bar.set_row_group(
-            self._view.group_model.group_by,
-            label=group_label(self._view.group_model.group_by),
-            count=self._view.group_model.group_count,
-        )
-
-
-def attach_row_grouping(
-    table_view: Any,
-    filter_bar: Any,
-    ui_state: Any,
-    persist: Any,
-) -> RowGroupingCoordinator:
-    """필터 바의 행 묶기 드롭다운을 표 그룹 프록시에 연결"""
-    return RowGroupingCoordinator(table_view, filter_bar, ui_state, persist)

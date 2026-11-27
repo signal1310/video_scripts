@@ -40,7 +40,6 @@ from src.gui.table.table_grouping import (
     GROUP_EXPANDED_ROLE,
     GROUP_HEADER_ROLE,
     GroupHeaderDelegate,
-    RowGroupingCoordinator,
     VideoGroupProxyModel,
     cursor_index,
     filename_at_row,
@@ -52,6 +51,7 @@ from src.gui.table.table_grouping import (
     sync_group_spans,
     top_row_key,
 )
+from src.gui.table.table_grouping_coordinator import RowGroupingCoordinator
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
 from src.gui.widgets.filter_bar import FilterTuningBar
@@ -664,15 +664,26 @@ class _FilterBarStub:
 
     def __init__(self) -> None:
         self.row_group_selected = self._Signal()
+        self.row_group_menu_opening = self._Signal()
         self.expand_all_groups_requested = self._Signal()
         self.collapse_all_groups_requested = self._Signal()
         self.search_edit = _SearchEditStub()
         self.options: list[tuple[str, str]] = []
+        self.counts: dict[str, int] = {}
+        self.menu_open_count: int = 0
         self.button: tuple[str, str, int] = ("", "", 0)
         self.review_filter_cleared: bool = False
 
     def set_row_group_options(self, options: list[tuple[str, str]]) -> None:
         self.options = list(options)
+
+    def set_row_group_counts(self, counts: dict[str, int]) -> None:
+        self.counts = dict(counts)
+
+    def open_menu(self) -> None:
+        """메뉴를 연 것처럼 열기 알림을 보냄"""
+        self.menu_open_count += 1
+        self.row_group_menu_opening.emit()
 
     def set_row_group(self, group_by: str, *, label: str, count: int) -> None:
         self.button = (group_by, label, count)
@@ -711,6 +722,23 @@ class RowGroupingCoordinatorTests(unittest.TestCase):
         self.assertEqual(self.bar.button, (GROUP_BY_FOLDER, "폴더", 3))
         self.assertTrue(self.persists)
         self.assertGreater(self.view.group_model.rowCount(), 4)
+
+    def test_group_counts_are_computed_once_per_menu_open(self) -> None:
+        """그룹 수를 메뉴를 열 때 한 번만 세고, 다시 열기 전에는 재사용하는지 검증"""
+        self.coordinator.sync_options()
+        self.assertEqual(self.bar.counts, {})
+        self.bar.open_menu()
+        counts = dict(self.bar.counts)
+        self.assertTrue(counts)
+        self.assertEqual(counts[GROUP_BY_FOLDER], 3)
+        # - 그룹 구성이 바뀌지 않는 동안은 다시 세지 않음
+        self.bar.counts = {}
+        self.bar.open_menu()
+        self.assertEqual(self.bar.counts, {})
+        # - 필터로 행이 줄어 그룹 구성이 바뀌면 다음에 열 때 새로 셈
+        self.view.proxy_model.set_search_text("a/one.mp4")
+        self.bar.open_menu()
+        self.assertEqual(self.bar.counts[GROUP_BY_FOLDER], 1)
 
     def test_hidden_group_column_keeps_grouping(self) -> None:
         """묶기 기준 열을 숨겨도 묶기와 저장 상태를 그대로 두는지 검증"""

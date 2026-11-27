@@ -45,3 +45,15 @@ class TableOverlays:
                 overlay.setGeometry(target_vp.rect())
                 overlay.raise_()
         self.sync_edge_fades()
+
+    def update_empty_state(self, total_count: int, visible_count: int) -> None:
+        """가시 행 수에 맞춰 빈 데이터 또는 필터 결과 없음 오버레이를 전환"""
+        if visible_count > 0:
+            self.empty.hide()
+            self.sync_edge_fades()
+            return
+        self.empty.apply_state(total_count)
+        self.sync_geometry()
+        self.empty.raise_()
+        self.empty.show()
+        self.sync_edge_fades()

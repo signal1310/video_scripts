@@ -58,7 +58,10 @@ from src.gui.table.column_sizing import (
     apply_compact_mode,
     auto_fit_visible_columns,
 )
-from src.gui.table.table_grouping import RowGroupingCoordinator, attach_row_grouping
+from src.gui.table.table_grouping_coordinator import (
+    RowGroupingCoordinator,
+    attach_row_grouping,
+)
 from src.gui.table.table_viewport_restore import attach_viewport_restore
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets import (

@@ -19,6 +19,7 @@ from src.gui.table.delegates import (
     QuietDotDelegate,
 )
 from src.gui.table.table_model import VideoTableModel
+from src.gui.table.table_search_highlight import paint_search_cell
 from src.gui.theme import ThemeManager
 
 BLUR_SCALE_FACTOR: float = 0.32
@@ -225,7 +226,10 @@ class BlurredValueDelegate(QStyledItemDelegate):
             or bool(option.state & QStyle.StateFlag.State_MouseOver)
         )
         if not isinstance(ev, VideoEvaluation) or not is_reanalysis_blurred(ev) or hovered:
-            super().paint(painter, option, index)
+            if not paint_search_cell(
+                painter, option, index, ThemeManager().current_palette
+            ):
+                super().paint(painter, option, index)
             return
         palette = ThemeManager().current_palette
         _paint_cell_background(painter, option, index, palette)

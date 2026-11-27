@@ -7,7 +7,7 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QModelIndex, Qt
-from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtGui import QColor, QFont, QIcon
 from PyQt6.QtWidgets import QApplication
 
 from src.core.analysis.frame_analysis import ActiveRegion
@@ -37,6 +37,7 @@ _ICON_PX: int = 12
 _DISPLAY = int(Qt.ItemDataRole.DisplayRole)
 _TOOLTIP = int(Qt.ItemDataRole.ToolTipRole)
 _FOREGROUND = int(Qt.ItemDataRole.ForegroundRole)
+_FONT = int(Qt.ItemDataRole.FontRole)
 _BACKGROUND = int(Qt.ItemDataRole.BackgroundRole)
 _DECORATION = int(Qt.ItemDataRole.DecorationRole)
 _ACCESSIBLE = int(Qt.ItemDataRole.AccessibleTextRole)
@@ -326,7 +327,10 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.model.set_config(config)
         color = self.model.data(index, _FOREGROUND)
         self.assertIsInstance(color, QColor)
-        self.assertEqual(color, QColor(ThemeManager().current_palette.text_muted))
+        self.assertEqual(color, QColor(ThemeManager().current_palette.fg_cell_inactive))
+        font = self.model.data(index, _FONT)
+        self.assertIsInstance(font, QFont)
+        self.assertTrue(font.strikeOut())
 
     def test_manual_active_frames_redraw_the_active_frame_column(self) -> None:
         """사용자 지정 활성 화면이 표시 값에 반영되고 활성 화면 열이 다시 그려지는지 검증"""
@@ -564,7 +568,7 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.model.set_config(config)
         self.assertEqual(self.model.data(index, _DISPLAY), "734x444")
         self.assertEqual(
-            self.model.data(index, _FOREGROUND), QColor(ThemeManager().current_palette.text_muted)
+            self.model.data(index, _FOREGROUND), QColor(ThemeManager().current_palette.fg_cell_inactive)
         )
         self.assertIsNone(self.model.data(index, _DECORATION))
         self.assertEqual(

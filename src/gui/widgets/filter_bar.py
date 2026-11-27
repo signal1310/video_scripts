@@ -48,7 +48,8 @@ GROUP_NONE_LABEL: str = "없음"
 RESET_BUTTON_TEXT: str = "필터 초기화"
 BAR_CONTROL_SIZE_PX: int = 28
 SHRINKABLE_BUTTON_MIN_WIDTH_PX: int = 44
-AUTO_FIT_LABEL: str = "모든 열 크기 맞춤"
+AUTO_FIT_LABEL: str = "모든 열 너비 맞춤"
+AUTO_FIT_TOOLTIP: str = "모든 열 너비를 셀 값에 맞춥니다."
 SEARCH_DEBOUNCE_MS: int = 150
 COMPACT_TOOLTIP: str = "셀 여백과 행 높이를 줄여 한 화면에 더 많은 영상을 표시합니다."
 ROW_GROUP_TOOLTIP: str = "영상을 폴더나 범주형 열 값으로 묶어 접을 수 있는 그룹 머리글을 표시합니다."
@@ -127,6 +128,8 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     compact_toggled = pyqtSignal(bool)
     # - 행 묶기 키(빈 문자열은 없음), 모든 그룹 펼치기/접기 요청
     row_group_selected = pyqtSignal(str)
+    # - 행 묶기 메뉴를 열기 직전 알림. 그룹 수를 처음 열 때 한 번만 다시 세도록 조율자가 받음
+    row_group_menu_opening = pyqtSignal()
     expand_all_groups_requested = pyqtSignal()
     collapse_all_groups_requested = pyqtSignal()
     # - 여백 확인 필요 칩 켜짐 여부
@@ -140,6 +143,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._disabled_count: int = 0
         self._exception_shortcut: str = DEFAULT_SHORTCUTS["edit.exception_editor"]
         self._row_group_options: list[tuple[str, str]] = []
+        self._row_group_counts: dict[str, int] = {}
         self._group_by: str = ""
         self._row_group_action_group: QActionGroup | None = None
         self._expand_groups_action: QAction | None = None
@@ -277,13 +281,13 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._row_group_menu = QMenu(self.btn_row_group)
         self._row_group_menu.setToolTipsVisible(True)
         self._row_group_actions: dict[str, QAction] = {}
-        self._row_group_menu.aboutToShow.connect(self._rebuild_row_group_actions)
+        self._row_group_menu.aboutToShow.connect(self._on_row_group_menu_opening)
         self.btn_row_group.setMenu(self._row_group_menu)
         set_button_icon(self.btn_row_group, "folder-tree", palette=get_active_palette(), size=14, pad_right=6)
 
         self.btn_auto_fit = create_icon_button(
             self,
-            AUTO_FIT_LABEL,
+            AUTO_FIT_TOOLTIP,
             self.auto_fit_requested.emit,
             accessible_name=AUTO_FIT_LABEL,
             fixed_size=BAR_CONTROL_SIZE_PX,
@@ -659,6 +663,22 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._row_group_options = list(options)
         self._rebuild_row_group_actions()
 
+    def set_row_group_counts(self, counts: dict[str, int]) -> None:
+        """행 묶기 메뉴 항목별 그룹 수를 기억하고, 항목이 이미 있으면 글자만 고침
+
+        - 0인 항목은 숫자를 붙이지 않아 아직 그룹이 없다는 사실을 이름만으로 보여 줌
+        """
+        self._row_group_counts = dict(counts)
+        labels = dict(self._row_group_options)
+        for key, act in self._row_group_actions.items():
+            if not key:
+                continue
+            label = labels.get(key, "")
+            if not label:
+                continue
+            count = self._row_group_counts.get(key, 0)
+            act.setText(f"{label} {count}" if count else label)
+
     def set_row_group(self, group_by: str, *, label: str, count: int) -> None:
         """지금 적용 중인 묶기 키를 버튼 글자와 메뉴 체크에 시그널 없이 반영
 
@@ -683,8 +703,17 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             if act is not None:
                 act.setEnabled(enabled)
 
+    def _on_row_group_menu_opening(self) -> None:
+        """메뉴를 열기 전에 그룹 수 요청을 알리고 기억해 둔 이름과 수로 항목을 채움"""
+        self.row_group_menu_opening.emit()
+        self._rebuild_row_group_actions()
+
     def _rebuild_row_group_actions(self) -> None:
-        """없음, 폴더, 범주형 열과 펼치기, 접기 항목으로 메뉴를 다시 채움"""
+        """없음, 폴더, 범주형 열과 펼치기, 접기 항목으로 메뉴를 다시 채움
+
+        - 계획: 항목 이름 뒤에 마지막으로 계산한 그룹 수를 붙이고, 0이면 숫자를 생략
+        - 메뉴를 여는 중에는 지우지 않고 체크만 바꿔 실행 중인 동작이 사라지지 않게 함
+        """
         menu = self._row_group_menu
         # - 열린 메뉴나 실행 중인 동작을 지우면 triggered 처리 중 객체가 사라지므로 다음에 열 때 다시 만듦
         if menu.isVisible() or self._row_group_emitting:
@@ -693,8 +722,11 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._row_group_actions = {}
         persistent = QActionGroup(menu)
         persistent.setExclusive(True)
-        for key, label in [("", GROUP_NONE_LABEL), *self._row_group_options]:
-            act = QAction(label, menu)
+        entries = [("", GROUP_NONE_LABEL), *self._row_group_options]
+        for key, label in entries:
+            count = self._row_group_counts.get(key, 0) if key else 0
+            text = f"{label} {count}" if count else label
+            act = QAction(text, menu)
             act.setCheckable(True)
             act.setChecked(key == self._group_by)
             act.triggered.connect(lambda _checked=False, k=key: self._on_row_group_action(k))

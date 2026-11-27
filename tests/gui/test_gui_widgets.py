@@ -1156,8 +1156,8 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertEqual(bar.btn_column_preset.text(), "열: 사용자 지정")
         self.assertFalse(any(act.isChecked() for act in bar._preset_actions.values()))
 
-        self.assertEqual(bar.btn_auto_fit.accessibleName(), "모든 열 크기 맞춤")
-        self.assertEqual(bar.btn_auto_fit.toolTip(), "모든 열 크기 맞춤")
+        self.assertEqual(bar.btn_auto_fit.accessibleName(), "모든 열 너비 맞춤")
+        self.assertEqual(bar.btn_auto_fit.toolTip(), "모든 열 너비를 셀 값에 맞춥니다.")
         self.assertFalse(bar.btn_auto_fit.icon().isNull())
         bar.btn_auto_fit.click()
         self.assertEqual(fits, [True])
@@ -1212,6 +1212,32 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertEqual(bar.btn_row_group.text(), "그룹: 없음")
         bar.apply_theme(DARK_PALETTE)
         self.assertFalse(bar.btn_row_group.icon().isNull())
+
+    def test_row_group_counts_show_numbers_only_when_non_zero(self) -> None:
+        """묶기 메뉴 항목이 `이름 숫자` 형식이고 0인 항목은 숫자를 빼는지 검증"""
+        bar = FilterTuningBar()
+        self.addCleanup(bar.close)
+        bar.set_row_group_options([("folder", "폴더"), ("column:4", "코덱")])
+        bar.set_row_group_counts({"folder": 2, "column:4": 0})
+        self.assertEqual(bar._row_group_actions["folder"].text(), "폴더 2")
+        self.assertEqual(bar._row_group_actions["column:4"].text(), "코덱")
+        self.assertEqual(bar._row_group_actions[""].text(), "없음")
+        # - 메뉴를 새로 만들지 않고 글자만 바꾸므로 기준 객체가 그대로 남음
+        first = bar._row_group_actions["folder"]
+        bar.set_row_group_counts({"folder": 5})
+        self.assertIs(bar._row_group_actions["folder"], first)
+        self.assertEqual(first.text(), "폴더 5")
+        self.assertEqual(bar._row_group_actions["column:4"].text(), "코덱")
+
+    def test_row_group_menu_opening_emits_once_per_open(self) -> None:
+        """메뉴를 열 때마다 조율자에게 그룹 수 계산을 요청하는지 검증"""
+        bar = FilterTuningBar()
+        self.addCleanup(bar.close)
+        openings: list[bool] = []
+        bar.row_group_menu_opening.connect(lambda: openings.append(True))
+        bar._row_group_menu.aboutToShow.emit()
+        bar._row_group_menu.aboutToShow.emit()
+        self.assertEqual(openings, [True, True])
 
     def test_row_group_action_survives_rebuild_during_trigger(self) -> None:
         """묶기 메뉴 동작 실행 중 상태를 다시 반영해도 실행 중인 동작 객체가 살아 있는지 검증

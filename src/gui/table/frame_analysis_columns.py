@@ -30,6 +30,8 @@ FRAME_ANALYSIS_COLUMNS: frozenset[int] = frozenset(
 ACTIVE_FRAME_FULL_TEXT: str = "-"
 ACTIVE_FRAME_VR_TEXT: str = "VR 보호"
 ACTIVE_FRAME_FAILED_TEXT: str = "감지 실패"
+# - 활성 화면 열 필터에만 있는 특수 항목. 셀 값 집합에는 넣지 않고 필터 전용으로 붙임
+ACTIVE_FRAME_MARGINS_VARY_TEXT: str = "구간별 여백 차이 존재"
 # - 영상별 잘라내기 제외로 전체 화면을 쓰는 행의 표시 문구. 미리 보기 창의 같은 버튼 문구와 같지만
 #   gui.table이 gui.preview를 임포트하지 않도록 표 층에 따로 둠(TERMINOLOGY 6.17절)
 ACTIVE_FRAME_KEEP_FULL_TEXT: str = "전체 화면 유지"
@@ -63,9 +65,9 @@ _NO_RESULT_TIP: str = (
     "분석 메뉴에서 선택 영상 화질 분석이나 전체 영상 화질 분석을 실행하세요."
 )
 _ACTIVE_FRAME_TIP: str = (
-    "검은 띠를 뺀 활성 화면 크기입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다."
+    "검은 여백을 뺀 활성 화면 크기입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다."
 )
-_ACTIVE_FRAME_FULL_TIP: str = "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."
+_ACTIVE_FRAME_FULL_TIP: str = "검은 여백이 없어 전체 화면을 활성 화면으로 씁니다."
 # - 검은 여백 감지 자체가 실패했을 때. 다시 감지하면 재시도한다는 사실까지 알림
 _ACTIVE_FRAME_FAILED_TIP: str = (
     "검은 여백을 감지하지 못했습니다. 영상을 읽지 못한 지점이 있어 전체 화면을 그대로 씁니다. "
@@ -79,7 +81,7 @@ _ACTIVE_FRAME_KEEP_FULL_TIP: str = (
 )
 # - 설정이 꺼져 있으면 감지한 크기를 보고하되 잘라내지는 않음을 같은 사유 툴팁으로 알림
 _ACTIVE_FRAME_CROP_OFF_TIP: str = (
-    "검은 여백 잘라내기 설정이 꺼져 있어 인코딩할 때 검은 띠를 자르지 않습니다."
+    "검은 여백 잘라내기 설정이 꺼져 있어 인코딩할 때 검은 여백을 자르지 않습니다."
 )
 # - 사용자 지정 활성 화면은 자동 감지 결과를 덮어쓴 상태임을 알리는 한 문장
 _ACTIVE_FRAME_MANUAL_TIP: str = "사용자 지정 활성 화면입니다."
@@ -102,7 +104,7 @@ _ACTIVE_FRAME_MARGINS_VARY_TIP: str = (
     "미리 보기에서 직접 지정할 수 있습니다."
 )
 _ACTIVE_FRAME_VR_TIP: str = (
-    "VR 영상으로 보호하고 있습니다. 검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
+    "VR 영상으로 보호하고 있습니다. 검은 여백 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
 )
 _SSIM_SUBSTITUTE_TIP: str = (
     "VMAF를 쓸 수 없어 SSIM으로 대신 쟀습니다. "
@@ -463,10 +465,35 @@ class FrameAnalysisResults:
         """
         return self.display(filename, col, crop_enabled=crop_enabled)
 
+    def special_filter_values(self, filename: str, col: int) -> tuple[str, ...]:
+        """팝오버에 필터 전용 특수 항목으로 따로 보여 줄 값
+
+        - 셀 값 집합에는 섞지 않고, 필터 일치 판정에만 함께 씀
+        """
+        if col != ACTIVE_FRAME_COLUMN:
+            return ()
+        result = self._results.get(filename)
+        if result is not None and result.active_region.margins_vary:
+            return (ACTIVE_FRAME_MARGINS_VARY_TEXT,)
+        return ()
+
     def filter_values(
         self, filename: str, col: int, *, crop_enabled: bool = True
     ) -> tuple[str, ...]:
-        """화질 분석 열의 필터 값 목록. 활성 화면 열은 여백 확인 필요 영상에 이름 값을 하나 더 둠"""
+        """화질 분석 열의 필터 값 목록. 활성 화면 열은 여백 확인 필요 영상에 이름 값을 하나 더 둠
+
+        - 구간마다 여백이 달라 합집합으로만 잡힌 영상은 특수 항목 값도 함께 가져
+          팝오버에서 그 항목 하나만 골라 모아 볼 수 있게 함(셀 표시 문구는 그대로)
+        """
+        value = self.display(filename, col, crop_enabled=crop_enabled)
+        if col == ACTIVE_FRAME_COLUMN and self.is_review_flagged(filename):
+            return (value, CROP_REVIEW_TEXT, *self.special_filter_values(filename, col))
+        return (value, *self.special_filter_values(filename, col))
+
+    def counted_filter_values(
+        self, filename: str, col: int, *, crop_enabled: bool = True
+    ) -> tuple[str, ...]:
+        """팝오버 값별 행 수를 셀 때 쓰는 값 목록. 특수 항목 값을 빼고 셈"""
         value = self.display(filename, col, crop_enabled=crop_enabled)
         if col == ACTIVE_FRAME_COLUMN and self.is_review_flagged(filename):
             return (value, CROP_REVIEW_TEXT)
@@ -515,6 +542,20 @@ class FrameAnalysisResults:
             return downscale_candidate_tooltip(result)
         return quality_metric_tooltip(result)
 
+    def strikeout(self, filename: str, col: int, *, crop_enabled: bool = True) -> bool:
+        """활성 화면 셀에 취소선을 그을지 여부
+
+        - 잘라내기 설정이 꺼져 있고 검은 띠가 있는 자동 감지 셀만 해당
+        - 사용자 지정 셀은 굵은 글씨로만 구분하고 취소선을 긋지 않음
+        - 검은 띠가 없는 `전체` 행은 흐림과 취소선 없이 그대로 둠
+        """
+        if col != ACTIVE_FRAME_COLUMN or crop_enabled:
+            return False
+        if self.manual_frame(filename) is not None:
+            return False
+        result = self._results.get(filename)
+        return result is not None and result.active_region.has_black_bars
+
     def foreground(
         self,
         filename: str,
@@ -527,16 +568,11 @@ class FrameAnalysisResults:
 
         - 사용자 지정 활성 화면은 제외 지정보다 우선하므로 흐리게 표시하지 않음
         - 잘라내기를 쓰는 동안 제외 지정 행은 전체 화면 유지 알약으로 바뀌므로 흐리게 두지 않음
-        - 잘라내기 설정이 꺼져 있으면 검은 띠가 있는 행을 같은 사유 툴팁과 함께 흐리게 표시
+        - 잘라내기 설정이 꺼져 있으면 검은 띠가 있는 행을 취소선과 함께 옅은 글자로 표시
         """
-        if col != ACTIVE_FRAME_COLUMN or self.manual_frame(filename) is not None:
+        if not self.strikeout(filename, col, crop_enabled=crop_enabled):
             return None
-        if crop_enabled:
-            return None
-        result = self._results.get(filename)
-        if result is None or not result.active_region.has_black_bars:
-            return None
-        return palette.text_muted
+        return palette.fg_cell_inactive
 
 
 def is_frame_analysis_column(col: int) -> bool:

@@ -27,7 +27,7 @@ _CROP_EXCLUDE_LABEL: str = "검은 여백 잘라내기 제외"
 _COMPARE_LABEL: str = "화질 비교..."
 _COMPARE_ICON: str = "compare"
 _VR_PROTECT_TIP: str = (
-    "검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
+    "검은 여백 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
 )
 _CROP_EXCLUDE_TIP: str = (
     "검은 여백이 감지되어도 이 영상은 인코딩할 때 검은 여백을 잘라내지 않습니다."

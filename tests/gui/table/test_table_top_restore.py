@@ -354,7 +354,7 @@ class TestTableTopRestore(GuiTestCase):
 
     def test_saved_collapsed_group_is_applied_before_the_anchor_resolves(self) -> None:
         """저장한 접힘이 첫 행 구성에서 기준 영상보다 먼저 적용되어 기준 영상이 머리글 바로 아래에 남음을 검증"""
-        from src.gui.table.table_grouping import RowGroupingCoordinator
+        from src.gui.table.table_grouping_coordinator import RowGroupingCoordinator
         from src.gui.widgets.filter_bar import FilterTuningBar
 
         view = VideoTableView()

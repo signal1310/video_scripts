@@ -49,6 +49,16 @@ class ProxyModelTests(unittest.TestCase):
         self.proxy.clear_all_column_filters()
         self.assertEqual(self.proxy.active_column_filter_count(), 0)
 
+    def test_search_text_signal_carries_the_typed_text(self) -> None:
+        """검색어가 바뀌면 표기 그대로를 한 번만 알리고 같은 값은 다시 알리지 않는지 검증"""
+        received: list[str] = []
+        self.proxy.search_text_changed.connect(received.append)
+        self.proxy.set_search_text("  B.MKV  ")
+        self.proxy.set_search_text("  B.MKV  ")
+        self.proxy.set_search_text("")
+        self.assertEqual(received, ["B.MKV", ""])
+        self.assertEqual(self.proxy.search_text, "")
+
     def test_sort_stack_is_delegated_to_source_model(self) -> None:
         from PyQt6.QtCore import Qt
 

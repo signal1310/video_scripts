@@ -118,11 +118,11 @@ def build_view_menu(
     preset_menu.addAction(act_reset_column_preset)
 
     act_fit_all_columns = ctx.create_action(
-        "모든 열 크기 맞춤",
+        "모든 열 너비 맞춤",
         callbacks.on_fit_all_columns or (lambda: None),
         action_id="view.fit_all_columns",
         icon_name="move-horizontal",
-        status_tip="보이는 모든 열 폭을 실제 표시 내용과 열 제목에 맞춰 한 번 조정합니다.",
+        status_tip="모든 열 너비를 셀 값에 맞춥니다.",
     )
     act_compact_table = ctx.create_action(
         "좁게 보기",

@@ -32,6 +32,10 @@ _VOLUME_ROOT_BUFFER_SIZE: int = 1024
 _REMOTE_NAME_BUFFER_SIZE: int = 1024
 # 드라이브 문자에 다른 볼륨이 연결된 경우까지 반영하도록 식별자 캐시는 짧게 유지
 _VOLUME_ID_CACHE_TTL_SECONDS: float = 60.0
+# 마운트 루트 조회는 파일마다 부르면 비용이 커서 같은 폴더의 파일이 결과를 나눠 쓰도록 캐시
+_VOLUME_ROOT_CACHE_TTL_SECONDS: float = _VOLUME_ID_CACHE_TTL_SECONDS
+# 폴더가 아주 많으면 캐시가 계속 커지므로 상한을 넘으면 비움(다시 채우는 비용이 조회 한 번)
+_VOLUME_ROOT_CACHE_MAX_ENTRIES: int = 4096
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +52,7 @@ class VolumeLocation:
 
 
 _CACHE: dict[str, tuple[tuple[str, str], float]] = {}
+_VOLUME_ROOT_CACHE: dict[str, tuple[str | None, float]] = {}
 _CACHE_LOCK = threading.Lock()
 
 
@@ -79,6 +84,32 @@ def _volume_root(path: str) -> str | None:
     if not kernel32().GetVolumePathNameW(path, buffer, len(buffer)) or not buffer.value:
         return None
     return buffer.value
+
+
+def _cached_volume_root(path: str) -> str | None:
+    """경로가 속한 마운트 루트를 같은 폴더의 다른 경로와 나눠 쓰는 조회
+
+    - `GetVolumePathNameW`는 폴더 안 어느 경로를 넘겨도 그 볼륨의 마운트 루트를 돌려주므로 폴더 단위로 캐시
+      (파일마다 호출하면 시작 복원처럼 파일이 많은 경로에서 조회 시간이 파일 수에 비례해 늘어남)
+    - 조회한 경로 자신이 탑재 지점이면(그 경로가 마운트 루트) 폴더 키로 값을 나눠 쓰면 그 폴더에 놓인 다른 경로가 잘못된 루트를 받으므로 캐시하지 않음
+    - 실패 결과(None)는 그 폴더의 모든 경로에 같은 값이므로 캐시
+    """
+    folder_key = ntpath.normcase(ntpath.dirname(path))
+    now = _clock()
+    with _CACHE_LOCK:
+        cached = _VOLUME_ROOT_CACHE.get(folder_key)
+    if cached is not None and now - cached[1] < _VOLUME_ROOT_CACHE_TTL_SECONDS:
+        return cached[0]
+    root = _volume_root(path)
+    if root is not None and ntpath.normcase(_strip_trailing_separator(root)) == ntpath.normcase(
+        _strip_trailing_separator(path)
+    ):
+        return root
+    with _CACHE_LOCK:
+        if len(_VOLUME_ROOT_CACHE) >= _VOLUME_ROOT_CACHE_MAX_ENTRIES:
+            _VOLUME_ROOT_CACHE.clear()
+        _VOLUME_ROOT_CACHE[folder_key] = (root, now)
+    return root
 
 
 def _strip_trailing_separator(root: str) -> str:
@@ -183,7 +214,7 @@ def _windows_volume_location(path: str) -> VolumeLocation:
         if share_root is not None:
             volume_id, base = _volume_identity(share_root)
             return VolumeLocation(volume_id, _join_relative(base, _relative_path(path, share_root)))
-    kernel_root = _volume_root(path)
+    kernel_root = _cached_volume_root(path)
     if kernel_root is not None and _is_path_root(path, kernel_root):
         volume_id, base = _volume_identity(kernel_root)
         return VolumeLocation(volume_id, _join_relative(base, _relative_path(path, kernel_root)))
@@ -313,6 +344,7 @@ def _posix_relative_path(path: str, root: str) -> str:
 
 
 def clear_volume_cache() -> None:
-    """볼륨 식별자 캐시를 비움(테스트 격리와 볼륨 구성 변경 후 사용)"""
+    """볼륨 식별자와 마운트 루트 캐시를 비움(테스트 격리와 볼륨 구성 변경 후 사용)"""
     with _CACHE_LOCK:
         _CACHE.clear()
+        _VOLUME_ROOT_CACHE.clear()

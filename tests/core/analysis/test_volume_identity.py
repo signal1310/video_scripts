@@ -281,6 +281,88 @@ class TestVolumeLocation(unittest.TestCase):
         volume_location("E:" + _BACKSLASH + "Other" + _BACKSLASH + "B.MP4")
         self.assertEqual(kernel.serial_calls, [_DRIVE_ROOT])
 
+    def test_mount_root_lookup_runs_once_for_files_in_one_folder(self) -> None:
+        """한 폴더의 파일 여러 개를 조회할 때 마운트 루트 조회가 한 번만 실행되는지 확인
+
+        - 파일마다 GetVolumePathNameW를 부르면 시작 복원과 분석이 파일 수에 비례해 느려짐
+        """
+        kernel = _FakeKernel32(root=_DRIVE_ROOT)
+        self._patched(kernel)
+        locations = [
+            volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + name)
+            for name in ("A.MP4", "B.MP4", "C.MP4", "D.MP4")
+        ]
+        self.assertEqual(
+            [location.volume_path for location in locations],
+            ["clips/a.mp4", "clips/b.mp4", "clips/c.mp4", "clips/d.mp4"],
+        )
+        self.assertEqual(kernel.root_calls, ["E:" + _BACKSLASH + "Clips" + _BACKSLASH + "A.MP4"])
+
+    def test_mount_root_lookup_is_repeated_per_folder(self) -> None:
+        """폴더가 다르면 마운트 루트 조회를 따로 하는지 확인(폴더 단위 캐시)"""
+        kernel = _FakeKernel32(root=_DRIVE_ROOT)
+        self._patched(kernel)
+        volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + "A.MP4")
+        volume_location("E:" + _BACKSLASH + "Other" + _BACKSLASH + "A.MP4")
+        self.assertEqual(
+            kernel.root_calls,
+            [
+                "E:" + _BACKSLASH + "Clips" + _BACKSLASH + "A.MP4",
+                "E:" + _BACKSLASH + "Other" + _BACKSLASH + "A.MP4",
+            ],
+        )
+
+    def test_failed_mount_root_lookup_is_cached_per_folder(self) -> None:
+        """마운트 루트 조회 실패도 폴더 단위로 캐시해 같은 폴더에서 다시 부르지 않는지 확인"""
+        kernel = _FakeKernel32(root=None)
+        self._patched(kernel)
+        first = volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + "A.MP4")
+        second = volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + "B.MP4")
+        self.assertEqual(first.volume_id, second.volume_id)
+        self.assertEqual((first.volume_path, second.volume_path), ("clips/a.mp4", "clips/b.mp4"))
+        self.assertEqual(len(kernel.root_calls), 1)
+
+    def test_mount_point_folder_result_is_not_shared_with_its_parent_folder(self) -> None:
+        """탑재 폴더 경로를 조회한 결과를 그 상위 폴더의 다른 경로에 쓰지 않는지 확인
+
+        - 탑재 폴더 경로는 상위 폴더와 같은 폴더 키를 갖게 되어, 결과를 캐시하면 상위 폴더의 파일이
+          탑재 폴더가 아닌 마운트 루트를 받아 경로 기반 식별자로 떨어짐
+        """
+        mount_root = "E:" + _BACKSLASH + "Clips" + _BACKSLASH + "Sub"
+
+        def _root(path: str) -> str:
+            return mount_root + _BACKSLASH if path.endswith("Sub") else _DRIVE_ROOT
+
+        kernel = _FakeKernel32(root=_root)
+        self._patched(kernel)
+        self.assertEqual(volume_location(mount_root), volume_identity.VolumeLocation(_DRIVE_ID, ""))
+        sibling = volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + "A.MP4")
+        self.assertEqual(sibling, volume_identity.VolumeLocation(_DRIVE_ID, "clips/a.mp4"))
+        self.assertEqual(len(kernel.root_calls), 2)
+
+    def test_mount_root_lookup_cache_is_bounded(self) -> None:
+        """폴더가 상한을 넘으면 마운트 루트 캐시를 비워 계속 커지지 않는지 확인"""
+        kernel = _FakeKernel32(root=_DRIVE_ROOT)
+        self._patched(kernel)
+        with patch(f"{_MOD}._VOLUME_ROOT_CACHE_MAX_ENTRIES", 1):
+            volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + "A.MP4")
+            volume_location("E:" + _BACKSLASH + "Other" + _BACKSLASH + "A.MP4")
+            volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + "B.MP4")
+        self.assertEqual(len(kernel.root_calls), 3)
+
+    def test_mount_root_lookup_cache_expires(self) -> None:
+        """캐시 수명이 지나면 마운트 루트를 다시 조회하는지 확인(드라이브 재연결 반영)"""
+        root = "E:" + _BACKSLASH
+        kernel = _FakeKernel32(root=root)
+        self._patched(kernel)
+        now = [1000.0]
+        with patch(f"{_MOD}._clock", side_effect=lambda: now[0]):
+            volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + "A.MP4")
+            volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + "B.MP4")
+            now[0] += volume_identity._VOLUME_ROOT_CACHE_TTL_SECONDS + 1
+            volume_location("E:" + _BACKSLASH + "Clips" + _BACKSLASH + "C.MP4")
+        self.assertEqual(len(kernel.root_calls), 2)
+
     def test_reassigned_drive_letter_reloads_volume_id_after_ttl(self) -> None:
         """드라이브 문자에 다른 볼륨이 연결되면 캐시 수명이 지난 뒤 새 일련 번호로 식별하는지 확인"""
         kernel = _FakeKernel32(root=_DRIVE_ROOT, serial=0x11111111)

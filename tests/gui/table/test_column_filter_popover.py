@@ -289,6 +289,56 @@ class TestColumnFilterPopover(GuiTestCase):
             self.assertEqual(events, [(_COL, ColumnFilterRule(text_query="pending"))])
             self.assertFalse(popover.isVisible())
 
+    def test_quality_value_null_modes_are_selectable(self) -> None:
+        """품질값 없음 열에서 값 없음만/측정된 값만 고를 수 있고 그 규칙이 만들어짐을 검증"""
+        spec = ColumnSpec(_COL, ColumnDataType.NUMBER, decimals=0, filter_step=0.1, nullable_label="품질값 없음")
+        popover = self._popover(spec, bounds=(None, None, 3))
+        combo = _need(popover.combo_null_mode)
+        self.assertEqual([combo.itemText(i) for i in range(combo.count())], [
+            "기본 (조건 입력 시 제외)",
+            "품질값 없음 포함",
+            "측정된 항목만",
+            "품질값 없음 항목만 보기",
+        ])
+        for mode, expected in (
+            ("null_only", ColumnFilterRule(null_only=True, include_null=True)),
+            ("measured_only", ColumnFilterRule(include_null=False)),
+        ):
+            with self.subTest(mode=mode):
+                self._set_null_mode(popover, mode)
+                self.assertEqual(popover.build_rule(), expected)
+        self.assertEqual(
+            _need(popover.build_rule()).describe(spec), "품질값 없음 제외"
+        )
+
+    def test_click_on_the_null_mode_list_keeps_the_popover_open(self) -> None:
+        """품질값 없음 선택 목록을 누르는 동안 팝오버가 닫히지 않아 선택이 취소되지 않음을 검증
+
+        - 콤보 목록은 별도 Popup 창으로 떠서 팝오버의 같은 창 자식이 아님
+        """
+        spec = ColumnSpec(_COL, ColumnDataType.NUMBER, decimals=0, filter_step=0.1, nullable_label="품질값 없음")
+        popover = self._popover(spec)
+        popover.show()
+        combo = _need(popover.combo_null_mode)
+        combo.showPopup()
+        try:
+            view = _need(combo.view())
+            point = QPointF(4000.0, 4000.0)
+            click = QMouseEvent(
+                QMouseEvent.Type.MouseButtonPress,
+                point,
+                point,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            self.assertFalse(popover.isAncestorOf(view))
+            self.assertTrue(popover._has_active_child_popup())
+            self.assertFalse(popover.eventFilter(popover, click))
+            self.assertTrue(popover.isVisible())
+        finally:
+            combo.hidePopup()
+
 
 if __name__ == "__main__":
     unittest.main()

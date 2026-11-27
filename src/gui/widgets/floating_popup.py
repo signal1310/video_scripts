@@ -90,9 +90,21 @@ class FloatingPopupFrame(QFrame):
     def _on_hidden(self) -> None:
         """숨김 직후 하위 클래스가 대기 중인 작업을 반영할 때 재정의하는 훅"""
 
+    def _is_own_widget(self, widget: QWidget | None) -> bool:
+        """이 팝업에 속한 위젯인지 부모 위젯 사슬로 판정
+
+        - `isAncestorOf`는 같은 창 안의 자식만 인정하므로, QComboBox 목록처럼 별도 최상위 창으로
+          뜨는 자식 창이 False가 되어 그 클릭을 바깥 클릭으로 오인함
+        """
+        current = widget
+        while current is not None:
+            if current is self:
+                return True
+            current = current.parentWidget()
+        return False
+
     def _has_active_child_popup(self) -> bool:
-        popup = QApplication.activePopupWidget()
-        return popup is not None and self.isAncestorOf(popup)
+        return self._is_own_widget(QApplication.activePopupWidget())
 
     def _remove_app_event_filter(self) -> None:
         app = QApplication.instance()
@@ -132,8 +144,7 @@ class FloatingPopupFrame(QFrame):
             global_pos = a1.globalPosition().toPoint()
             if self.rect().contains(self.mapFromGlobal(global_pos)) or self._has_active_child_popup():
                 return False
-            widget_at = QApplication.widgetAt(global_pos)
-            if widget_at is not None and (widget_at is self or self.isAncestorOf(widget_at)):
+            if self._is_own_widget(QApplication.widgetAt(global_pos)):
                 return False
             self.close()
             return bool(

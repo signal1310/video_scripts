@@ -403,7 +403,7 @@ def load_stored_rows(
         if is_cancelled is not None and is_cancelled():
             return None
         chunk = entries[start : start + _DISPLAY_CHUNK_SIZE]
-        # - 볼륨 위치 계산은 파일마다 드라이브를 조회하므로 묶음마다 취소 확인 뒤에 계산해 첫 진행 알림을 늦추지 않게 함
+        # - 볼륨 위치 계산은 폴더 단위로 캐시한 드라이브 조회를 쓰지만 묶음마다 취소 확인 뒤에 계산해 첫 진행 알림을 늦추지 않게 함
         located = _location_hits(store, chunk, _entry_locations(root_dir, chunk))
         pending = [entry for entry in chunk if entry.filename not in located]
         index = _scope_index(store.fetch_by_names([entry.filename for entry in pending]), root_dir)

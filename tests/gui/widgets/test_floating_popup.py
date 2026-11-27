@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent, QShowEvent
-from PyQt6.QtWidgets import QApplication, QLabel, QWidget
+from PyQt6.QtWidgets import QApplication, QComboBox, QLabel, QWidget
 
 from src.gui.widgets import floating_popup as module
 from src.gui.widgets.analyze_mode_popup import FRAME_MODE, AnalyzeModePopup
@@ -310,6 +310,46 @@ class FloatingPopupFrameTests(GuiTestCase):
                 self.popup.eventFilter(self.host, self._mouse_press(QPoint(4000, 4000)))
             )
         self.assertTrue(self.popup.isVisible())
+
+    def test_child_popup_window_counts_as_own_widget(self) -> None:
+        """별도 최상위 창으로 뜬 자식 팝업도 이 팝업의 위젯으로 판정하는지 검증
+
+        - QComboBox 목록처럼 Popup 창으로 뜨는 자식은 `isAncestorOf`가 False라 바깥 클릭으로 오인됨
+        """
+        self._show()
+        child_window = QWidget(self.popup, Qt.WindowType.Popup)
+        self.addCleanup(child_window.deleteLater)
+        self.assertTrue(child_window.isWindow())
+        self.assertFalse(self.popup.isAncestorOf(child_window))
+        self.assertTrue(self.popup._is_own_widget(child_window))
+        with mock.patch.object(module.QApplication, "activePopupWidget", return_value=child_window):
+            self.assertFalse(
+                self.popup.eventFilter(self.host, self._mouse_press(QPoint(4000, 4000)))
+            )
+        self.assertTrue(self.popup.isVisible())
+
+    def test_combo_popup_click_does_not_close_the_popover(self) -> None:
+        """팝오버 안 콤보 목록 창을 누르면 팝오버가 닫히지 않는지 검증(품질값 열 유/무 선택)
+
+        - 실제 QComboBox 목록은 별도 창으로 뜨므로 활성 팝업과 클릭 지점 위젯 판정 모두 부모 사슬로 찾아야 함
+        """
+        combo = QComboBox(self.popup)
+        combo.addItems(["기본", "측정된 항목만"])
+        self._show()
+        combo.showPopup()
+        try:
+            view = combo.view()
+            self.assertIsNotNone(view)
+            assert view is not None
+            self.assertTrue(view.isVisible())
+            self.assertTrue(self.popup._has_active_child_popup())
+            with mock.patch.object(module.QApplication, "widgetAt", return_value=view):
+                self.assertFalse(
+                    self.popup.eventFilter(self.host, self._mouse_press(QPoint(4000, 4000)))
+                )
+            self.assertTrue(self.popup.isVisible())
+        finally:
+            combo.hidePopup()
 
     def test_press_on_the_toggle_rect_closes_and_is_consumed(self) -> None:
         self._show()

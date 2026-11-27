@@ -308,6 +308,23 @@ class TestGUIModelsModule(unittest.TestCase):
         self.assertEqual(proxy.rowCount(), 1)
         self.assertEqual(proxy.data(proxy.index(0, VideoTableModel.COL_NAME)), "b.mp4")
 
+    def test_quality_value_filter_shows_measured_rows_only(self) -> None:
+        """품질값이 있는 행만 보기 필터가 계획값 있는 행만 남기는지 검증"""
+        model = VideoTableModel()
+        model.set_data_source(
+            [
+                make_eval(make_video(filename="a.mp4"), output_cq=22.0),
+                make_eval(make_video(filename="b.mp4"), smart_action=SmartAction.PASS_HDR),
+            ]
+        )
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        proxy.set_column_filter(
+            VideoTableModel.COL_QUALITY_VALUE, ColumnFilterRule(include_null=False)
+        )
+        self.assertEqual(proxy.rowCount(), 1)
+        self.assertEqual(proxy.data(proxy.index(0, VideoTableModel.COL_NAME)), "a.mp4")
+
     def test_table_model_dynamic_header_tooltips(self) -> None:
         """VideoTableModel.set_config() 호출 시 화질 등급, 키프레임 헤더 툴팁이 동적으로 갱신됨을 검증"""
         model = VideoTableModel(config=ClassifierConfig())

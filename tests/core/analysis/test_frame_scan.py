@@ -628,13 +628,16 @@ class TestScanWithCli(unittest.TestCase):
         result = self._scan(runner)
         self.assertEqual(result.boxes, (CropBox(1920, 1080, 0, 0),))
 
-    def test_cli_scan_treats_black_or_failed_point_as_invalid(self) -> None:
+    def test_cli_scan_separates_black_points_from_failed_points(self) -> None:
+        """검은 화면 지점과 키프레임을 받지 못한 지점이 서로 다른 목록으로 나뉘는지 검증"""
         black = self._scan(FakeStderrRunner(black_frame=True))
         self.assertEqual(black.black_points, frozenset({0}))
+        self.assertEqual(black.failed_points, frozenset())
         failed = self._scan(FakeStderrRunner(black_returncode=1))
-        self.assertEqual(failed.black_points, frozenset({0}))
+        self.assertEqual(failed.black_points, frozenset())
+        self.assertEqual(failed.failed_points, frozenset({0}))
 
-    def test_cli_scan_treats_unreadable_frame_as_invalid(self) -> None:
+    def test_cli_scan_treats_unreadable_frame_as_failed_point(self) -> None:
         def truncated(args: list[str], work_dir: str) -> tuple[int, str]:
             _ = work_dir
             Path(args[-1]).write_bytes(b"P5\n4 2\n255\nshort")
@@ -642,7 +645,21 @@ class TestScanWithCli(unittest.TestCase):
 
         result = self._scan(truncated)
         self.assertEqual(result.boxes, ())
-        self.assertEqual(result.black_points, frozenset({0}))
+        self.assertEqual(result.black_points, frozenset())
+        self.assertEqual(result.failed_points, frozenset({0}))
+        self.assertEqual(os.listdir(self.work_dir), [])
+
+    def test_cli_scan_treats_missing_output_file_as_failed_point(self) -> None:
+        """FFmpeg가 0으로 끝나도 PGM을 쓰지 않은 지점은 실패로 보고 배치를 멈추지 않음"""
+
+        def silent(args: list[str], work_dir: str) -> tuple[int, str]:
+            _ = (args, work_dir)
+            return (0, "")
+
+        result = self._scan(silent, points=(0.0, 5.0))
+        self.assertEqual(result.boxes, ())
+        self.assertEqual(result.black_points, frozenset())
+        self.assertEqual(result.failed_points, frozenset({0, 1}))
         self.assertEqual(os.listdir(self.work_dir), [])
 
     def test_cli_scan_removes_frame_when_runner_raises(self) -> None:
@@ -700,7 +717,14 @@ class TestScanWithCli(unittest.TestCase):
         result = KeyframeScanResult([CropBox(1, 1, 0, 0), CropBox(2, 2, 0, 0)], [1, 1, 2])
         self.assertEqual(len(result.boxes), 2)
         self.assertEqual(result.black_points, frozenset({1, 2}))
+        self.assertEqual(result.failed_points, frozenset())
         self.assertEqual(result.darkness, (None, None))
+
+    def test_scan_result_keeps_failed_points_separate(self) -> None:
+        """실패 지점이 검은 화면 지점과 섞이지 않고 따로 남는지 검증"""
+        result = KeyframeScanResult([], [0], (), [1, 2])
+        self.assertEqual(result.black_points, frozenset({0}))
+        self.assertEqual(result.failed_points, frozenset({1, 2}))
 
     def test_scan_result_keeps_parallel_darkness(self) -> None:
         edges = EdgeDarkness(1, 2, 3, 4)

@@ -7,7 +7,7 @@
 
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -115,10 +115,11 @@ FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis
 # - 보간 방식별 캐시 버전 간격. 방식 이름 순서로 10씩 떨어뜨려 방식, 화질 분석 방식 조합마다 다른 버전을 씀
 SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
+# - 스캔 규칙이나 실패 판정이 바뀌면 올려 이전 규칙으로 저장한 감지 전용 행을 다시 잼
 # - `analysis_version_for_mode`는 방식 버전(351-353)에 보간 방식 오프셋(-20~80)을 더해 331-433 사이 10 간격의
 #   세 연속 번호를 만든다. 방식 버전을 올릴 때는 새 최솟값(기준값 - 20)이 이전에 배포한 기준값 + 80보다 커야
-#   캐시 행이 다른 측정 조건으로 재사용되지 않으며, 새 전용 버전도 그 집합에 들지 않는 번호(현재 235)인지 확인
-CROP_SCAN_VERSION: int = 235
+#   캐시 행이 다른 측정 조건으로 재사용되지 않으며, 새 전용 버전도 그 집합에 들지 않는 번호(현재 236)인지 확인
+CROP_SCAN_VERSION: int = 236
 METRIC_CROP_ONLY: str = ""
 
 
@@ -131,9 +132,38 @@ class AnalysisVersioned(Protocol):
         ...
 
 
+class CropScanOutcome(AnalysisVersioned, Protocol):
+    """분석 버전과 감지 실패 표시, 측정 불가 여부를 가진 결과나 캐시 행"""
+
+    @property
+    def crop_scan_failed(self) -> bool:
+        """검은 여백 감지 자체가 실패했는지"""
+        ...
+
+    @property
+    def unmeasurable(self) -> bool:
+        """유효 지점이 없어 측정하지 못했는지"""
+        ...
+
+
 def is_crop_only_result(result: AnalysisVersioned) -> bool:
     """검은 여백만 감지하고 축소 후보를 재지 않은 결과인지"""
     return result.analysis_version == CROP_SCAN_VERSION
+
+
+def is_failed_crop_scan(result: CropScanOutcome) -> bool:
+    """검은 여백 감지 자체가 실패해 활성 화면을 확정하지 못한 결과나 캐시 행인지
+
+    - 새 결과는 전체 화질 분석과 감지 전용 실행 모두 저장한 `crop_scan_failed` 값을 그대로 씀
+    - 이 플래그가 없는 감지 전용 행은 측정 불가가 곧 스캔 실패였으므로 그 값으로 판정
+    - 측정 불가는 지표만 재지 못한 경우(모든 지점이 검은 화면 등)에도 서므로 전체 화질 분석에는 쓰지 않음
+    """
+    return result.crop_scan_failed or (result.unmeasurable and is_crop_only_result(result))
+
+
+def count_failed_crop_scans(results: Iterable[CropScanOutcome]) -> int:
+    """결과 목록에서 감지에 실패한 영상 수"""
+    return sum(1 for result in results if is_failed_crop_scan(result))
 
 
 def is_usable_analysis_version(record_version: int, active_version: int) -> bool:

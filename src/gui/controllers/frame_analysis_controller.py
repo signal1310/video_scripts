@@ -19,7 +19,7 @@ from typing import Protocol
 from PyQt6.QtCore import QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
-from src.core.analysis.frame_analysis import frame_thresholds_from_config
+from src.core.analysis.frame_analysis import count_failed_crop_scans, frame_thresholds_from_config
 from src.core.analysis.frame_analysis_runner import STAGE_SCAN, STAGE_SSIM, STAGE_VMAF, FrameAnalysisResult
 from src.core.analysis.reanalysis_notice import count_keyframe_missing
 from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL, ClassifierConfig
@@ -130,12 +130,12 @@ def frame_analysis_stage_text(stage: str, done: int, total: int) -> str:
 
 
 def completion_status_text(finished: FrameAnalysisFinished, *, label: str = FRAME_ANALYSIS_LABEL) -> str:
-    """화질 분석 또는 검은 여백 감지 완료 상태 줄. 캐시 재사용이 있으면 그 수도 함께 알림"""
-    if finished.total <= 0:
-        return ""
-    if finished.cached_count > 0:
-        return f"{label} 완료: {finished.total}개 (캐시 재사용 {finished.cached_count}개)"
-    return f"{label} 완료: {finished.total}개"
+    """화질 분석 또는 검은 여백 감지 완료 상태 줄. 캐시 재사용과 감지 실패 수를 있으면 함께 알림"""
+    notes = [f"캐시 재사용 {finished.cached_count}개"] if finished.cached_count > 0 else []
+    if (failed := count_failed_crop_scans(finished.results.values())) > 0:
+        notes.append(f"감지 실패 {failed}개")
+    detail = f" ({', '.join(notes)})" if notes else ""
+    return f"{label} 완료: {finished.total}개{detail}" if finished.total > 0 else ""
 
 
 def run_frame_analysis_body(

@@ -64,6 +64,7 @@ class _RunnerTestCase(unittest.TestCase):
         inner_workers: int = 1,
         on_stage: Callable[[str, int, int], None] | None = None,
         crop_only: bool = False,
+        duration_sec: float = _DURATION_SEC,
     ) -> FrameAnalysisResult:
         # - 대역이 만드는 회색조 프레임을 분석 대상 크기와 맞춰, 스캔이 같은 크기를 보게 함
         runner.frame_size = (width, height)
@@ -71,7 +72,7 @@ class _RunnerTestCase(unittest.TestCase):
             source_path="movie.mp4",
             width=width,
             height=height,
-            duration_sec=_DURATION_SEC,
+            duration_sec=duration_sec,
             work_dir=self.work_dir,
             runner=runner,
             ffmpeg_executable="ffmpeg",
@@ -243,6 +244,30 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertTrue(result.unmeasurable)
         self.assertEqual(result.valid_segment_count, 0)
 
+    def test_full_analysis_scan_failure_is_marked_as_detection_failure(self) -> None:
+        """전체 화질 분석에서 지점을 하나도 읽지 못하면 감지 실패로 표시하는지 검증"""
+        result = self.analyze(FakeStderrRunner(black_returncode=1))
+        self.assertTrue(result.crop_scan_failed)
+
+    def test_full_analysis_without_valid_points_but_read_frames_is_not_a_scan_failure(self) -> None:
+        """모든 지점을 읽었는데 유효 구간이 없는 전체 분석은 감지 성공으로 두는지 검증"""
+        black = self.analyze(FakeStderrRunner(black_frame=True))
+        self.assertTrue(black.unmeasurable)
+        self.assertFalse(black.crop_scan_failed)
+        self.assertFalse(black.active_region.has_black_bars)
+
+    def test_full_analysis_metric_failure_is_not_a_scan_failure(self) -> None:
+        """지표만 재지 못한 전체 분석은 감지 실패로 표시하지 않는지 검증"""
+        result = self.analyze(FakeStderrRunner(fail_metric=True))
+        self.assertTrue(result.unmeasurable)
+        self.assertFalse(result.crop_scan_failed)
+
+    def test_full_analysis_marks_vr_scan_failure_as_no_detection_failure(self) -> None:
+        """VR 보호 영상은 전체 분석에서도 스캔이 비어 감지 실패로 세지 않는지 검증"""
+        result = self.analyze(FakeStderrRunner(black_returncode=1), width=3840, height=1920)
+        self.assertTrue(result.is_vr_protected)
+        self.assertFalse(result.crop_scan_failed)
+
     def test_metric_failure_is_unmeasurable(self) -> None:
         result = self.analyze(FakeStderrRunner(fail_metric=True))
         self.assertTrue(result.unmeasurable)
@@ -284,6 +309,55 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.total_segment_count, _SEGMENT_COUNT)
         self.assertFalse(result.unmeasurable)
         self.assertEqual(result.analysis_version, CROP_SCAN_VERSION)
+
+    def test_crop_only_without_valid_points_is_unmeasurable(self) -> None:
+        """유효 지점이 없는 감지 전용 결과 중 스캔 실패만 측정 불가로 표시되는지 검증"""
+        failed_points = self.analyze(FakeStderrRunner(black_returncode=1), crop_only=True)
+        self.assertTrue(failed_points.unmeasurable)
+        self.assertEqual(failed_points.valid_segment_count, 0)
+        self.assertEqual(failed_points.total_segment_count, _SEGMENT_COUNT)
+
+    def test_crop_only_all_black_points_stays_measurable(self) -> None:
+        """모든 지점이 검은 화면인 감지 전용 결과는 감지에 성공했으므로 측정 불가가 아님"""
+        black = self.analyze(FakeStderrRunner(black_frame=True), crop_only=True)
+        self.assertFalse(black.unmeasurable)
+        self.assertEqual(black.valid_segment_count, 0)
+        self.assertEqual(black.total_segment_count, _SEGMENT_COUNT)
+        self.assertEqual(black.active_region, ActiveRegion(3840, 2160, 0, 0, False))
+
+    def test_crop_only_zero_duration_is_not_a_scan_failure(self) -> None:
+        """구간이 없는 감지 전용 결과는 스캔 실패가 아니므로 측정 불가가 아님"""
+        no_segments = self.analyze(FakeStderrRunner(), duration_sec=0.0, crop_only=True)
+        self.assertFalse(no_segments.unmeasurable)
+        self.assertEqual(no_segments.valid_segment_count, 0)
+        self.assertEqual(no_segments.total_segment_count, 0)
+
+    def test_crop_only_vr_with_failed_scan_is_not_a_detection_failure(self) -> None:
+        """VR 보호 영상은 스캔이 비어도 감지 실패로 세지 않아 캐시를 재사용하는지 검증"""
+        runner = FakeStderrRunner(black_returncode=1)
+        result = self.analyze(runner, width=3840, height=1920, crop_only=True)
+        self.assertTrue(result.is_vr_protected)
+        self.assertFalse(result.unmeasurable)
+        self.assertEqual(result.valid_segment_count, 0)
+
+    def test_crop_only_partial_failure_with_black_points_is_not_a_detection_failure(self) -> None:
+        """검은 화면 지점과 실패 지점이 섞여도 읽은 지점이 있으면 감지 성공으로 보는지 검증"""
+        runner = FakeStderrRunner(black_frame=True)
+        scanned = 0
+
+        def fail_last_point(args: list[str]) -> None:
+            nonlocal scanned
+            if any(token == "pgm" for token in args):
+                scanned += 1
+                if scanned == _SEGMENT_COUNT:
+                    runner.black_returncode = 1
+
+        runner.on_call = fail_last_point
+        result = self.analyze(runner, crop_only=True)
+        self.assertEqual(runner.count_commands("pgm"), _SEGMENT_COUNT)
+        self.assertFalse(result.unmeasurable)
+        self.assertEqual(result.valid_segment_count, 0)
+        self.assertEqual(result.total_segment_count, _SEGMENT_COUNT)
 
     def test_crop_only_keeps_vr_protection(self) -> None:
         """감지 전용 실행도 VR 보호 결과와 전체 프레임을 유지하는지 검증"""

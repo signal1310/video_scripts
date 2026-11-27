@@ -40,6 +40,7 @@ RECORD_COLUMNS: tuple[str, ...] = (
     "analysis_version",
     "margins_vary",
     "dark_outliers_ignored",
+    "crop_scan_failed",
 )
 
 
@@ -69,6 +70,8 @@ class FrameAnalysisRecord:
     margins_vary: bool = False
     # - 어두운 근거로 지점을 무시해 안쪽 경계를 채택했는지. 기존 저장 값과 이전 DB에는 없는 정보라 기본값을 둠
     dark_outliers_ignored: bool = False
+    # - 검은 여백 감지 자체가 실패했는지. 이 열이 없던 DB에는 없으므로 기본값을 둠
+    crop_scan_failed: bool = False
 
     @property
     def key(self) -> FileKey:
@@ -134,6 +137,7 @@ def row_to_record(row: sqlite3.Row | tuple[object, ...]) -> FrameAnalysisRecord:
         analysis_version=int(values["analysis_version"]),
         margins_vary=bool(values["margins_vary"]),
         dark_outliers_ignored=bool(values["dark_outliers_ignored"]),
+        crop_scan_failed=bool(values["crop_scan_failed"]),
     )
 
 
@@ -160,6 +164,7 @@ def record_to_row(record: FrameAnalysisRecord) -> tuple[object, ...]:
         record.analysis_version,
         int(record.margins_vary),
         int(record.dark_outliers_ignored),
+        int(record.crop_scan_failed),
     )
 
 
@@ -192,6 +197,7 @@ def record_from_result(
         analysis_version=result.analysis_version,
         margins_vary=region.margins_vary,
         dark_outliers_ignored=region.dark_outliers_ignored,
+        crop_scan_failed=result.crop_scan_failed,
     )
 
 
@@ -207,5 +213,6 @@ def result_from_record(record: FrameAnalysisRecord) -> FrameAnalysisResult:
         total_segment_count=record.total_segments,
         unmeasurable=record.unmeasurable,
         is_vr_protected=record.is_vr_protected,
+        crop_scan_failed=record.crop_scan_failed,
         analysis_version=record.analysis_version,
     )

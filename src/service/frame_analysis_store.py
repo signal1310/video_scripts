@@ -73,6 +73,7 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "  analysis_version INTEGER NOT NULL,\n"
     "  margins_vary INTEGER NOT NULL DEFAULT 0,\n"
     "  dark_outliers_ignored INTEGER NOT NULL DEFAULT 0,\n"
+    "  crop_scan_failed INTEGER NOT NULL DEFAULT 0,\n"
     "  PRIMARY KEY (filename, filesize_bytes, mtime_ns)\n"
     ") WITHOUT ROWID",
     f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_VR_TABLE} (\n"
@@ -102,6 +103,7 @@ _PLACEHOLDERS: str = ", ".join("?" * len(RECORD_COLUMNS))
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     (FRAME_ANALYSIS_TABLE, "margins_vary", "INTEGER NOT NULL DEFAULT 0"),
     (FRAME_ANALYSIS_TABLE, "dark_outliers_ignored", "INTEGER NOT NULL DEFAULT 0"),
+    (FRAME_ANALYSIS_TABLE, "crop_scan_failed", "INTEGER NOT NULL DEFAULT 0"),
     (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "filesize_bytes", "INTEGER"),
     (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "mtime_ns", "INTEGER"),
     (FRAME_ANALYSIS_CROP_TABLE, "filesize_bytes", "INTEGER"),

@@ -11,7 +11,7 @@ from unittest import mock
 
 from PyQt6.QtWidgets import QApplication, QWidget
 
-from src.core.analysis.frame_analysis import ActiveRegion
+from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL, ClassifierConfig
 from src.core.encode.ffmpeg_capability import FfmpegCapability
@@ -194,6 +194,22 @@ def _result() -> FrameAnalysisResult:
     )
 
 
+def _failed_crop_result() -> FrameAnalysisResult:
+    """스캔에 실패한 검은 여백 감지 전용 결과"""
+    return FrameAnalysisResult(
+        active_region=ActiveRegion(1920, 1080, 0, 0, False),
+        metric_used="",
+        vmaf_model="",
+        tier_scores=(),
+        candidate_tier=None,
+        valid_segment_count=0,
+        total_segment_count=9,
+        unmeasurable=True,
+        is_vr_protected=False,
+        analysis_version=CROP_SCAN_VERSION,
+    )
+
+
 class _FakeService:
     def __init__(self, behaviour: str = "ok", cached_count: int = 0) -> None:
         self.behaviour = behaviour
@@ -246,6 +262,14 @@ class _FakeService:
             raise RuntimeError("cache read failed")
         self.load_calls += 1
         return {"a.mp4": _result()}
+
+
+class _FakeFailedCropService(_FakeService):
+    """캐시에서 스캔 실패 감지 전용 결과를 읽는 서비스 대역"""
+
+    def load_results(self, requests: list[object]) -> dict[str, FrameAnalysisResult]:
+        self.load_calls += 1
+        return {"a.mp4": _failed_crop_result()}
 
 
 class _FakeWorker:
@@ -488,6 +512,47 @@ class ControllerTests(_ControllerCase):
         )
         self.assertEqual(completion_status_text(fresh), "화질 분석 완료: 1개")
         self.assertEqual(completion_status_text(FrameAnalysisFinished({})), "")
+
+    def test_completion_status_text_mentions_detection_failures(self) -> None:
+        """감지에 실패한 영상이 있으면 완료 상태 줄에 실패 수를 함께 알리는지 검증"""
+        failed = FrameAnalysisFinished({"a.mp4": _failed_crop_result()}, total=2)
+        self.assertEqual(
+            completion_status_text(failed, label="검은 여백 감지"),
+            "검은 여백 감지 완료: 2개 (감지 실패 1개)",
+        )
+        both = FrameAnalysisFinished(
+            {"a.mp4": _failed_crop_result(), "b.mp4": _failed_crop_result()},
+            total=3,
+            cached_count=1,
+        )
+        self.assertEqual(
+            completion_status_text(both, label="검은 여백 감지"),
+            "검은 여백 감지 완료: 3개 (캐시 재사용 1개, 감지 실패 2개)",
+        )
+
+    def test_crop_scan_body_finished_event_carries_failed_scans(self) -> None:
+        """감지 전용 실행 종료 이벤트의 결과가 완료 상태 줄의 감지 실패 수로 이어지는지 검증"""
+        request = FrameAnalysisRequest(
+            filename="a.mp4",
+            path="a.mp4",
+            width=1920,
+            height=1080,
+            duration_sec=20.0,
+            filesize_bytes=100,
+            mtime_ns=1,
+        )
+        events: list[object] = []
+        service = _FakeFailedCropService()
+        run_frame_analysis_body(
+            cast("FrameAnalysisService", service), [request], threading.Event(), events.append, crop_only=True
+        )
+        finished = events[-1]
+        self.assertIsInstance(finished, FrameAnalysisFinished)
+        assert isinstance(finished, FrameAnalysisFinished)
+        self.assertEqual(
+            completion_status_text(finished, label="검은 여백 감지"),
+            "검은 여백 감지 완료: 1개 (감지 실패 1개)",
+        )
 
     def test_completion_announces_the_request_and_cache_reuse(self) -> None:
         """캐시만으로 끝난 분석도 상태 표시줄에서 완료와 재사용 수를 알리는지 검증"""

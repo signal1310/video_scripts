@@ -9,6 +9,7 @@ from src.core.models import ActiveFrame, VideoEvaluation
 from src.gui.styles.palettes import DARK_PALETTE as _PALETTE
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
+    ACTIVE_FRAME_FAILED_TEXT,
     ACTIVE_FRAME_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
@@ -55,6 +56,7 @@ def _result(
     vr: bool = False,
     scores: tuple[TierScore, ...] | None = None,
     version: int = 202,
+    scan_failed: bool = False,
 ) -> FrameAnalysisResult:
     return FrameAnalysisResult(
         active_region=active or ActiveRegion(1920, 1080, 0, 0, False),
@@ -66,6 +68,7 @@ def _result(
         total_segment_count=10,
         unmeasurable=unmeasurable,
         is_vr_protected=vr,
+        crop_scan_failed=scan_failed,
         analysis_version=version,
     )
 
@@ -228,6 +231,124 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         self.assertIsNone(view.candidate_tier("a.mp4"))
         self.assertEqual(view.display("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), "")
         self.assertEqual(view.candidates([make_eval(video=make_video(filename="a.mp4"))]), {})
+
+    def test_failed_crop_only_row_says_detection_failed(self) -> None:
+        """스캔에 실패한 감지 전용 행이 검은 띠 없음 대신 감지 실패를 보여 주는지 검증"""
+        result = _result(
+            active=ActiveRegion(1920, 1080, 0, 0, False),
+            metric="",
+            candidate=None,
+            scores=(),
+            unmeasurable=True,
+            version=CROP_SCAN_VERSION,
+        )
+        self.assertEqual(active_frame_text(result), ACTIVE_FRAME_FAILED_TEXT)
+        self.assertEqual(
+            active_frame_tooltip(result),
+            "검은 여백을 감지하지 못했습니다. 영상을 읽지 못한 지점이 있어 전체 화면을 그대로 씁니다. "
+            "다시 감지하면 재시도합니다.",
+        )
+        self.assertNotIn("검은 띠가 없어", active_frame_tooltip(result))
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": result})
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_FAILED_TEXT)
+        self.assertEqual(view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN), active_frame_tooltip(result))
+        self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
+
+    def test_failed_crop_only_row_keeps_vr_and_manual_wording(self) -> None:
+        """감지 실패 표시가 VR 보호와 사용자 지정 활성 화면 문구를 덮지 않는지 검증"""
+        failed = _result(
+            active=ActiveRegion(3840, 1920, 0, 0, False),
+            metric="",
+            candidate=None,
+            scores=(),
+            unmeasurable=True,
+            vr=True,
+            version=CROP_SCAN_VERSION,
+        )
+        self.assertEqual(active_frame_text(failed), ACTIVE_FRAME_VR_TEXT)
+        self.assertNotIn("감지하지 못했습니다", active_frame_tooltip(failed))
+        manual = _result(
+            active=ActiveRegion(1920, 1080, 0, 0, False),
+            metric="",
+            candidate=None,
+            scores=(),
+            unmeasurable=True,
+            version=CROP_SCAN_VERSION,
+        )
+        self.assertIn("사용자 지정 활성 화면입니다.", active_frame_tooltip(manual, manual=True))
+
+    def test_full_analysis_unmeasurable_keeps_no_bars_wording(self) -> None:
+        """전체 화질 분석의 측정 불가는 감지 실패가 아니므로 활성 화면 문구를 바꾸지 않음"""
+        result = _result(unmeasurable=True, candidate=None)
+        self.assertEqual(active_frame_text(result), ACTIVE_FRAME_FULL_TEXT)
+        self.assertIn("검은 띠가 없어", active_frame_tooltip(result))
+
+    def test_failed_crop_only_metric_tooltip_replaces_detection_notice(self) -> None:
+        """감지에 실패한 감지 전용 행의 측정 지표 툴팁이 감지 성공 안내를 쓰지 않는지 검증"""
+        result = _result(
+            metric="",
+            candidate=None,
+            scores=(),
+            unmeasurable=True,
+            version=CROP_SCAN_VERSION,
+        )
+        tip = quality_metric_tooltip(result)
+        self.assertEqual(
+            tip, "검은 여백 감지에 실패해 측정 지표를 확인하지 못했습니다. 다시 감지하면 재시도합니다."
+        )
+        self.assertNotIn("검은 여백만 감지했습니다", tip)
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": result})
+        self.assertEqual(view.tooltip("a.mp4", QUALITY_METRIC_COLUMN), tip)
+
+    def test_full_analysis_scan_failure_says_detection_failed(self) -> None:
+        """감지에 실패한 전체 화질 분석 행도 감지 실패로 알리고 재측정을 안내하는지 검증"""
+        result = _result(unmeasurable=True, candidate=None, scan_failed=True)
+        self.assertEqual(active_frame_text(result), ACTIVE_FRAME_FAILED_TEXT)
+        self.assertNotIn("검은 띠가 없어", active_frame_tooltip(result))
+        self.assertIn("검은 여백을 감지하지 못했습니다", active_frame_tooltip(result))
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": result})
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_FAILED_TEXT)
+        self.assertEqual(view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN), active_frame_tooltip(result))
+        self.assertEqual(
+            view.tooltip("a.mp4", QUALITY_METRIC_COLUMN), quality_metric_tooltip(result)
+        )
+
+    def test_failed_full_analysis_metric_text_is_blank(self) -> None:
+        """감지에 실패한 전체 화질 분석 행의 측정 지표 셀을 비우는지 검증"""
+        result = _result(metric="vmaf", unmeasurable=True, candidate=None, scan_failed=True)
+        self.assertEqual(quality_metric_text(result), "")
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": result})
+        self.assertEqual(view.display("a.mp4", QUALITY_METRIC_COLUMN), "")
+        self.assertEqual(view.tooltip("a.mp4", QUALITY_METRIC_COLUMN), quality_metric_tooltip(result))
+
+    def test_failed_crop_only_candidate_tooltip_replaces_detection_notice(self) -> None:
+        """감지에 실패한 감지 전용 행의 축소 후보 툴팁이 감지 성공 안내를 쓰지 않는지 검증"""
+        result = _result(
+            metric="",
+            candidate=None,
+            scores=(),
+            unmeasurable=True,
+            version=CROP_SCAN_VERSION,
+        )
+        tip = downscale_candidate_tooltip(result)
+        self.assertEqual(
+            tip, "검은 여백 감지에 실패해 축소 후보를 확인하지 못했습니다. 다시 감지하면 재시도합니다."
+        )
+        self.assertNotIn("검은 여백만 감지했습니다", tip)
+        succeeded = _result(
+            metric="",
+            candidate=None,
+            scores=(),
+            version=CROP_SCAN_VERSION,
+        )
+        self.assertEqual(
+            downscale_candidate_tooltip(succeeded),
+            "검은 여백만 감지했습니다. 축소 후보를 확인하려면 화질 분석을 실행하세요.",
+        )
 
 
 class FrameAnalysisResultsTests(unittest.TestCase):

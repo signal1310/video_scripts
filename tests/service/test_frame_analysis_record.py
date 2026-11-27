@@ -5,7 +5,12 @@
 
 import unittest
 
-from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, ActiveRegion, TierScore
+from src.core.analysis.frame_analysis import (
+    CROP_SCAN_VERSION,
+    FRAME_ANALYSIS_VERSION,
+    ActiveRegion,
+    TierScore,
+)
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.service.frame_analysis_record import (
     RECORD_COLUMNS,
@@ -104,6 +109,29 @@ class RecordConversionTests(unittest.TestCase):
         self.assertTrue(record.active_region.dark_outliers_ignored)
         self.assertTrue(result_from_record(record).active_region.dark_outliers_ignored)
         self.assertTrue(row_to_record(record_to_row(record)).dark_outliers_ignored)
+
+    def test_crop_scan_failed_survives_the_roundtrip(self) -> None:
+        """감지 실패 표시가 결과, 캐시 행, 행 값 왕복에서 유지됨"""
+        result = FrameAnalysisResult(
+            active_region=ActiveRegion(
+                width=3840, height=2160, x=0, y=0, has_black_bars=False
+            ),
+            metric_used="",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=0,
+            total_segment_count=9,
+            unmeasurable=True,
+            is_vr_protected=False,
+            crop_scan_failed=True,
+            analysis_version=CROP_SCAN_VERSION,
+        )
+        record = record_from_result(_request(), result, measured_at="2026-11-23T00:00:00Z")
+        self.assertTrue(record.crop_scan_failed)
+        self.assertTrue(result_from_record(record).crop_scan_failed)
+        self.assertTrue(row_to_record(record_to_row(record)).crop_scan_failed)
+        self.assertFalse(record_from_result(_request(), _result(), measured_at="x").crop_scan_failed)
 
     def test_row_roundtrip_follows_the_record_columns(self) -> None:
         record = record_from_result(_request(), _result(), measured_at="2026-11-23T00:00:00Z")

@@ -27,6 +27,9 @@ class GlossaryReencodeDescriptionTests(unittest.TestCase):
             self.assertIn(name, terms)
         vr_value = next(value for value in terms["활성 화면"].values if value.name == "VR 보호")
         self.assertIn("축소 후보는 정상 측정", vr_value.meaning)
+        failed_value = next(value for value in terms["활성 화면"].values if value.name == "감지 실패")
+        self.assertIn("읽지 못한 지점", failed_value.meaning)
+        self.assertIn("다시 감지하면 재시도합니다", failed_value.meaning)
 
     def test_compare_terms_include_modes_zoom_and_downscale_explanation(self) -> None:
         """화질 비교 용어에 모드 3종, 1:1 확대, 축소 비교 풀이가 있는지 검증"""

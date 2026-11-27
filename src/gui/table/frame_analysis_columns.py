@@ -7,7 +7,7 @@
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
-from src.core.analysis.frame_analysis import is_crop_only_result
+from src.core.analysis.frame_analysis import is_crop_only_result, is_failed_crop_scan
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.quality_probe import METRIC_SSIM, METRIC_VMAF
@@ -25,6 +25,7 @@ FRAME_ANALYSIS_COLUMNS: frozenset[int] = frozenset(
 
 ACTIVE_FRAME_FULL_TEXT: str = "-"
 ACTIVE_FRAME_VR_TEXT: str = "VR 보호"
+ACTIVE_FRAME_FAILED_TEXT: str = "감지 실패"
 DOWNSCALE_KEEP_TEXT: str = "유지"
 DOWNSCALE_UNMEASURABLE_TEXT: str = "측정 불가"
 METRIC_VMAF_TEXT: str = "VMAF"
@@ -51,6 +52,11 @@ _ACTIVE_FRAME_TIP: str = (
     "검은 띠를 뺀 활성 화면 크기입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다."
 )
 _ACTIVE_FRAME_FULL_TIP: str = "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."
+# - 검은 여백 감지 자체가 실패했을 때. 다시 감지하면 재시도한다는 사실까지 알림
+_ACTIVE_FRAME_FAILED_TIP: str = (
+    "검은 여백을 감지하지 못했습니다. 영상을 읽지 못한 지점이 있어 전체 화면을 그대로 씁니다. "
+    "다시 감지하면 재시도합니다."
+)
 _ACTIVE_FRAME_EXCLUDED_TIP: str = "검은 여백 잘라내기 제외됨 (원본 유지)"
 # - 설정이 꺼져 있으면 감지한 크기를 보고하되 잘라내지는 않음을 같은 사유 툴팁으로 알림
 _ACTIVE_FRAME_CROP_OFF_TIP: str = (
@@ -78,7 +84,15 @@ _DOWNSCALE_UNMEASURABLE_TIP: str = "유효 구간이 없어 축소 후보를 판
 _CROP_ONLY_CANDIDATE_TIP: str = (
     "검은 여백만 감지했습니다. 축소 후보를 확인하려면 화질 분석을 실행하세요."
 )
+# - 감지 자체가 실패해 축소 후보를 볼 근거가 없는 행의 안내
+_FAILED_SCAN_CANDIDATE_TIP: str = (
+    "검은 여백 감지에 실패해 축소 후보를 확인하지 못했습니다. 다시 감지하면 재시도합니다."
+)
 _CROP_ONLY_METRIC_TIP: str = "검은 여백만 감지했습니다. 측정 지표를 보려면 화질 분석을 실행하세요."
+# - 감지 자체가 실패해 측정 지표를 볼 근거가 없는 행의 안내
+_FAILED_SCAN_METRIC_TIP: str = (
+    "검은 여백 감지에 실패해 측정 지표를 확인하지 못했습니다. 다시 감지하면 재시도합니다."
+)
 _SCORE_HEADER: str = "규격별 왕복 점수:"
 _NO_SCORE_TEXT: str = "- 점수 없음"
 _METRIC_VMAF_TIP: str = (
@@ -107,11 +121,16 @@ def result_summary_text(result: FrameAnalysisResult | None) -> str:
 
 
 def active_frame_text(result: FrameAnalysisResult | None) -> str:
-    """활성 화면 셀 문구: 미측정 빈칸, VR 보호, 검은 띠 크기, 전체"""
+    """활성 화면 셀 문구: 미측정 빈칸, VR 보호, 감지 실패, 검은 띠 크기, 전체
+
+    - VR 보호는 감지 결과를 쓰지 않으므로 스캔이 실패해도 보호 문구를 그대로 씀
+    """
     if result is None:
         return ""
     if result.is_vr_protected:
         return ACTIVE_FRAME_VR_TEXT
+    if is_failed_crop_scan(result):
+        return ACTIVE_FRAME_FAILED_TEXT
     if result.active_region.has_black_bars:
         return f"{result.active_region.width}x{result.active_region.height}"
     return ACTIVE_FRAME_FULL_TEXT
@@ -127,6 +146,7 @@ def active_frame_tooltip(
     """활성 화면 셀 툴팁. 잘라내기를 쓰지 않는 영상과 직접 지정 영상은 그 사유를 보여 줌
 
     - 직접 지정은 값 문구에 크기를 그대로 두고 문장 한 줄만 덧붙임
+    - 감지 자체가 실패한 행은 검은 띠 없음이 아니라 실패 사유를 보여 주고 재시도를 안내
     - 구간별 여백이 달라 합집합으로만 잡힌 영상은 직접 지정 안내를 한 문장 더 붙임(직접 지정 시 생략)
     - 검은 여백 잘라내기 설정이 꺼져 있으면 크기만 보여 주고 자르지 않는다는 줄을 덧붙임
     """
@@ -139,6 +159,8 @@ def active_frame_tooltip(
         if not crop_enabled:
             return f"{tip}\n{_ACTIVE_FRAME_CROP_OFF_TIP}"
         return tip
+    if is_failed_crop_scan(result):
+        return _ACTIVE_FRAME_FAILED_TIP
     if result.active_region.has_black_bars:
         if not crop_enabled:
             # - 영상별 잘라내기 제외는 설정을 다시 켜면 다시 자르므로, 꺼진 상태에서도 제외 사유를 잃지 않게 덧붙임
@@ -201,9 +223,14 @@ def _valid_segment_text(result: FrameAnalysisResult) -> str:
 
 
 def downscale_candidate_tooltip(result: FrameAnalysisResult | None) -> str:
-    """축소 후보 셀 툴팁: 감지 전용 안내, 판정 요지, 규격별 점수, 유효 구간, SSIM 대체 안내"""
+    """축소 후보 셀 툴팁: 감지 전용 안내, 판정 요지, 규격별 점수, 유효 구간, SSIM 대체 안내
+
+    - 감지에 실패한 행은 감지 성공을 전제한 안내 대신 실패 사유와 재시도 안내를 씀
+    """
     if result is None:
         return _NO_RESULT_TIP
+    if is_failed_crop_scan(result):
+        return _FAILED_SCAN_CANDIDATE_TIP
     if is_crop_only_result(result):
         return _CROP_ONLY_CANDIDATE_TIP
     if result.unmeasurable:
@@ -234,8 +261,8 @@ def downscale_candidate_sort_value(result: FrameAnalysisResult | None) -> tuple[
 
 
 def quality_metric_text(result: FrameAnalysisResult | None) -> str:
-    """측정 지표 셀 문구: 미측정, 감지 전용 빈칸, VMAF, SSIM 대체"""
-    if result is None or is_crop_only_result(result):
+    """측정 지표 셀 문구: 미측정, 감지 전용 빈칸, 감지 실패 빈칸, VMAF, SSIM 대체"""
+    if result is None or is_crop_only_result(result) or is_failed_crop_scan(result):
         return ""
     if result.metric_used == METRIC_SSIM:
         return METRIC_SSIM_FALLBACK_TEXT
@@ -245,9 +272,11 @@ def quality_metric_text(result: FrameAnalysisResult | None) -> str:
 
 
 def quality_metric_tooltip(result: FrameAnalysisResult | None) -> str:
-    """측정 지표 셀 툴팁"""
+    """측정 지표 셀 툴팁. 감지에 실패한 행은 감지 성공을 전제한 안내 대신 실패 사유와 재시도 안내를 씀"""
     if result is None:
         return _NO_RESULT_TIP
+    if is_failed_crop_scan(result):
+        return _FAILED_SCAN_METRIC_TIP
     if is_crop_only_result(result):
         return _CROP_ONLY_METRIC_TIP
     return _METRIC_SSIM_TIP if result.metric_used == METRIC_SSIM else _METRIC_VMAF_TIP

@@ -17,6 +17,7 @@ from src.gui.table.column_filters import (
 )
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
+    ACTIVE_FRAME_FAILED_TEXT,
     ACTIVE_FRAME_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
     DOWNSCALE_CANDIDATE_COLUMN,
@@ -38,7 +39,7 @@ _COLS_WITHOUT_FILTER_VALUE: frozenset[int] = frozenset(
 # - 활성 화면 크기 표기(예: 1920x800). 분석 결과가 있으면 닫힌 문구나 크기 표기만 표시 값이 됨
 _ACTIVE_FRAME_SIZE_PATTERN: re.Pattern[str] = re.compile(r"\d+x\d+")
 _ACTIVE_FRAME_VALUE_SET: frozenset[str] = frozenset(
-    {"", ACTIVE_FRAME_FULL_TEXT, ACTIVE_FRAME_VR_TEXT}
+    {"", ACTIVE_FRAME_FULL_TEXT, ACTIVE_FRAME_VR_TEXT, ACTIVE_FRAME_FAILED_TEXT}
 )
 # - 인코딩 상태 열의 표시 값: 상태 문구, 이전 폐기 문구, 배치 대상이 아닐 때의 빈 값
 _ENCODE_STATE_VALUE_SET: frozenset[str] = frozenset(

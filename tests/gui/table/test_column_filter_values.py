@@ -9,7 +9,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig
+from src.core.settings.ui_state import ColumnFilterSnapshot
+from src.gui.table.column_filter_values import prune_stale_values
 from src.gui.table.column_filters import ColumnFilterRule, rule_to_snapshot
+from src.gui.table.frame_analysis_columns import (
+    ACTIVE_FRAME_COLUMN,
+    ACTIVE_FRAME_FAILED_TEXT,
+    ACTIVE_FRAME_FULL_TEXT,
+)
 from src.gui.table.numeric_buckets import NumericBucketKind, build_numeric_buckets, resolve_numeric_bucket
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
 from src.gui.table.table_model import VideoTableModel
@@ -131,6 +138,29 @@ class ConfigChangePruneTests(unittest.TestCase):
         self.assertEqual(rule_to_snapshot(rule).selected_values, (live,))
         # - 2.0 비율 행이 3.0 이상 구간으로 옮겨 가 더는 선택 구간에 들지 않음
         self.assertEqual(proxy.rowCount(), 0)
+
+
+class ActiveFrameFilterValueTests(unittest.TestCase):
+    """활성 화면 열 필터가 현재 표시 문구를 사라진 값으로 버리지 않는지 검증"""
+
+    def test_failed_detection_label_is_kept(self) -> None:
+        """감지 실패 문구만 고른 필터가 복원, 설정 변경에서 살아남는지 검증"""
+        snapshot = ColumnFilterSnapshot(selected_values=(ACTIVE_FRAME_FAILED_TEXT,))
+        kept = prune_stale_values(snapshot, ACTIVE_FRAME_COLUMN, None)
+        self.assertIsNotNone(kept)
+        assert kept is not None
+        self.assertEqual(kept.selected_values, (ACTIVE_FRAME_FAILED_TEXT,))
+
+    def test_failed_detection_label_survives_with_full_text(self) -> None:
+        """감지 실패 문구와 닫힌 문구를 함께 고른 필터가 모두 남는지 검증"""
+        snapshot = ColumnFilterSnapshot(
+            selected_values=(ACTIVE_FRAME_FAILED_TEXT, ACTIVE_FRAME_FULL_TEXT)
+        )
+        kept = prune_stale_values(snapshot, ACTIVE_FRAME_COLUMN, None)
+        self.assertEqual(
+            None if kept is None else kept.selected_values,
+            (ACTIVE_FRAME_FAILED_TEXT, ACTIVE_FRAME_FULL_TEXT),
+        )
 
 
 if __name__ == "__main__":

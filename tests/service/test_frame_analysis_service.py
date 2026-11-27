@@ -35,6 +35,7 @@ def _request(
     mtime: int = 1,
     width: int = 1920,
     height: int = 1080,
+    duration_sec: float = 20.0,
     has_vr_metadata: bool = False,
 ) -> FrameAnalysisRequest:
     return FrameAnalysisRequest(
@@ -42,7 +43,7 @@ def _request(
         path=filename,
         width=width,
         height=height,
-        duration_sec=20.0,
+        duration_sec=duration_sec,
         filesize_bytes=size,
         mtime_ns=mtime,
         has_vr_metadata=has_vr_metadata,
@@ -428,6 +429,143 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(record.active_region.to_active_frame(), ActiveFrame(720, 1080, 600, 0))
         self.assertEqual(result.active_region.to_active_frame(), ActiveFrame(720, 1080, 600, 0))
         self.assertEqual(service.load_active_frames([request]), {"a.mp4": ActiveFrame(720, 1080, 600, 0)})
+
+    def test_crop_only_scan_failure_is_not_reused(self) -> None:
+        """스캔에 실패한 감지 전용 행이 검은 여백 없음으로 재사용되지 않는지 검증"""
+        failing = FakeStderrRunner(black_returncode=1)
+        service = self.make_service(failing)
+        request = _request("a.mp4")
+        failed = service.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertTrue(failed.unmeasurable)
+        self.assertEqual(failed.valid_segment_count, 0)
+        self.assertEqual(service.count_cached([request], crop_only=True), 0)
+
+        healthy = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
+        retried = self.make_service(healthy)
+        result = retried.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertGreater(healthy.count_commands("pgm"), 0)
+        self.assertFalse(result.unmeasurable)
+        self.assertEqual(result.active_region.to_active_frame(), ActiveFrame(720, 1080, 600, 0))
+        self.assertEqual(retried.count_cached([request], crop_only=True), 1)
+
+    def test_old_crop_only_row_without_valid_points_is_rescanned(self) -> None:
+        """이전 감지 규칙이 실패를 검은 화면으로 저장한 감지 전용 행을 다시 재는지 검증"""
+        request = _request("a.mp4")
+        self.store.save(
+            replace(
+                make_frame_record("a.mp4", version=228),
+                metric_used=METRIC_CROP_ONLY,
+                vmaf_model="",
+                tier_scores=(),
+                candidate_tier=None,
+                valid_segments=0,
+                unmeasurable=False,
+            )
+        )
+        runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
+        service = self.make_service(runner)
+        self.assertEqual(service.count_cached([request], crop_only=True), 0)
+        result = service.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertGreater(runner.count_commands("pgm"), 0)
+        self.assertFalse(result.unmeasurable)
+        self.assertEqual(result.active_region.to_active_frame(), ActiveFrame(720, 1080, 600, 0))
+        self.assertEqual(service.count_cached([request], crop_only=True), 1)
+
+    def test_crop_only_vr_scan_failure_stays_reusable(self) -> None:
+        """VR 보호 영상은 감지 결과를 쓰지 않으므로 스캔 실패 행도 캐시로 재사용하는지 검증"""
+        runner = FakeStderrRunner(black_returncode=1)
+        service = self.make_service(runner)
+        request = _request("vr.mp4", width=3840, height=1920, has_vr_metadata=True)
+        result = service.analyze_batch([request], crop_only=True)["vr.mp4"]
+        self.assertTrue(result.is_vr_protected)
+        self.assertFalse(result.unmeasurable)
+        self.assertEqual(service.count_cached([request], crop_only=True), 1)
+        runner.commands.clear()
+        service.analyze_batch([request], crop_only=True)
+        self.assertEqual(runner.commands, [])
+
+    def test_crop_only_all_black_points_stays_reusable(self) -> None:
+        """모든 지점이 검은 화면인 감지 전용 행은 감지에 성공했으므로 캐시로 재사용되는지 검증"""
+        runner = FakeStderrRunner(black_frame=True)
+        service = self.make_service(runner)
+        request = _request("a.mp4")
+        result = service.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertFalse(result.unmeasurable)
+        self.assertEqual(result.valid_segment_count, 0)
+        self.assertEqual(service.count_cached([request], crop_only=True), 1)
+        runner.commands.clear()
+        reused = service.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertEqual(runner.commands, [])
+        self.assertEqual(reused.active_region, result.active_region)
+        self.assertFalse(reused.unmeasurable)
+
+    def test_crop_only_partial_failure_with_black_points_stays_reusable(self) -> None:
+        """일부 지점만 실패하고 나머지가 검은 화면이면 감지 성공으로 보고 캐시로 재사용하는지 검증"""
+        runner = FakeStderrRunner(black_frame=True)
+        scanned = 0
+
+        def fail_last_point(args: list[str]) -> None:
+            nonlocal scanned
+            if any(token == "pgm" for token in args):
+                scanned += 1
+                if scanned == 9:
+                    runner.black_returncode = 1
+
+        runner.on_call = fail_last_point
+        service = self.make_service(runner)
+        request = _request("a.mp4")
+        result = service.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertFalse(result.unmeasurable)
+        self.assertEqual(result.valid_segment_count, 0)
+        self.assertEqual(service.count_cached([request], crop_only=True), 1)
+        runner.commands.clear()
+        service.analyze_batch([request], crop_only=True)
+        self.assertEqual(runner.commands, [])
+
+    def test_crop_only_vr_and_zero_duration_rows_stay_reusable(self) -> None:
+        """VR 보호와 구간 없는 감지 전용 행은 스캔이 실패하지 않았으므로 다시 재지 않는지 검증"""
+        black_runner = FakeStderrRunner(black_frame=True)
+        vr_service = self.make_service(black_runner)
+        vr_request = _request("vr.mp4", width=3840, height=1920, has_vr_metadata=True)
+        vr_result = vr_service.analyze_batch([vr_request], crop_only=True)["vr.mp4"]
+        self.assertTrue(vr_result.is_vr_protected)
+        self.assertFalse(vr_result.unmeasurable)
+        self.assertEqual(vr_service.count_cached([vr_request], crop_only=True), 1)
+
+        empty_service = self.make_service(FakeStderrRunner())
+        empty_request = _request("empty.mp4", duration_sec=0.0)
+        empty_result = empty_service.analyze_batch([empty_request], crop_only=True)["empty.mp4"]
+        self.assertFalse(empty_result.unmeasurable)
+        self.assertEqual(empty_result.tier_scores, ())
+        self.assertEqual(empty_service.count_cached([empty_request], crop_only=True), 1)
+
+    def test_crop_only_rescans_a_full_analysis_row_whose_scan_failed(self) -> None:
+        """9지점 스캔이 모두 실패한 전체 분석 행을 감지 전용 실행이 다시 스캔하는지 검증"""
+        failing = FakeStderrRunner(black_returncode=1)
+        service = self.make_service(failing)
+        request = _request("a.mp4")
+        failed = service.analyze_batch([request])["a.mp4"]
+        self.assertTrue(failed.crop_scan_failed)
+        self.assertEqual(service.count_cached([request], crop_only=True), 0)
+
+        healthy = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
+        retried = self.make_service(healthy)
+        result = retried.analyze_batch([request], crop_only=True)["a.mp4"]
+        self.assertGreater(healthy.count_commands("pgm"), 0)
+        self.assertFalse(result.crop_scan_failed)
+        self.assertFalse(result.unmeasurable)
+        self.assertEqual(result.active_region.to_active_frame(), ActiveFrame(720, 1080, 600, 0))
+        self.assertEqual(retried.count_cached([request], crop_only=True), 1)
+
+    def test_full_analysis_with_all_black_points_is_reused_by_crop_only(self) -> None:
+        """모든 지점이 검은 화면인 전체 분석 행은 감지에 성공했으므로 감지 전용 실행이 재사용하는지 검증"""
+        black = FakeStderrRunner(black_frame=True)
+        service = self.make_service(black)
+        request = _request("a.mp4")
+        self.assertTrue(service.analyze_batch([request])["a.mp4"].unmeasurable)
+        black.commands.clear()
+        service.analyze_batch([request], crop_only=True)
+        self.assertEqual(black.commands, [])
 
     def test_crop_only_reuses_a_full_analysis_row_and_keeps_its_scores(self) -> None:
         """전체 화질 분석 행 위의 감지 실행이 캐시를 재사용해 후보와 점수를 보존하는지 검증"""

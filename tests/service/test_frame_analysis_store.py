@@ -147,12 +147,19 @@ class TestFrameAnalysisStore(_StoreTestCase):
         conn.close()
         loaded = self.store.load_many([("clip.mp4", 100, 1)])
         self.assertFalse(loaded[("clip.mp4", 100, 1)].margins_vary)
+        self.assertFalse(loaded[("clip.mp4", 100, 1)].crop_scan_failed)
         self.assertEqual(self.store.count(), 1)
 
     def test_margins_vary_flag_roundtrips_through_sqlite(self) -> None:
         record = replace(make_frame_record("clip.mp4"), margins_vary=True)
         self.store.save(record)
         self.assertTrue(self.store.load_many([record.key])[record.key].margins_vary)
+
+    def test_crop_scan_failed_flag_roundtrips_through_sqlite(self) -> None:
+        """감지 실패 표시가 캐시에 저장되고 그대로 복원되는지 검증"""
+        record = replace(make_frame_record("clip.mp4"), unmeasurable=True, crop_scan_failed=True)
+        self.store.save(record)
+        self.assertTrue(self.store.load_many([record.key])[record.key].crop_scan_failed)
 
     def test_dark_outliers_ignored_column_is_added_to_an_old_database(self) -> None:
         """어두운 근거 무시 열이 없는 이전 DB에서 열을 덧붙이고 기존 행은 기본값 거짓으로 읽음"""

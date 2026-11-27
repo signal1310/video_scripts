@@ -81,18 +81,21 @@ class ScanDecodeError(RuntimeError):
 
 
 class KeyframeScanResult:
-    """9지점 스캔에서 찾은 검은 여백 상자와 검은 화면 지점, 지점별 어두운 면 두께"""
+    """9지점 스캔에서 찾은 검은 여백 상자와 검은 화면 지점, 실패 지점, 지점별 어두운 면 두께"""
 
-    __slots__ = ("black_points", "boxes", "darkness")
+    __slots__ = ("black_points", "boxes", "darkness", "failed_points")
 
     def __init__(
         self,
         boxes: Sequence[CropBox],
         black_points: Sequence[int],
         darkness: Sequence[EdgeDarkness | None] | None = None,
+        failed_points: Sequence[int] = (),
     ) -> None:
         self.boxes: tuple[CropBox, ...] = tuple(boxes)
         self.black_points: frozenset[int] = frozenset(black_points)
+        # - 키프레임을 받지 못한 지점. 검은 화면과 구분해야 캐시 재사용과 감지 실패 표시를 정할 수 있음
+        self.failed_points: frozenset[int] = frozenset(failed_points)
         self.darkness: tuple[EdgeDarkness | None, ...] = (
             tuple(darkness) if darkness is not None else (None,) * len(self.boxes)
         )
@@ -572,6 +575,7 @@ def _read_gray_frame(
 
     - `work_dir`는 여러 작업이 공유하므로 지점마다 다른 임시 파일 이름을 씀
     - 받은 파일은 읽은 뒤 바로 지움
+    - FFmpeg가 0으로 끝나도 출력 파일이 없으면 실패한 지점으로 봄(파일 끝을 넘긴 시크 등)
     """
     frame_path = str(Path(work_dir, f"scan_{uuid.uuid4().hex}.pgm"))
     args = build_scan_command(
@@ -589,6 +593,8 @@ def _read_gray_frame(
             handle.exit_code = returncode
         if returncode != 0:
             return None
+        if not Path(frame_path).is_file():
+            return None
         return parse_gray_frame(Path(frame_path).read_bytes())
     finally:
         Path(frame_path).unlink(missing_ok=True)
@@ -605,14 +611,16 @@ def scan_with_cli(
     cancel_event: threading.Event | None,
     on_point: PointCallback | None,
 ) -> KeyframeScanResult:
-    """FFmpeg CLI 9지점 키프레임 스캔. 실패한 지점은 검은 화면으로 봄
+    """FFmpeg CLI 9지점 키프레임 스캔. 키프레임을 받지 못한 지점은 실패 지점으로 따로 모음
 
     - PyAV 경로와 같은 `luma_frame_stats` 규칙으로 판정하므로 검은 화면, 검은 여백 기준이 하나임
     - FFmpeg가 회전 메타데이터를 반영해 픽셀을 내주므로 표시 방향 전치가 필요 없음
+    - 실패 지점을 검은 화면에 섞으면 "모든 지점이 검은 화면"과 "모든 지점 시크 실패"를 구분할 수 없어 따로 반환
     """
     boxes: list[CropBox] = []
     darkness: list[EdgeDarkness] = []
     black_points: list[int] = []
+    failed_points: list[int] = []
     total = len(points)
     for index, start_sec in enumerate(points):
         _check_cancel(cancel_event)
@@ -626,7 +634,7 @@ def scan_with_cli(
             cancel_event=cancel_event,
         )
         if frame is None:
-            black_points.append(index)
+            failed_points.append(index)
         else:
             data, width, height = frame
             box, black_ratio, edges = luma_frame_stats(data, width, width, height)
@@ -637,7 +645,7 @@ def scan_with_cli(
                 darkness.append(edges)
         if on_point is not None:
             on_point(index + 1, total)
-    return KeyframeScanResult(boxes, black_points, darkness)
+    return KeyframeScanResult(boxes, black_points, darkness, failed_points)
 
 
 def scan_keyframe_points(

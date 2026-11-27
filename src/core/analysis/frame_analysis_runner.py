@@ -164,6 +164,8 @@ class FrameAnalysisResult:
     total_segment_count: int
     unmeasurable: bool
     is_vr_protected: bool
+    # - 검은 여백 감지를 하나도 읽지 못했는지. 측정 불가와 달리 활성 화면 확정 자체가 실패한 상태임
+    crop_scan_failed: bool = False
     analysis_version: int = FRAME_ANALYSIS_VERSION
 
 
@@ -458,6 +460,8 @@ def analyze_frames(
 
     - 실행기를 주입하지 않으면 PyAV 9지점 스캔을 쓰고, 주입하면 CLI 9지점 스캔으로 폴백
     - crop_only면 1단계 스캔과 검은 여백 합집합만 남기고 SSIM/VMAF 단계를 실행하지 않음
+    - 읽은 지점이 하나도 없으면 두 경로 모두 `crop_scan_failed`를 세워 감지 실패를 표시와 캐시 재사용에 씀
+    - 감지 전용 실행의 측정 불가는 스캔 실패로만 세움(모든 지점이 검은 화면이면 감지는 성공)
     - SSIM은 적응형 라운드마다 규격 전체를 한 번의 디코딩으로 재고, 확정되면 다음 라운드를 생략
     - VMAF는 SSIM 통과 규격 중 가장 낮은 규격부터 재고 탈락하면 바로 위 규격으로 역상승
     - 유효 구간이 없으면 측정 불가로 표시하고 후보는 두지 않음
@@ -499,7 +503,13 @@ def analyze_frames(
         thresholds=thresholds,
         darkness=list(scan.darkness),
     )
-    valid_points = {index for index in range(len(segments)) if index not in scan.black_points}
+    failed_points = scan.failed_points
+    # - 프레임을 받은 지점은 검은 화면이어도 읽은 것이라 감지 성공 여부는 이 집합으로 정함
+    read_points = {index for index in range(len(segments)) if index not in failed_points}
+    valid_points = read_points - scan.black_points
+    # - 읽은 지점이 하나도 없을 때만 감지 실패. 모든 지점이 검은 화면이거나 구간이 없으면 감지는 성공한 것임
+    # - VR 보호 영상은 감지 결과를 쓰지 않으므로 스캔이 비어도 실패로 세지 않음
+    scan_failed = not vr_protected and bool(failed_points) and not read_points
     if crop_only:
         return FrameAnalysisResult(
             active_region=active_region,
@@ -509,8 +519,9 @@ def analyze_frames(
             candidate_tier=None,
             valid_segment_count=len(valid_points),
             total_segment_count=len(segments),
-            unmeasurable=False,
+            unmeasurable=scan_failed,
             is_vr_protected=vr_protected,
+            crop_scan_failed=scan_failed,
             analysis_version=CROP_SCAN_VERSION,
         )
     model = vmaf_model_for(active_region.width, active_region.height)
@@ -533,6 +544,7 @@ def analyze_frames(
             total_segment_count=len(segments),
             unmeasurable=unmeasurable,
             is_vr_protected=vr_protected,
+            crop_scan_failed=scan_failed,
             analysis_version=analysis_version,
         )
 

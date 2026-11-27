@@ -20,6 +20,7 @@ from src.core.analysis.frame_analysis import (
     apply_no_bars_ratio,
     can_reuse_tier_scores,
     candidate_tiers_for,
+    is_failed_crop_scan,
     is_usable_analysis_version,
     is_vr_protected,
     needs_crop_review,
@@ -101,13 +102,19 @@ def _is_reusable(
     """캐시 행이 지금 측정 규칙과 같아 다시 재지 않고 쓸 수 있는지
 
     - 검은 여백 감지는 전체 화질 분석 행이나 감지 전용 행을 모두 재사용해 기존 점수를 보존
-    - 전체 화질 분석은 같은 방식 버전과 같은 지표 행만 재사용하며 감지 전용 행은 다시 잼
+    - 감지에 실패한 행은 다시 스캔함. 새 결과는 `crop_scan_failed` 플래그로, 이전 전체 화질 분석 행은
+      측정 불가로 알아보며, 모든 지점이 검은 화면이면 감지는 성공한 것이므로 재사용함
+    - 전체 화질 분석은 같은 방식 버전과 같은 지표 행만 재사용하며 감지 전용 행과 감지 실패 행은 다시 잼
     - 기준이 바뀌어도 저장된 점수로 최종 후보가 확정되면 다시 재지 않고 재판정 결과를 씀
     """
     if record is None or record.is_vr_protected != _expected_vr(request):
         return False
     if crop_only:
+        if is_failed_crop_scan(record):
+            return False
         return is_usable_analysis_version(record.analysis_version, analysis_version)
+    if record.crop_scan_failed:
+        return False
     if record.analysis_version != analysis_version or record.metric_used != metric_name:
         return False
     if not record.tier_scores:
@@ -159,6 +166,7 @@ def _rejudged_result(
         total_segment_count=base.total_segment_count,
         unmeasurable=base.unmeasurable,
         is_vr_protected=base.is_vr_protected,
+        crop_scan_failed=base.crop_scan_failed,
         analysis_version=base.analysis_version,
     )
 

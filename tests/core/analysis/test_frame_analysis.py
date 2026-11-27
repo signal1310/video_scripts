@@ -35,9 +35,11 @@ from src.core.analysis.frame_analysis import (
     can_reuse_tier_scores,
     candidate_tiers_for,
     choose_round_points,
+    count_failed_crop_scans,
     frame_analysis_params,
     frame_thresholds_from_config,
     is_crop_only_result,
+    is_failed_crop_scan,
     is_usable_analysis_version,
     is_vr_protected,
     margins_vary,
@@ -550,11 +552,20 @@ class _Versioned:
     analysis_version: int
 
 
+@dataclass(frozen=True)
+class _Unmeasurable:
+    """분석 버전과 측정 불가 여부, 감지 실패 표시를 가진 검사용 값"""
+
+    analysis_version: int
+    unmeasurable: bool
+    crop_scan_failed: bool = False
+
+
 class CropScanVersionTests(unittest.TestCase):
     """검은 여백 감지 전용 버전과 캐시 유효성 기준 검증"""
 
     def test_crop_only_result_is_recognized_by_its_version(self) -> None:
-        self.assertEqual(CROP_SCAN_VERSION, 235)
+        self.assertEqual(CROP_SCAN_VERSION, 236)
         self.assertEqual(METRIC_CROP_ONLY, "")
         self.assertTrue(is_crop_only_result(_Versioned(CROP_SCAN_VERSION)))
         self.assertFalse(is_crop_only_result(_Versioned(FRAME_ANALYSIS_VERSION)))
@@ -564,6 +575,43 @@ class CropScanVersionTests(unittest.TestCase):
         self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 353))
         self.assertTrue(is_usable_analysis_version(352, 352))
         self.assertFalse(is_usable_analysis_version(233, 352))
+
+    def test_failed_crop_scan_reads_the_stored_flag_for_every_version(self) -> None:
+        """감지 실패 판정이 저장한 플래그를 먼저 보고, 플래그가 없는 감지 전용 행은 측정 불가로 판정"""
+        flagged = _Unmeasurable(FRAME_ANALYSIS_VERSION, unmeasurable=True, crop_scan_failed=True)
+        self.assertTrue(is_failed_crop_scan(flagged))
+        self.assertTrue(
+            is_failed_crop_scan(
+                _Unmeasurable(CROP_SCAN_VERSION, unmeasurable=False, crop_scan_failed=True)
+            )
+        )
+        self.assertFalse(
+            is_failed_crop_scan(
+                _Unmeasurable(FRAME_ANALYSIS_VERSION, unmeasurable=False, crop_scan_failed=False)
+            )
+        )
+
+    def test_failed_crop_scan_keeps_recognizing_old_crop_only_rows(self) -> None:
+        """플래그를 저장하기 전의 감지 전용 행은 측정 불가를 감지 실패로 읽음"""
+        failed = _Unmeasurable(CROP_SCAN_VERSION, unmeasurable=True)
+        self.assertTrue(is_failed_crop_scan(failed))
+        self.assertFalse(is_failed_crop_scan(_Unmeasurable(CROP_SCAN_VERSION, unmeasurable=False)))
+        self.assertFalse(
+            is_failed_crop_scan(_Unmeasurable(FRAME_ANALYSIS_VERSION, unmeasurable=True))
+        )
+
+    def test_count_failed_crop_scans_counts_only_failed_detection_rows(self) -> None:
+        """감지 실패 수 집계가 감지 실패로 저장한 행만 세는지 검증"""
+        rows = [
+            _Unmeasurable(CROP_SCAN_VERSION, unmeasurable=True),
+            _Unmeasurable(CROP_SCAN_VERSION, unmeasurable=False),
+            _Unmeasurable(FRAME_ANALYSIS_VERSION, unmeasurable=True),
+            _Unmeasurable(CROP_SCAN_VERSION, unmeasurable=True),
+            _Unmeasurable(FRAME_ANALYSIS_VERSION, unmeasurable=True, crop_scan_failed=True),
+            _Unmeasurable(FRAME_ANALYSIS_VERSION, unmeasurable=False),
+        ]
+        self.assertEqual(count_failed_crop_scans(rows), 3)
+        self.assertEqual(count_failed_crop_scans([]), 0)
 
 
 class FrameAnalysisThresholdTests(unittest.TestCase):

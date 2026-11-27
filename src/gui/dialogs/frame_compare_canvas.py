@@ -185,6 +185,17 @@ class FrameCompareCanvas(QWidget):
         """표시 중인 프레임이 있는지"""
         return self._original is not None or self._compared is not None
 
+    def clear_images(self) -> None:
+        """표시 중인 두 프레임을 지워 빈 화면으로 되돌림
+
+        - 새 영상을 열 때 이전 영상의 프레임이 새 제목 아래 남지 않게 함
+        """
+        if self._original is None and self._compared is None:
+            return
+        self._original = None
+        self._compared = None
+        self.update()
+
     def fit(self) -> None:
         """영상 전체가 보이도록 맞춤. 이후 창 크기 변경에도 맞춤을 유지"""
         self._fit_mode = True

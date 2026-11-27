@@ -205,6 +205,15 @@ class CanvasTests(GuiTestCase):
         self.canvas.set_peek(False)
         self.canvas.grab()
 
+    def test_clearing_images_leaves_an_empty_canvas(self) -> None:
+        """프레임을 지우면 다른 영상의 프레임이 남지 않는지 검증"""
+        self.canvas.set_images(_image(), _image(color="#0000FF"))
+        self.assertTrue(self.canvas.has_image())
+        self.canvas.clear_images()
+        self.assertFalse(self.canvas.has_image())
+        self.canvas.clear_images()
+        self.assertFalse(self.canvas.has_image())
+
     def test_compared_image_fills_the_original_rect_in_all_modes(self) -> None:
         self.canvas.set_images(_image(160, 90, "#00FF00"), _image(80, 45, "#FF0000"))
         self.assertAlmostEqual(self.canvas.scale(), 400 / 160 if 400 / 160 < 200 / 90 else 200 / 90)

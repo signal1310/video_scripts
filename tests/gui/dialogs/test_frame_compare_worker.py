@@ -15,6 +15,7 @@ from PyQt6.QtCore import QEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.core.analysis.frame_compare import FrameSource
+from src.core.models import ActiveFrame
 from src.gui.dialogs import frame_compare_worker as worker_module
 from src.gui.dialogs.frame_compare_worker import (
     ExtractionRequest,
@@ -56,10 +57,18 @@ class _Extractor:
         self.released += 1
 
 
-def _request(time_sec: float, *, key: str = "result", immediate: bool = True) -> ExtractionRequest:
+def _request(
+    time_sec: float,
+    *,
+    key: str = "result",
+    immediate: bool = True,
+    original_path: str = "a.mp4",
+    compared_path: str = "b.mp4",
+    crop: ActiveFrame | None = None,
+) -> ExtractionRequest:
     return ExtractionRequest(
-        original=FrameSource(key="원본", path="a.mp4", label="원본"),
-        compared=FrameSource(key=key, path="b.mp4", label="결과"),
+        original=FrameSource(key="원본", path=original_path, label="원본", crop=crop),
+        compared=FrameSource(key=key, path=compared_path, label="결과"),
         frame_width=100,
         frame_height=50,
         time_sec=time_sec,
@@ -172,6 +181,27 @@ class ExtractionRunnerTests(unittest.TestCase):
         self._wait()
         self.assertEqual(self.extractor.calls, [1.0, 2.0])
 
+    def test_different_video_at_the_same_target_and_time_is_requested(self) -> None:
+        """다른 영상을 같은 대상 키와 시점으로 열면 이전 프레임을 재사용하지 않는지 검증"""
+        self.assertTrue(self.runner.request(_request(0.0)))
+        self._wait()
+        self.assertTrue(
+            self.runner.request(
+                _request(0.0, original_path="c.mp4", compared_path="d.mp4")
+            )
+        )
+        self._wait()
+        self.assertEqual(self.extractor.calls, [0.0, 0.0])
+        self.assertEqual(len(self.loaded), 2)
+
+    def test_same_paths_with_a_different_crop_are_requested(self) -> None:
+        """같은 대상 키와 시점이라도 크롭이 바뀌면 다시 추출하는지 검증"""
+        self.assertTrue(self.runner.request(_request(1.0)))
+        self._wait()
+        self.assertTrue(self.runner.request(_request(1.0, crop=ActiveFrame(100, 50, 10, 0))))
+        self._wait()
+        self.assertEqual(self.extractor.calls, [1.0, 1.0])
+
     def test_debounced_request_runs_after_the_timer(self) -> None:
         self.assertTrue(self.runner.request(_request(3.0, immediate=False)))
         self.assertFalse(self.runner.busy)
@@ -239,8 +269,7 @@ class ExtractionRunnerTests(unittest.TestCase):
 
     def test_stale_outcome_is_discarded(self) -> None:
         self.runner._request_id = 5
-        self.runner._active_key = "result"
-        self.runner._active_time = 1.0
+        self.runner._active = _request(1.0)
         stale = ExtractOutcome(
             4,
             ExtractedFrames(original_bytes=b"a", compared_bytes=b"b"),

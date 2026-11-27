@@ -261,14 +261,18 @@ class _ViewCase(GuiTestCase):
         result_crop: ActiveFrame | None = None,
         evaluation: VideoEvaluation | None = None,
         scale_algorithm: str = "bicubic",
+        source_path: str | None = None,
+        filename: str = "video.mp4",
+        position_sec: float = 10.0,
     ) -> CompareSession:
+        source = self.source if source_path is None else source_path
         result = (
             result_target(self.result, width=1920, height=1080, size_bytes=580 * 1024 * 1024)
             if with_result
             else None
         )
         plan = resolve_compare_plan(
-            source_path=self.source,
+            source_path=source,
             width=3840,
             height=2160,
             size_bytes=1024**3,
@@ -281,12 +285,12 @@ class _ViewCase(GuiTestCase):
             plan=plan,
             duration_sec=100.0,
             fps=30.0,
-            filename="video.mp4",
-            position_sec=10.0,
+            filename=filename,
+            position_sec=position_sec,
             scores=scores,
             width=3840 if active_frame is None else active_frame.width,
             height=2160 if active_frame is None else active_frame.height,
-            source_path=self.source,
+            source_path=source,
             active_frame=active_frame,
             scale_algorithm=scale_algorithm,
             evaluation=evaluation,
@@ -349,6 +353,89 @@ class LoadSessionTests(_ViewCase):
         self.assertEqual(self.extractor.calls[0][3:], (3840, 2160))
         self.assertEqual(self.view.source_path, self.source)
         self.assertAlmostEqual(self.view.duration_sec, 100.0)
+
+    def test_open_a_second_video_replaces_the_previous_frame(self) -> None:
+        """다른 영상을 열면 이전 영상의 프레임을 지우고 새 프레임을 그리는지 검증"""
+        other = os.path.join(self.tmp.name, "other.mp4")
+        with open(other, "wb") as handle:
+            handle.write(b"x")
+        arrived = threading.Event()
+        released = threading.Event()
+        self.addCleanup(released.set)
+
+        class _NewVideo(_Extractor):
+            def extract_pair(
+                self,
+                original: FrameSource,
+                compared: FrameSource,
+                *,
+                time_sec: float,
+                frame_width: int,
+                frame_height: int,
+                cancel_event: threading.Event,
+            ) -> ExtractedFrames:
+                del frame_width, frame_height, cancel_event
+                if original.path == other:
+                    arrived.set()
+                    released.wait(_WAIT_SECONDS)
+                self.calls.append((original.path, compared.path, time_sec, 0, 0))
+                return ExtractedFrames(
+                    original_bytes=_bmp("#00FF00"), compared_bytes=_bmp("#0000FF")
+                )
+
+        view = self.make_view(_NewVideo())
+        view.load_session(self.session(position_sec=0.0))
+        _wait(view)
+        self.assertTrue(view._canvas.has_image())
+        view.load_session(self.session(source_path=other, filename="other.mp4", position_sec=0.0))
+        self.assertTrue(arrived.wait(_WAIT_SECONDS))
+        self.assertFalse(view._canvas.has_image())
+        released.set()
+        _wait(view)
+        image = view._canvas._original
+        self.assertIsNotNone(image)
+        assert image is not None
+        self.assertEqual(image.pixelColor(0, 0).name(), "#00ff00")
+
+    def test_seeking_inside_one_video_keeps_the_previous_frame(self) -> None:
+        """같은 영상에서 시점을 옮길 때는 새 프레임이 올 때까지 이전 프레임을 남기는지 검증"""
+        arrived = threading.Event()
+        released = threading.Event()
+        self.addCleanup(released.set)
+        extractor = self.extractor
+
+        class _Blocking(_Extractor):
+            def extract_pair(
+                self,
+                original: FrameSource,
+                compared: FrameSource,
+                *,
+                time_sec: float,
+                frame_width: int,
+                frame_height: int,
+                cancel_event: threading.Event,
+            ) -> ExtractedFrames:
+                if time_sec >= 5.0:
+                    arrived.set()
+                    released.wait(_WAIT_SECONDS)
+                return extractor.extract_pair(
+                    original,
+                    compared,
+                    time_sec=time_sec,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                    cancel_event=cancel_event,
+                )
+
+        view = self.make_view(_Blocking())
+        view.load_session(self.session(position_sec=0.0))
+        _wait(view)
+        self.assertTrue(view._canvas.has_image())
+        view.set_time(5.0, immediate=True)
+        self.assertTrue(arrived.wait(_WAIT_SECONDS))
+        self.assertTrue(view._canvas.has_image())
+        released.set()
+        _wait(view)
 
     def test_cached_score_is_shown_inline_only_for_its_tier(self) -> None:
         scores = (TierScore(tier="1080p", ssim=0.9983, vmaf=98.7),)

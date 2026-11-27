@@ -158,7 +158,7 @@ def discard_running_worker(worker: FrameCompareWorker) -> None:
 class FrameCompareExtraction(QObject):
     """시점과 대상이 바뀔 때 이전 요청을 취소하고 최신 요청만 실행하는 조율자
 
-    - 같은 시점과 대상을 이미 불러왔으면 다시 추출하지 않음
+    - 같은 파일, 대상, 시점을 이미 불러왔으면 다시 추출하지 않음
     - 즉시가 아닌 요청은 짧게 모아 빠른 시점 이동에서 추출을 한 번만 함
     - 실행 중인 스레드는 조율자가 먼저 지워져도 파괴되지 않도록 따로 붙잡음
     """
@@ -173,10 +173,8 @@ class FrameCompareExtraction(QObject):
         self._pending: ExtractionRequest | None = None
         self._request_id: int = 0
         self._worker: FrameCompareWorker | None = None
-        self._loaded_key: str | None = None
-        self._loaded_time: float = -1.0
-        self._active_key: str | None = None
-        self._active_time: float = 0.0
+        self._loaded: ExtractionRequest | None = None
+        self._active: ExtractionRequest | None = None
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(EXTRACT_DEBOUNCE_MS)
@@ -188,11 +186,11 @@ class FrameCompareExtraction(QObject):
         return self._worker is not None
 
     def request(self, request: ExtractionRequest) -> bool:
-        """요청을 예약하고 실행을 시작했으면 참. 이미 불러온 시점과 대상이면 거짓"""
-        if (
-            request.target_key == self._loaded_key
-            and abs(request.time_sec - self._loaded_time) < DEDUPE_TIME_EPSILON_SEC
-        ):
+        """요청을 예약하고 실행을 시작했으면 참. 같은 요청을 이미 불러왔으면 거짓
+
+        - 파일, 프레임 크기, 대상 키, 시점이 모두 같아야 이미 불러온 프레임을 재사용
+        """
+        if self._is_loaded(request):
             return False
         self._pending = request
         if request.immediate:
@@ -200,6 +198,20 @@ class FrameCompareExtraction(QObject):
         else:
             self._debounce.start()
         return True
+
+    def _is_loaded(self, request: ExtractionRequest) -> bool:
+        """이미 불러온 요청과 같은 프레임을 가리키는지"""
+        loaded = self._loaded
+        if loaded is None:
+            return False
+        return (
+            request.original == loaded.original
+            and request.compared == loaded.compared
+            and request.frame_width == loaded.frame_width
+            and request.frame_height == loaded.frame_height
+            and request.target_key == loaded.target_key
+            and abs(request.time_sec - loaded.time_sec) < DEDUPE_TIME_EPSILON_SEC
+        )
 
     def cancel(self) -> None:
         """예약과 진행 중인 추출을 취소하고 스레드 종료를 기다림"""
@@ -224,8 +236,7 @@ class FrameCompareExtraction(QObject):
             return
         self.cancel()
         self._request_id += 1
-        self._active_key = request.target_key
-        self._active_time = request.time_sec
+        self._active = request
         self.started.emit()
         worker = FrameCompareWorker(
             self._extractor,
@@ -250,6 +261,5 @@ class FrameCompareExtraction(QObject):
         if outcome.error or outcome.frames is None:
             self.failed.emit(outcome)
             return
-        self._loaded_key = self._active_key
-        self._loaded_time = self._active_time
+        self._loaded = self._active
         self.loaded.emit(outcome)

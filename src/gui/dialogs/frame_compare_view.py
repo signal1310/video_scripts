@@ -194,10 +194,14 @@ class FrameCompareView(QWidget):
         """새 비교 대상을 뷰에 올리고 재생 엔진과 프레임을 그 대상으로 다시 엶
 
         - auto_play가 참이면 로드한 시점에서 바로 재생을 시작
+        - 다른 영상으로 바뀌면 이전 영상의 프레임을 지워 새 제목 아래 남지 않게 함
         """
         self.stop_playback()
         self._hide_overlay()
+        previous_path = "" if self._session is None else self._session.source_path
         self._session = session
+        if session.source_path != previous_path:
+            self._canvas.clear_images()
         self._target_key = session.plan.default_key
         self._position_sec = clamp_time_sec(session.position_sec, session.duration_sec)
         self._reset_view_pending = True

@@ -149,6 +149,14 @@ def log_unraisable(unraisable: Any) -> bool:
     return True
 
 
+def current_hook_bundle() -> HookBundle | None:
+    """이 프로세스가 지금 설치해 둔 훅 묶음. 없으면 None
+
+    - 중복 설치를 받아 간 시작이 실패할 때, 자기 설치가 아닌 공유 묶음을 원복하지 않도록 구분하는 데 씀
+    """
+    return _active_bundle
+
+
 def install_exception_hooks() -> HookBundle:
     """sys, threading, unraisable 훅을 설치하고 원본을 담은 묶음 반환
 

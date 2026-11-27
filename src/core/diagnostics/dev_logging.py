@@ -94,29 +94,50 @@ class DevLogSession:
 
 # - 지금 붙어 있는 미러: 리스너는 동등 비교가 안 되므로 설치 쪽에서 보관해 중복 설치를 막음
 _installed_mirror: CommandLogMirror | None = None
+# - 설치 전 레벨: 세션을 잃어버려 핸들러만 떨어진 뒤 다시 설치해도, 이미 올려 둔 DEBUG가 아니라
+#   최초 설치 전 레벨로 되돌리도록 모듈에서 한 번만 기억함
+_saved_level: int | None = None
+
+
+def _dev_log_handler_attached(root: logging.Logger) -> bool:
+    """앱 루트 로거에 개발 로그 핸들러가 실제로 붙어 있는지 여부"""
+    return any(item.get_name() == DEV_LOG_HANDLER_NAME for item in root.handlers)
+
+
+def _drop_stale_mirror() -> None:
+    """핸들러가 사라진 뒤 남은 미러 표식과 리스너를 지워 다음 설치가 새로 붙이게 함"""
+    global _installed_mirror
+    if _installed_mirror is not None:
+        command_history.remove_listener(_installed_mirror)
+        _installed_mirror = None
 
 
 def install_dev_log(directory: str | None = None) -> DevLogSession:
     """`src.*` DEBUG 기록을 `dev.log`에 남기는 순환 핸들러와 명령 기록 미러를 설치
 
     - 파일을 만들지 못하면 핸들러 없이 세션만 돌려주고 앱 시작을 막지 않음
-    - 이미 같은 이름의 핸들러가 있으면 핸들러를, 미러가 붙어 있으면 리스너를 새로 붙이지 않음
+    - 설치 여부는 세션이 아니라 앱 루트 로거에 붙어 있는 핸들러 이름으로 판단해,
+      세션을 정리하지 않고 잃어버려도 다음 설치가 핸들러와 미러를 새로 붙이게 함
+    - 핸들러가 이미 붙어 있으면 핸들러를, 미러가 붙어 있으면 리스너를 새로 붙이지 않음
       (두 번 설치해도 명령 기록이 두 줄로 중복되지 않게 함)
-    - 앱 루트 로거의 이전 레벨을 세션에 기억해 정리할 때 되돌림
+    - 앱 루트 로거의 이전 레벨을 세션에 기억해 정리할 때 되돌림. 세션을 잃어버린 뒤
+      다시 설치하는 경우에는 지금 레벨(이전 세션이 올려 둔 DEBUG)이 아니라 최초 설치 전
+      레벨을 기억해 정리 뒤 DEBUG가 남지 않게 함
     """
-    global _installed_mirror
+    global _installed_mirror, _saved_level
     path = diagnostics_file(DEV_LOG_NAME, directory)
-    handler = _create_handler(path)
     root = logging.getLogger(APP_LOGGER_NAME)
+    handler: RotatingFileHandler | None = None
     previous_level: int | None = None
-    if handler is not None:
-        if not any(item.get_name() == DEV_LOG_HANDLER_NAME for item in root.handlers):
-            previous_level = root.level
+    if not _dev_log_handler_attached(root):
+        _drop_stale_mirror()
+        handler = _create_handler(path)
+        if handler is not None:
+            if _saved_level is None:
+                _saved_level = root.level
+            previous_level = _saved_level
             root.setLevel(ROOT_LOGGER_LEVEL)
             root.addHandler(handler)
-        else:
-            handler.close()
-            handler = None
     mirror: CommandLogMirror | None = None
     if _installed_mirror is None:
         mirror = CommandLogMirror()
@@ -152,7 +173,7 @@ def _create_handler(path: str) -> RotatingFileHandler | None:
 
 def remove_dev_log(session: DevLogSession | None) -> None:
     """설치한 개발 로그 핸들러와 명령 기록 리스너를 떼고 파일을 닫음. 중복 호출 안전"""
-    global _installed_mirror
+    global _installed_mirror, _saved_level
     if session is None:
         return
     if session.listener is not None:
@@ -166,6 +187,8 @@ def remove_dev_log(session: DevLogSession | None) -> None:
         session.handler.close()
         session.handler = None
         if session.previous_level is not None:
-            logging.getLogger(APP_LOGGER_NAME).setLevel(session.previous_level)
+            root.setLevel(session.previous_level)
+            if _saved_level == session.previous_level:
+                _saved_level = None
             session.previous_level = None
     session.mirror = None

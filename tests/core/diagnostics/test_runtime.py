@@ -1,5 +1,6 @@
 """진단 시작/종료 조율: 사고 보고서 준비, 인스턴스별 표식 기록, 훅 원복 검증"""
 
+import logging
 import os
 import tempfile
 import unittest
@@ -294,6 +295,93 @@ class TestStartupAndShutdown(unittest.TestCase):
                 self.assertIsNone(runtime.dev_log)
             finally:
                 shutdown_diagnostics(runtime, now=_WHEN)
+
+    def test_start_failure_after_install_leaves_no_watcher(self) -> None:
+        """설치 뒤 시작이 실패하면 로그 미러, 예외 훅, 개발 로그, 네이티브 로그가 남지 않는지 검증"""
+        import faulthandler
+        import sys
+
+        from src.core.diagnostics import hooks as hooks_mod
+        from src.core.diagnostics.breadcrumbs import MIRROR_HANDLER_NAME
+        from src.core.diagnostics.dev_logging import DEV_LOG_HANDLER_NAME
+
+        attached = logging.getLogger("src")
+        original_level = attached.level
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch(
+                    "src.core.diagnostics.runtime.session.start_session",
+                    side_effect=RuntimeError("시작 실패"),
+                ),
+                self.assertRaises(RuntimeError),
+            ):
+                start_diagnostics(directory=tmp, developer_mode=True, now=_WHEN, pid=4321)
+            self.assertFalse(
+                any(item.get_name() == MIRROR_HANDLER_NAME for item in attached.handlers)
+            )
+            self.assertFalse(
+                any(item.get_name() == DEV_LOG_HANDLER_NAME for item in attached.handlers)
+            )
+            self.assertFalse(getattr(sys.excepthook, hooks_mod.INSTALL_MARKER_ATTR, False))
+            self.assertFalse(faulthandler.is_enabled())
+            self.assertEqual(attached.level, original_level)
+
+    def test_failed_second_start_keeps_the_first_runtime_hooks(self) -> None:
+        """중복 설치로 빌려 온 훅 묶음은 두 번째 시작이 실패해도 원복하지 않는지 검증"""
+        with tempfile.TemporaryDirectory() as tmp:
+            first = start_diagnostics(directory=tmp, now=_WHEN, pid=4001)
+            try:
+                self.assertTrue(first.hooks.installed)
+                with (
+                    patch(
+                        "src.core.diagnostics.runtime.session.start_session",
+                        side_effect=RuntimeError("시작 실패"),
+                    ),
+                    self.assertRaises(RuntimeError),
+                ):
+                    start_diagnostics(directory=tmp, now=_WHEN, pid=4002)
+                self.assertTrue(first.hooks.installed)
+            finally:
+                shutdown_diagnostics(first, now=_WHEN)
+
+    def test_abort_keeps_cleaning_when_hook_restore_fails(self) -> None:
+        """훅 원복이 실패해도 남은 정리(로그 미러, 개발 로그)를 계속하고 원래 예외를 유지하는지 검증"""
+        import sys
+        import threading
+
+        from src.core.diagnostics import hooks as hooks_mod
+        from src.core.diagnostics.breadcrumbs import MIRROR_HANDLER_NAME
+        from src.core.diagnostics.dev_logging import DEV_LOG_HANDLER_NAME
+
+        saved_hooks = (sys.excepthook, threading.excepthook, sys.unraisablehook)
+        attached = logging.getLogger("src")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                with (
+                    patch(
+                        "src.core.diagnostics.runtime.restore_exception_hooks",
+                        side_effect=RuntimeError("원복 실패"),
+                    ),
+                    patch(
+                        "src.core.diagnostics.runtime.session.start_session",
+                        side_effect=RuntimeError("시작 실패"),
+                    ),
+                    self.assertLogs("src.diagnostics", level="WARNING") as logged,
+                    self.assertRaises(RuntimeError) as caught,
+                ):
+                    start_diagnostics(directory=tmp, developer_mode=True, now=_WHEN, pid=4321)
+                self.assertEqual(str(caught.exception), "시작 실패")
+                self.assertTrue(any("예외 훅 원복" in line for line in logged.output))
+                self.assertFalse(
+                    any(item.get_name() == MIRROR_HANDLER_NAME for item in attached.handlers)
+                )
+                self.assertFalse(
+                    any(item.get_name() == DEV_LOG_HANDLER_NAME for item in attached.handlers)
+                )
+        finally:
+            # - 원복을 일부러 실패시켰으므로 설치된 훅을 이 자리에서 직접 되돌림
+            sys.excepthook, threading.excepthook, sys.unraisablehook = saved_hooks
+            hooks_mod.hooks_mod_set_active(None)
 
     def test_start_survives_unwritable_diagnostics_path(self) -> None:
         """진단 폴더 상위가 파일이어도 시작이 예외 없이 런타임을 돌려주는지 검증"""

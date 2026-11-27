@@ -23,7 +23,12 @@ from src.core.diagnostics.breadcrumbs import (
     read_breadcrumb_lines,
 )
 from src.core.diagnostics.dev_logging import DevLogSession, install_dev_log, remove_dev_log
-from src.core.diagnostics.hooks import HookBundle, install_exception_hooks, restore_exception_hooks
+from src.core.diagnostics.hooks import (
+    HookBundle,
+    current_hook_bundle,
+    install_exception_hooks,
+    restore_exception_hooks,
+)
 from src.core.diagnostics.native_log import NativeLogSession
 from src.core.diagnostics.paths import (
     BREADCRUMBS_MAX_BYTES,
@@ -60,6 +65,9 @@ class DiagnosticsRuntime:
     reported_marker: str | None = None
     reported_session: SessionInfo | None = None
     dev_log: DevLogSession | None = None
+    # - 이번 시작이 직접 설치한 훅 묶음인지 여부. 중복 설치로 빌려 온 묶음은
+    #   시작 실패 정리에서 원복하지 않아 먼저 살아 있는 런타임의 감시를 지키지 않음
+    hooks_owned: bool = True
 
 
 def start_diagnostics(
@@ -108,16 +116,25 @@ def start_diagnostics(
         "네이티브 로그 연결",
         None,
     )
+    already_installed = _guard(current_hook_bundle, "예외 훅 상태 확인", None)
     runtime.hooks = _guard(install_exception_hooks, "예외 훅 설치", HookBundle())
-    info = session.start_session(developer_mode, now=now, pid=owner)
-    native_session = runtime.native_session
-    if native_session is not None:
-        info = session.with_native_log_offset(
-            info, native_session.offset, native_log_name=native_name
-        )
-    runtime.session_info = info
-    runtime.marker_path = instance_session_path(owner, target)
-    _guard(lambda: write_session(runtime.marker_path or "", info), "실행 표식 기록", None)
+    # - 이미 설치된 묶음을 그대로 돌려받았으면 이번 시작 소유가 아니라, 정리할 때 원복하지 않음
+    runtime.hooks_owned = runtime.hooks is not already_installed
+    try:
+        info = session.start_session(developer_mode, now=now, pid=owner)
+        native_session = runtime.native_session
+        if native_session is not None:
+            info = session.with_native_log_offset(
+                info, native_session.offset, native_log_name=native_name
+            )
+        runtime.session_info = info
+        runtime.marker_path = instance_session_path(owner, target)
+        _guard(lambda: write_session(runtime.marker_path or "", info), "실행 표식 기록", None)
+    except Exception:
+        # - 여기서 실패하면 런타임을 돌려주지 않으므로 종료 정리가 닿지 않아, 설치한
+        #   로그 미러와 예외 훅을 이 자리에서 되돌려야 프로세스에 남지 않음
+        _abort_startup(runtime)
+        raise
     # - 보고한 표식이 방금 쓴 자기 표식과 같은 파일이면(같은 pid 재사용) 지우지 않음
     if (
         runtime.reported_marker is not None
@@ -132,6 +149,25 @@ def start_diagnostics(
             None,
         )
     return runtime
+
+
+def _abort_startup(runtime: DiagnosticsRuntime) -> None:
+    """시작 도중 실패했을 때 이미 설치한 진단 자원을 이 자리에서 되돌림
+
+    - 런타임을 돌려주지 못하면 종료 정리가 불리지 않으므로, 예외 훅과 로그 미러,
+      개발 로그, 네이티브 로그를 여기서 놓아야 같은 프로세스에 남지 않음
+    - 되돌리기 한 단계가 실패해도 나머지를 계속 시도함
+    - 중복 설치로 빌려 온 묶음은 다른 런타임이 아직 쓰고 있으므로 원복하지 않음
+    """
+    if runtime.hooks_owned:
+        _guard(lambda: restore_exception_hooks(runtime.hooks), "예외 훅 원복", None)
+    _guard(lambda: detach_log_mirror(runtime.log_mirror), "로그 미러 해제", None)
+    runtime.log_mirror = None
+    _guard(lambda: remove_dev_log(runtime.dev_log), "개발 로그 해제", None)
+    runtime.dev_log = None
+    native_session = runtime.native_session
+    if native_session is not None:
+        _guard(native_session.close, "네이티브 로그 닫기", None)
 
 
 def _guard(step: Callable[[], _StepResult], action: str, fallback: _StepResult) -> _StepResult:
@@ -178,7 +214,9 @@ def shutdown_diagnostics(
     """
     if runtime is None:
         return
-    restore_exception_hooks(runtime.hooks)
+    # - 중복 설치로 빌려 온 묶음은 원래 런타임이 원복하므로 여기서 건드리지 않음
+    if runtime.hooks_owned:
+        restore_exception_hooks(runtime.hooks)
     detach_log_mirror(runtime.log_mirror)
     runtime.log_mirror = None
     remove_dev_log(runtime.dev_log)

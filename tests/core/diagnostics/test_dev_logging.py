@@ -209,6 +209,27 @@ class InstallDevLogTests(unittest.TestCase):
                 remove_dev_log(second)
                 command_history.clear()
 
+    def test_install_after_dropped_session_and_detached_handler_attaches_again(self) -> None:
+        """세션을 정리하지 않고 잃어버린 뒤 핸들러가 떨어져도 다시 설치하면 새로 붙는지 검증"""
+        root = logging.getLogger(APP_LOGGER_NAME)
+        with tempfile.TemporaryDirectory() as tmp:
+            original = root.level
+            self.addCleanup(root.setLevel, original)
+            install_dev_log(tmp)
+            for handler in [h for h in root.handlers if h.get_name() == DEV_LOG_HANDLER_NAME]:
+                root.removeHandler(handler)
+                handler.close()
+            second = install_dev_log(tmp)
+            try:
+                self.assertIsNotNone(second.handler)
+                self.assertIsNotNone(second.listener)
+                handlers = [h for h in root.handlers if h.get_name() == DEV_LOG_HANDLER_NAME]
+                self.assertEqual(len(handlers), 1)
+            finally:
+                remove_dev_log(second)
+            # - 잃어버린 세션이 올려 둔 DEBUG가 아니라 최초 설치 전 레벨로 돌아와야 함
+            self.assertEqual(root.level, original)
+
     def test_unwritable_directory_returns_session_without_handler(self) -> None:
         """폴더를 만들 수 없으면 핸들러 없이 세션만 돌려주고 예외를 내지 않는지 검증"""
         with tempfile.TemporaryDirectory() as tmp:

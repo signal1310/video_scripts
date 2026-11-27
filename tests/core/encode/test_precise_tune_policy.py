@@ -67,6 +67,24 @@ class TestShouldPreciseTune(unittest.TestCase):
             with self.subTest(ratio=ev.bitrate_ratio, action=ev.smart_action):
                 self.assertEqual(should_precise_tune(ev, PRECISE_QUALITY_MODE_SELECTIVE, config), expected)
 
+    def test_manual_active_frame_downscale_is_not_a_saving_target(self) -> None:
+        """사용자 지정 활성 화면이 적용된 축소 인코딩은 작업 목적이 변환 우선이므로 정밀 결정 대상이 아님"""
+        config = ClassifierConfig()
+        crop_applied = self._eval(
+            smart_action=SmartAction.ENCODE_DOWNSCALE,
+            bitrate_ratio=3.0,
+            manual_active_frame_applied=True,
+        )
+        auto_downscale = self._eval(
+            smart_action=SmartAction.ENCODE_DOWNSCALE,
+            bitrate_ratio=3.0,
+            manual_active_frame_applied=False,
+        )
+        for mode in (PRECISE_QUALITY_MODE_ALL, PRECISE_QUALITY_MODE_SELECTIVE):
+            with self.subTest(mode=mode):
+                self.assertFalse(should_precise_tune(crop_applied, mode, config))
+                self.assertTrue(should_precise_tune(auto_downscale, mode, config))
+
     def test_boundary_margin_constant_is_the_documented_value(self) -> None:
         self.assertAlmostEqual(PRECISE_TUNE_BOUNDARY_MARGIN, 0.15)
 

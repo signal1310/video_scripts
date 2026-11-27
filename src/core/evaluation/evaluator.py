@@ -109,11 +109,13 @@ class VideoEvaluator:
         encoded_history_filenames: frozenset[str] = frozenset(),
         active_frame: ActiveFrame | None = None,
         frame_target_tier: str = "",
+        manual_active_frame: ActiveFrame | None = None,
     ) -> VideoEvaluation:
         """원본 영상과 판정 입력 영상(활성 화면 기준)의 기준 비트레이트로 판정 결과 생성
 
         - judged_vid는 기준 비트레이트, 축소 후보, 레벨 상한과 예상 인코딩 시간 산출에 쓰고, 용량은 원본 영상 기준
         - active_frame은 잘라내기 확정 영상만 받아 인코딩 계획이 쓸 수 있게 결과에 남김
+        - manual_active_frame은 사용자 지정 활성 화면이 잘라내기에 적용된 상태에서만 받아 직접 지정 판정에 씀
         """
         src_weight = config.get_codec_weight(vid.codec)
         target_weight = config.get_codec_weight(
@@ -203,6 +205,7 @@ class VideoEvaluator:
             source_codec_weight=src_weight,
             target_codec_weight=target_weight,
             downscale=downscale,
+            manual_active_frame=manual_active_frame,
             known_encode_tag_names=known_encode_tag_names,
             encoded_history_filenames=encoded_history_filenames,
         )
@@ -260,6 +263,7 @@ class VideoEvaluator:
             downscale_skip_reason=skip_reason,
             manual_target=manual_target,
             active_frame=active_frame,
+            manual_active_frame_applied=manual_active_frame is not None,
         )
 
     @classmethod
@@ -305,11 +309,13 @@ class VideoEvaluator:
         frame_targets: Mapping[str, str] | None = None,
         known_encode_tag_names: tuple[str, ...] = (),
         encoded_history_filenames: frozenset[str] = frozenset(),
+        manual_active_frames: Mapping[str, ActiveFrame] | None = None,
     ) -> SummaryReport:
         """전체 비디오 목록을 일괄 평가하고 인코딩 대상 수량과 총 용량 변화를 집계하여 SummaryReport를 생성
 
         manual_targets는 파일명 -> 규격 키 또는 축소 안 함 값의 직접 지정 맵이며, 없는 파일은 자동 판정
         active_frames는 파일명 -> 활성 화면 맵이며, 없는 파일은 전체 프레임으로 판정
+        manual_active_frames는 파일명 -> 사용자 지정 활성 화면 맵이며, 잘라내기 설정이 켜져 있으면 직접 지정 판정에 씀
         frame_targets는 파일명 -> 화질 분석 축소 후보 규격 키 맵이며, 설정이 켜져 있을 때만 반영됨
         """
         rules = tuple(exception_rules or [])
@@ -317,7 +323,16 @@ class VideoEvaluator:
         evaluations: list[VideoEvaluation] = []
         for vid in videos:
             is_excluded = any(rule(vid) for rule in rules) if rules else False
+            # - 전역 잘라내기 설정이 꺼져 있으면 사용자 지정 활성 화면은 판정에 적용하지 않음
+            manual = (
+                manual_active_frames.get(vid.filename)
+                if manual_active_frames and config.encode.crop_black_bars
+                else None
+            )
             active = active_frames.get(vid.filename) if active_frames else None
+            if active is None:
+                # - 사용자 지정 활성 화면만 넘겨도 같은 영역이 판정 입력이 되게 함
+                active = manual
             judged = _judged_view(vid, active)
             source_kbps, target_kbps = calc_optimal_pair(judged, config)
             evaluations.append(
@@ -337,6 +352,7 @@ class VideoEvaluator:
                     frame_target_tier=(
                         frame_targets.get(vid.filename, "") if frame_targets else ""
                     ),
+                    manual_active_frame=_crop_active_frame(vid, manual),
                 )
             )
         return _build_summary_report(root_dir, evaluations, config)

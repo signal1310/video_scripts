@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 from unittest import mock
 
-from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE, ClassifierConfig
+from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_REPLACE, RESULT_POLICY_SEPARATE, ClassifierConfig
 from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.encode_paths import part_path_of
 from src.core.encode.encode_process import ProcessOutcome
@@ -647,6 +647,101 @@ class TestCancelStopAndReplace(_ServiceCase):
         states = {row.source_path: row.state for row in self.history.list_items(batch_id)}
         self.assertEqual(states[first], EncodeState.DONE)
         self.assertEqual(states[second], EncodeState.REPLACE_PENDING)
+
+
+class TestTransformSurge(_ServiceCase):
+    """변환 우선 목적의 크기 급증 상한 처리(제안 2.3절)"""
+
+    def _run_purpose(self, path: str, purpose: GatePurpose, *, policy: str, output_bytes: int) -> ItemRow:
+        job = dataclasses.replace(self._job(path), purpose=purpose)
+        settings = self._settings(result_policy=policy)
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        self._runner(settings, encoder=_FakeEncoder(output_bytes=output_bytes)).run(batch_id)
+        return self.history.list_items(batch_id)[0]
+
+    def test_replace_policy_keeps_original_and_result_when_surge_exceeds_cap(self) -> None:
+        """원본 교체 모드에서 급증 상한을 넘으면 원본을 건드리지 않고 교체 대기로 남김"""
+        path = self._source("clip.mkv")
+        item = self._run_purpose(path, GatePurpose.TRANSFORM, policy=RESULT_POLICY_REPLACE, output_bytes=int(SOURCE_BYTES * 1.4))
+        self.assertIs(item.state, EncodeState.REPLACE_PENDING)
+        self.assertIn("급증", item.reason)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+        self.assertTrue(os.path.exists(item.part_path or ""))
+
+    def test_archive_policy_places_result_with_surge_reason(self) -> None:
+        """원본을 남기는 모드는 급증 상한을 넘어도 배치하고 사유에 급증 폭을 남김"""
+        path = self._source("clip.mkv")
+        item = self._run_purpose(path, GatePurpose.TRANSFORM, policy=RESULT_POLICY_ARCHIVE, output_bytes=int(SOURCE_BYTES * 1.4))
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertIn("급증", item.reason)
+        self.assertEqual(os.path.getsize(os.path.join(self.root, "_원본보관", "clip.mkv")), SOURCE_BYTES)
+
+    def test_separate_policy_places_result_with_surge_reason(self) -> None:
+        """별도 폴더 저장 모드도 급증 상한을 넘으면 배치하고 사유를 남김"""
+        path = self._source("clip.mkv")
+        item = self._run_purpose(path, GatePurpose.TRANSFORM, policy=RESULT_POLICY_SEPARATE, output_bytes=int(SOURCE_BYTES * 1.4))
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertIn("급증", item.reason)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+
+    def test_surge_within_cap_records_transform_priority_reason(self) -> None:
+        """1.00x 초과 1.30x 이하 변환 우선은 배치하고 사유에 변환 우선과 증가 폭을 남김"""
+        path = self._source("clip.mkv")
+        item = self._run_purpose(path, GatePurpose.TRANSFORM, policy=RESULT_POLICY_ARCHIVE, output_bytes=int(SOURCE_BYTES * 1.2))
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertIn("변환 우선", item.reason)
+        self.assertIn("+20%", item.reason)
+
+    def test_saving_purpose_still_discards_larger_result(self) -> None:
+        """절약 목적은 변환 상한과 무관하게 원본보다 크면 폐기"""
+        path = self._source("clip.mkv")
+        item = self._run_purpose(path, GatePurpose.SAVING, policy=RESULT_POLICY_ARCHIVE, output_bytes=SOURCE_BYTES)
+        self.assertIs(item.state, EncodeState.DISCARDED)
+        self.assertEqual(item.reason, "결과가 원본보다 큼")
+
+    def test_user_retry_failure_keeps_surge_marker_so_automatic_retry_skips(self) -> None:
+        """교체 재시도가 실패해도 급증 표식이 남아, 이어지는 배치 끝 자동 재시도가 원본을 바꾸지 않음"""
+        path = self._source("clip.mkv")
+        item = self._run_purpose(
+            path, GatePurpose.TRANSFORM, policy=RESULT_POLICY_REPLACE, output_bytes=int(SOURCE_BYTES * 1.4)
+        )
+        self.assertIs(item.state, EncodeState.REPLACE_PENDING)
+        self.assertTrue(item.reason.startswith("원본 대비 +"))
+
+        runner = self._runner(self._settings(result_policy=RESULT_POLICY_REPLACE))
+        with mock.patch(
+            "src.service.encode.encode_placement.os.replace", side_effect=OSError("공유 위반")
+        ):
+            runner.retry_replace_pending(item.batch_id, only_source=path)
+        retried = self.history.list_items(item.batch_id)[0]
+        self.assertIs(retried.state, EncodeState.REPLACE_PENDING)
+        self.assertTrue(retried.reason.startswith("원본 대비 +"))
+        self.assertIn("교체 대기: 공유 위반", retried.reason)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+
+        runner.retry_replace_pending(item.batch_id, automatic=True)
+        skipped = self.history.list_items(item.batch_id)[0]
+        self.assertIs(skipped.state, EncodeState.REPLACE_PENDING)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+
+    def test_automatic_replace_retry_skips_surge_hold(self) -> None:
+        """배치 끝 자동 교체 재시도는 급증 보류 항목을 사용자 결정 없이 교체하지 않고, 사용자가 다시 시도하면 교체함"""
+        path = self._source("clip.mkv")
+        job = dataclasses.replace(self._job(path), purpose=GatePurpose.TRANSFORM)
+        settings = self._settings(result_policy=RESULT_POLICY_REPLACE)
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        runner = self._runner(settings, encoder=_FakeEncoder(output_bytes=int(SOURCE_BYTES * 1.4)))
+        runner.run(batch_id)
+        # - run은 끝나며 자동 재시도를 부르므로 위 호출에서 이미 건너뛰었는지 확인
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.REPLACE_PENDING)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+
+        # - 결과 목록의 행 재시도는 사용자 선택이므로 급증 보류도 그대로 교체
+        runner.retry_replace_pending(batch_id, only_source=path)
+        replaced = self.history.list_items(batch_id)[0]
+        self.assertIs(replaced.state, EncodeState.DONE)
+        self.assertEqual(os.path.getsize(path), int(SOURCE_BYTES * 1.4))
 
 
 class TestPauseAndLongPauseNotice(_ServiceCase):

@@ -386,6 +386,7 @@ def tune_and_encode(
             final_q=active_plan.quality,
             retry_count=retry_count,
             passed_first=sample_res.passed_first,
+            purpose=job.purpose,
         )
         return active_plan, replace(
             attempt,

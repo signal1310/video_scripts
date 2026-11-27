@@ -20,6 +20,7 @@ from src.core.config import (
     RESULT_POLICY_SEPARATE,
     ClassifierConfig,
 )
+from src.core.encode.encode_gate import GatePurpose
 from src.core.encode_fingerprint import compute_encode_fingerprint
 from src.core.encode_tag import ENCODE_TAG_MODE_OFF, ENCODE_TAG_MODE_VISIBLE
 from src.core.models import ActiveFrame, QualityZone
@@ -384,6 +385,153 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         jobs = jobs_from_evaluations(report.evaluations, self.root)
         self.assertEqual(jobs[0].crop_filter, "crop=1280:720:0:180")
 
+    def test_manual_active_frame_judges_as_manual_encode_with_transform_gate(self) -> None:
+        """저장된 사용자 지정 활성 화면이 판정에 전달되어 품질 인코딩과 변환 우선 게이트로 이어지는지 검증"""
+        clip = os.path.join(self.root, "manual_gate.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        manual = ActiveFrame(1280, 720, 0, 180)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="manual_gate.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1920,
+                    active_height=1080,
+                    active_x=0,
+                    active_y=0,
+                    has_black_bars=False,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+            frame_store.set_manual_active_frame(
+                clip, manual, frame_width=1920, frame_height=1080
+            )
+        finally:
+            frame_store.close()
+
+        # - 과화질이지만 축소 후보가 없으므로 사용자 지정 활성 화면이 직접 지정 품질 인코딩으로 판정됨
+        vid = make_video(
+            filename="manual_gate.mp4", width=1920, height=1080, vid_kbps=10000, vid_size_MB=200.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        ev = self._service().evaluate_all().evaluations[0]
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+        self.assertTrue(ev.manual_active_frame_applied)
+        self.assertEqual(ev.active_frame, manual)
+
+        job = jobs_from_evaluations([ev], self.root)[0]
+        self.assertIs(job.purpose, GatePurpose.TRANSFORM)
+        self.assertEqual(job.crop_filter, manual.crop_filter_expr())
+
+    def test_manual_active_frame_wins_over_crop_exclusion(self) -> None:
+        """영상별 잘라내기 제외가 있어도 사용자 지정 활성 화면은 기존 규칙대로 덮어써 판정에 쓰임"""
+        clip = os.path.join(self.root, "excluded.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        manual = ActiveFrame(1280, 720, 0, 180)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="excluded.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1920,
+                    active_height=1080,
+                    active_x=0,
+                    active_y=0,
+                    has_black_bars=True,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+            frame_store.set_manual_active_frame(
+                clip, manual, frame_width=1920, frame_height=1080
+            )
+            frame_store.set_crop_exclusion(clip, True)
+        finally:
+            frame_store.close()
+
+        vid = make_video(
+            filename="excluded.mp4", width=1920, height=1080, vid_kbps=2500, vid_size_MB=120.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        ev = self._service().evaluate_all().evaluations[0]
+        self.assertEqual(ev.active_frame, manual)
+        self.assertTrue(ev.manual_active_frame_applied)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+
+    def test_manual_active_frame_is_ignored_when_crop_setting_is_off(self) -> None:
+        """전역 잘라내기 설정이 꺼져 있으면 사용자 지정 활성 화면을 판정에 넘기지 않음"""
+        clip = os.path.join(self.root, "no_crop.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.set_vr_override(source_path=clip, filename="no_crop.mp4", manual_vr=False)
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="no_crop.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    active_width=1920,
+                    active_height=1080,
+                    active_x=0,
+                    active_y=0,
+                    has_black_bars=False,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+            frame_store.set_manual_active_frame(
+                clip, ActiveFrame(1280, 720, 0, 180), frame_width=1920, frame_height=1080
+            )
+        finally:
+            frame_store.close()
+
+        self.config.encode.crop_black_bars = False
+        vid = make_video(
+            filename="no_crop.mp4", width=1920, height=1080, vid_kbps=10000, vid_size_MB=200.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        ev = self._service().evaluate_all().evaluations[0]
+        self.assertIsNone(ev.active_frame)
+        self.assertFalse(ev.manual_active_frame_applied)
+        self.assertIsNot(ev.smart_action, SmartAction.ENCODE_MANUAL)
+
+    def test_crop_review_hold_applies_only_to_original_replacement(self) -> None:
+        """어두운 근거로 지점을 무시한 자동 크롭은 원본 교체에서 보류되고 별도 출력에서는 유지되는지 검증"""
     def test_crop_review_hold_applies_to_every_output_mode(self) -> None:
         """어두운 근거로 지점을 무시한 자동 크롭은 출력 방식과 무관하게 보류되는지 검증"""
         clip = os.path.join(self.root, "review.mp4")
@@ -599,12 +747,14 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
             return real_stat(path, *args, **kwargs)  # type: ignore[arg-type]
 
         with mock.patch("src.service.classifier_service.os.stat", side_effect=_guard):
-            self.assertEqual(_resolve_frame_cache_for(self.root, [vid], empty_db), ({}, {}))
-            self.assertEqual(_resolve_frame_cache_for(self.root, [vid], None), ({}, {}))
-            self.assertEqual(
+            for view in (
+                _resolve_frame_cache_for(self.root, [vid], empty_db),
+                _resolve_frame_cache_for(self.root, [vid], None),
                 _resolve_frame_cache_for(self.root, [vid], empty_db, frame_targets_enabled=False),
-                ({}, {}),
-            )
+            ):
+                self.assertEqual(view.manual_frames, {})
+                self.assertEqual(view.active_frames, {})
+                self.assertEqual(view.frame_targets, {})
 
 
 class TestPrepareCachePrescanReuse(unittest.TestCase):

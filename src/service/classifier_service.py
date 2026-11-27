@@ -85,6 +85,18 @@ def _resolve_encoded_evidence_for(
         out_hist.close()
 
 
+@dataclass(frozen=True, slots=True)
+class FrameCacheView:
+    """화질 분석 캐시에서 뽑은 잘라내기 확정 영상, 축소 후보, 사용자 지정 활성 화면 맵
+
+    - manual_frames는 사용자 지정 활성 화면이 잘라내기에 실제로 적용된 영상만 담음(잘라내기 제외 영상은 빠짐)
+    """
+
+    active_frames: dict[str, ActiveFrame]
+    frame_targets: dict[str, str]
+    manual_frames: dict[str, ActiveFrame]
+
+
 def _resolve_frame_cache_for(
     root_dir: str,
     videos: Sequence[VideoProps],
@@ -94,22 +106,23 @@ def _resolve_frame_cache_for(
     crop_enabled: bool = True,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     frame_targets_enabled: bool = True,
-) -> tuple[dict[str, ActiveFrame], dict[str, str]]:
+) -> FrameCacheView:
     """화질 분석 캐시에서 잘라내기 확정 영상과 축소 후보 규격을 파일명별로 조회
 
-    - 캐시가 비어 있으면 원본 파일 stat을 하지 않고 돌려줌
+    - 캐시가 비어 있으면 원본 파일 stat을 하지 않고 빈 결과를 돌려줌
     - 현재 파일 크기와 수정 시각이 같은 행만 써서 바뀐 파일의 낡은 측정을 쓰지 않음
     - 잘라내기를 쓰지 않는 영상(설정 끔, VR 보호, 검은 여백 없음)은 축소 후보도 반영하지 않음
     - 사용자 지정 활성 화면은 자동 감지 결과와 영상별 제외를 덮어씀
     - 어두운 근거로 지점을 무시한 영상은 사용자가 확인할 때까지 영상별 제외와 같은 경로로 자동 크롭을 보류
     - 활성 화면 면적이 현재 무시 상한을 넘으면 전체 프레임으로 되돌려 판정
     """
+    empty = FrameCacheView({}, {}, {})
     if db_path is None:
-        return {}, {}
+        return empty
     store = FrameAnalysisStore(db_path)
     try:
         if store.count() == 0:
-            return {}, {}
+            return empty
         keys: list[tuple[str, int, int]] = []
         path_by_name: dict[str, str] = {}
         size_by_name: dict[str, tuple[int, int]] = {}
@@ -141,6 +154,7 @@ def _resolve_frame_cache_for(
         acknowledged = store.load_crop_review_acknowledged(regions) if regions else frozenset()
         frames: dict[str, ActiveFrame] = {}
         frame_targets: dict[str, str] = {}
+        manual_frames: dict[str, ActiveFrame] = {}
         for key, record in loaded.items():
             if not is_usable_analysis_version(record.analysis_version, analysis_version):
                 continue
@@ -166,6 +180,9 @@ def _resolve_frame_cache_for(
             )
             if frame is not None:
                 frames[key[0]] = frame
+            # - 사용자 지정 활성 화면이 이번 판정에서 실제로 잘라내기에 적용된 영상만 직접 지정 판정에 넘김
+            if frame is not None and manual.get(path) == frame:
+                manual_frames[key[0]] = frame
             if not frame_targets_enabled:
                 continue
             candidate = record.candidate_tier
@@ -183,7 +200,7 @@ def _resolve_frame_cache_for(
                 frame is None and not region.has_black_bars
             ):
                 frame_targets[key[0]] = candidate
-        return frames, frame_targets
+        return FrameCacheView(frames, frame_targets, manual_frames)
     finally:
         store.close()
 
@@ -417,7 +434,7 @@ class VideoClassifierService:
 
         tag_names, matched_names = self._resolve_encoded_evidence(cache.data)
         db_path = self._store.db_path if self._store is not None else None
-        active_frames, frame_targets = _resolve_frame_cache_for(
+        frame_cache = _resolve_frame_cache_for(
             self.root_dir,
             cache.data,
             db_path,
@@ -435,10 +452,11 @@ class VideoClassifierService:
             self.exception_rules,
             policies=_policies_for(cache.legacy_names),
             manual_targets=self.manual_targets,
-            active_frames=active_frames,
-            frame_targets=frame_targets,
+            active_frames=frame_cache.active_frames,
+            frame_targets=frame_cache.frame_targets,
             known_encode_tag_names=tag_names,
             encoded_history_filenames=matched_names,
+            manual_active_frames=frame_cache.manual_frames,
         )
 
     def install_stored_cache(self, stored: StoredRows) -> None:
@@ -482,7 +500,7 @@ class VideoClassifierService:
             tag_names, matched_names = _resolve_encoded_evidence_for(
                 root_dir, videos, db_path, current_tag_name
             )
-            active_frames, frame_targets = _resolve_frame_cache_for(
+            frame_cache = _resolve_frame_cache_for(
                 root_dir,
                 videos,
                 db_path,
@@ -498,10 +516,11 @@ class VideoClassifierService:
                 rules,
                 policies=policies,
                 manual_targets=targets,
-                active_frames=active_frames,
-                frame_targets=frame_targets,
+                active_frames=frame_cache.active_frames,
+                frame_targets=frame_cache.frame_targets,
                 known_encode_tag_names=tag_names,
                 encoded_history_filenames=matched_names,
+                manual_active_frames=frame_cache.manual_frames,
             )
 
         return job

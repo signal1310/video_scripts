@@ -178,7 +178,7 @@ class TestTagGate(unittest.TestCase):
 
 
 class TestSizeGate(unittest.TestCase):
-    """절약 목적만 크기 기준을 적용하고, 키프레임 교정과 호환 목적은 무결성만 검사"""
+    """절약 목적은 결과가 원본보다 크면 폐기하고, 변환 우선 목적은 1.30배 급증 상한만 본다"""
 
     def test_larger_saving_result_is_discarded(self) -> None:
         self.assertIs(_judge(_ok(), size=_SOURCE_SIZE), GateVerdict.DISCARD_LARGER)
@@ -187,13 +187,33 @@ class TestSizeGate(unittest.TestCase):
     def test_smaller_saving_result_passes(self) -> None:
         self.assertIs(_judge(_ok(), size=_SOURCE_SIZE - 1), GateVerdict.PASS)
 
-    def test_keyframe_fix_and_compat_ignore_size(self) -> None:
-        self.assertIs(_judge(_ok(), size=_SOURCE_SIZE * 2, purpose=GatePurpose.KEYFRAME_FIX), GateVerdict.PASS)
-        self.assertIs(_judge(_ok(), size=_SOURCE_SIZE * 2, purpose=GatePurpose.COMPAT), GateVerdict.PASS)
+    def test_transform_purpose_accepts_larger_result_within_surge_cap(self) -> None:
+        """변환 우선은 원본보다 커도 1.30배까지는 배치 허용"""
+        self.assertIs(_judge(_ok(), size=_SOURCE_SIZE, purpose=GatePurpose.TRANSFORM), GateVerdict.PASS)
+        self.assertIs(_judge(_ok(), size=_SOURCE_SIZE * 2, purpose=GatePurpose.TRANSFORM), GateVerdict.PASS_SURGE)
+
+    def test_transform_surge_boundary_is_one_point_thirty(self) -> None:
+        """경계값 1.30배는 통과, 1%p만 넘어도 급증 판정"""
+        self.assertIs(_judge(_ok(), size=_SOURCE_SIZE + _SOURCE_SIZE * 30 // 100, purpose=GatePurpose.TRANSFORM), GateVerdict.PASS)
+        self.assertIs(
+            _judge(_ok(), size=_SOURCE_SIZE + _SOURCE_SIZE * 31 // 100, purpose=GatePurpose.TRANSFORM),
+            GateVerdict.PASS_SURGE,
+        )
+
+    def test_keyframe_fix_and_compat_use_transform_surge_cap(self) -> None:
+        """키프레임 교정과 호환 인코딩은 원본보다 큰 것을 원래 수용하되 급증 상한은 적용"""
+        for purpose in (GatePurpose.KEYFRAME_FIX, GatePurpose.COMPAT):
+            with self.subTest(purpose=purpose):
+                self.assertIs(
+                    _judge(_ok(), size=_SOURCE_SIZE + _SOURCE_SIZE // 5, purpose=purpose), GateVerdict.PASS
+                )
+                self.assertIs(
+                    _judge(_ok(), size=_SOURCE_SIZE * 3, purpose=purpose), GateVerdict.PASS_SURGE
+                )
 
 
 class TestPurposeMapping(unittest.TestCase):
-    """권장 처리 종류별 게이트 목적(결정 10)"""
+    """권장 처리 종류와 사용자 지정 활성 화면 적용 여부별 게이트 목적(결정 10)"""
 
     def test_keyframe_actions_map_to_keyframe_fix(self) -> None:
         self.assertIs(purpose_for_action(SmartAction.ENCODE_OPT_KF), GatePurpose.KEYFRAME_FIX)
@@ -205,10 +225,31 @@ class TestPurposeMapping(unittest.TestCase):
     def test_compat_action_maps_to_compat(self) -> None:
         self.assertIs(purpose_for_action(SmartAction.ENCODE_COMPAT), GatePurpose.COMPAT)
 
+    def test_manual_encode_maps_to_transform(self) -> None:
+        """직접 지정 품질 인코딩은 원본 화질을 바꾸는 것이 목적이라 변환 우선"""
+        self.assertIs(purpose_for_action(SmartAction.ENCODE_MANUAL), GatePurpose.TRANSFORM)
+        self.assertIs(
+            purpose_for_evaluation(SmartAction.ENCODE_MANUAL, False, manual_active_frame_applied=True),
+            GatePurpose.TRANSFORM,
+        )
+
+    def test_manual_active_frame_downscale_maps_to_transform(self) -> None:
+        """사용자 지정 활성 화면이 적용된 축소 인코딩은 화면을 바꾸는 것이 목적이라 변환 우선"""
+        self.assertIs(
+            purpose_for_action(SmartAction.ENCODE_DOWNSCALE, manual_active_frame_applied=True),
+            GatePurpose.TRANSFORM,
+        )
+
     def test_savings_actions_map_to_saving(self) -> None:
-        for action in (SmartAction.ENCODE_OVER, SmartAction.ENCODE_CODEC_UPGRADE, SmartAction.ENCODE_DOWNSCALE):
+        """출력 해상도 직접 지정, 최대 해상도 초과, 자동 후보 축소는 절약 목적 유지"""
+        for action in (SmartAction.ENCODE_OVER, SmartAction.ENCODE_CODEC_UPGRADE):
             with self.subTest(action=action):
                 self.assertIs(purpose_for_action(action), GatePurpose.SAVING)
+        self.assertIs(purpose_for_action(SmartAction.ENCODE_DOWNSCALE), GatePurpose.SAVING)
+        self.assertIs(
+            purpose_for_action(SmartAction.ENCODE_DOWNSCALE, manual_active_frame_applied=False),
+            GatePurpose.SAVING,
+        )
 
 
 class TestSummarizeProbe(unittest.TestCase):

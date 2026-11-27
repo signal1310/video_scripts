@@ -306,7 +306,8 @@ def format_action_tooltip(config: ClassifierConfig) -> str:
     protect_cq = protect_cq_value(std_cq)
     descriptions: dict[str, str] = {
         SmartAction.ENCODE_OVER.action_label: (
-            "화질 기준값으로 인코딩하고 1초 키프레임을 적용합니다. 저화질 프리셋 영상은 "
+            "화질 기준값으로 인코딩하고 1초 키프레임을 적용합니다. 영상별 직접 지정이 있으면 "
+            "화질 등급과 절약 선별보다 직접 지정을 먼저 따릅니다. 저화질 프리셋 영상은 "
             "비트레이트가 목표에 가까울수록 보호 폭이 작아지는 연속 규칙으로 "
             f"화질 기준값에서 최대 {format_cq_value(protect_cq)}까지 올려 인코딩합니다. "
             "압축 노이즈 재현에 비트를 덜 쓰기 위해서입니다."
@@ -387,9 +388,9 @@ def format_reason_tooltip(config: ClassifierConfig) -> str:
         f"• {SmartAction.ENCODE_DOWNSCALE.reason_label}: 원본 규격이 최대 해상도 설정을 넘어 출력 해상도로 줄이고 최대 비트레이트를 적용해 인코딩합니다.\n"
         f"• {DownscaleReason.FRAME_ANALYSIS.value}: 화질 분석에서 찾은 축소 후보 규격으로 줄입니다. 설정에서 켠 경우에만 적용됩니다.\n"
         f"• {DownscaleReason.BITRATE_FIT.value}: 저화질 영상이 더 낮은 규격에서도 화질 기준을 유지할 수 있어 그 규격으로 줄입니다. 설정에서 켠 경우에만 적용됩니다.\n"
-        f"• {DownscaleReason.MANUAL.value}: 영상별로 지정한 출력 해상도로 줄입니다. 최대 해상도 설정보다 우선합니다.\n"
+        f"• {DownscaleReason.MANUAL.value}: 영상별로 지정한 출력 해상도나 사용자 지정 활성 화면을 적용합니다. 최대 해상도 설정보다 우선합니다.\n"
         f"• {SmartAction.PASS_HDR.reason_label}: HDR 영상은 색 정보 보호를 위해 원본을 보존합니다.\n"
-        f"• {SmartAction.PASS_ALREADY_ENCODED.reason_label}: 이미 인코딩된 영상이라 원본을 보존합니다. 출력 해상도를 직접 지정하면 다시 판정합니다.\n"
+        f"• {SmartAction.PASS_ALREADY_ENCODED.reason_label}: 이미 인코딩된 영상이라 원본을 보존합니다. 출력 해상도를 직접 지정하거나 사용자 지정 활성 화면을 적용하면 다시 판정합니다.\n"
         f"• {SmartAction.LEGACY_FORMAT.reason_label}: 분석 형식이 바뀌어 다시 분석하기 전까지 인코딩 대상에서 제외합니다.\n"
         f"• {SmartAction.PASS_EXCEPTION.reason_label}: 예외 규칙(키워드 또는 조건식)에 해당해 인코딩 대상에서 제외되었습니다."
     )

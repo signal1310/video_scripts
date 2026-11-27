@@ -160,6 +160,8 @@ class VideoEvaluation:
     manual_target: str | None = None
     # - 잘라내기 확정 영상의 활성 화면. 원본 전체 프레임을 그대로 쓰면 None
     active_frame: ActiveFrame | None = None
+    # - 사용자 지정 활성 화면이 잘라내기에 적용된 영상인지. 게이트 목적(변환 우선) 판정에 씀
+    manual_active_frame_applied: bool = False
 
     @property
     def is_encode_target(self) -> bool:

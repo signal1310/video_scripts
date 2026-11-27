@@ -25,13 +25,18 @@ def should_precise_tune(ev: VideoEvaluation, mode: str, config: ClassifierConfig
 
     - `off`는 항상 거짓, `all`은 절약 목적 인코딩 대상 전부
     - `selective`는 절약 목적 중 축소 후보이거나 비트레이트 비율이 과화질/저화질 경계 여유 안쪽인 영상
-    - 키프레임 교정(결정 33)과 호환 인코딩은 절약 목적이 아니므로 건드리지 않음
+    - 키프레임 교정(결정 33), 변환 우선(직접 지정, 사용자 지정 활성 화면 축소), 호환 인코딩은
+      절약 목적이 아니므로 건드리지 않음
+    - 목적 판정은 `purpose_for_evaluation`에 사용자 지정 활성 화면 적용 여부까지 넘겨 작업 목적과 같게 봄
     """
     if mode != PRECISE_QUALITY_MODE_ALL and mode != PRECISE_QUALITY_MODE_SELECTIVE:
         return False
     if not ev.is_encode_target:
         return False
-    if purpose_for_evaluation(ev.smart_action, ev.is_keyframe_exceeded) is not GatePurpose.SAVING:
+    purpose = purpose_for_evaluation(
+        ev.smart_action, ev.is_keyframe_exceeded, manual_active_frame_applied=ev.manual_active_frame_applied
+    )
+    if purpose is not GatePurpose.SAVING:
         return False
     if mode == PRECISE_QUALITY_MODE_ALL:
         return True

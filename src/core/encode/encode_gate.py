@@ -23,12 +23,15 @@ from src.core.smart_action import SmartAction
 DATA_CODEC_TYPE: str = "data"
 DURATION_TOLERANCE_MIN_SEC: float = 0.5
 DURATION_TOLERANCE_RATIO: float = 0.005
+# - 변환 우선 인코딩 결과가 원본 크기의 이 배수를 넘으면 그대로 배치하지 않고 보류(제안 2.3절 3단계)
+TRANSFORM_SIZE_SURGE_RATIO: float = 1.30
 
 
 class GatePurpose(Enum):
-    """결과 검사 목적. 절약 목적만 크기 기준을 적용"""
+    """결과 검사 목적. 절약 목적만 결과가 원본보다 크면 폐기하고, 나머지는 급증 상한만 본다"""
 
     SAVING = "saving"
+    TRANSFORM = "transform"
     KEYFRAME_FIX = "keyframe_fix"
     COMPAT = "compat"
 
@@ -40,6 +43,7 @@ class GateVerdict(Enum):
     FAIL_INTEGRITY = "fail_integrity"
     FAIL_TAG = "fail_tag"
     DISCARD_LARGER = "discard_larger"
+    PASS_SURGE = "pass_surge"
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,20 +79,31 @@ def summarize_probe(probe: Mapping[str, Any]) -> OutputSummary:
     )
 
 
-def purpose_for_action(action: SmartAction) -> GatePurpose:
-    """권장 처리 종류에서 게이트 목적을 정함(결정 10)"""
+def purpose_for_action(action: SmartAction, *, manual_active_frame_applied: bool = False) -> GatePurpose:
+    """권장 처리 종류에서 게이트 목적을 정함(결정 10)
+
+    - 품질 인코딩(직접 지정)은 원본 화질을 바꾸는 것이 목적이므로 변환 우선
+    - 사용자 지정 활성 화면을 자른 축소 인코딩도 화면을 바꾸는 것이 목적이므로 변환 우선
+    - 그 밖의 축소 인코딩(출력 해상도 직접 지정, 최대 해상도 초과, 자동 후보)은 절약 목적
+    """
     if action in (SmartAction.ENCODE_OPT_KF, SmartAction.ENCODE_LOW_KF):
         return GatePurpose.KEYFRAME_FIX
     if action is SmartAction.ENCODE_COMPAT:
         return GatePurpose.COMPAT
+    if action is SmartAction.ENCODE_MANUAL:
+        return GatePurpose.TRANSFORM
+    if manual_active_frame_applied and action is SmartAction.ENCODE_DOWNSCALE:
+        return GatePurpose.TRANSFORM
     return GatePurpose.SAVING
 
 
-def purpose_for_evaluation(action: SmartAction, keyframe_exceeded: bool) -> GatePurpose:
+def purpose_for_evaluation(
+    action: SmartAction, keyframe_exceeded: bool, *, manual_active_frame_applied: bool = False
+) -> GatePurpose:
     """평가 결과에서 게이트 목적을 정함. 키프레임 간격이 초과된 영상은 판정 종류와 무관하게 KF 교정(결정 10 개정)"""
     if keyframe_exceeded:
         return GatePurpose.KEYFRAME_FIX
-    return purpose_for_action(action)
+    return purpose_for_action(action, manual_active_frame_applied=manual_active_frame_applied)
 
 
 def duration_tolerance_sec(source_duration_sec: float) -> float:
@@ -104,6 +119,20 @@ def _has_required_tag(output: OutputSummary, tag_mode: str, tag_name: str, tag_e
     if tag_mode == ENCODE_TAG_MODE_VISIBLE:
         return has_tag_name_keyword(output.keywords, (tag_name,))
     return True
+
+
+_TRANSFORM_SIZE_SURGE_PERCENT: int = round(TRANSFORM_SIZE_SURGE_RATIO * 100)
+
+
+def exceeds_transform_surge(source_size_bytes: int, output_size_bytes: int) -> bool:
+    """변환 우선 결과가 원본 크기의 급증 상한을 넘었는지 판정
+
+    - 배수 대신 백분율 정수 비교를 써서 경계값(1.30x)이 부동소수점 오차로 뒤집히지 않게 함
+    - 원본 크기를 모르면 비교할 수 없으므로 넘지 않은 것으로 봄
+    """
+    if source_size_bytes <= 0:
+        return False
+    return output_size_bytes * 100 > source_size_bytes * _TRANSFORM_SIZE_SURGE_PERCENT
 
 
 def judge_result(
@@ -127,6 +156,10 @@ def judge_result(
         return GateVerdict.FAIL_INTEGRITY
     if not _has_required_tag(output, tag_mode, tag_name, tag_exempt):
         return GateVerdict.FAIL_TAG
-    if purpose is GatePurpose.SAVING and output_size_bytes >= source_size_bytes:
-        return GateVerdict.DISCARD_LARGER
+    if purpose is GatePurpose.SAVING:
+        if output_size_bytes >= source_size_bytes:
+            return GateVerdict.DISCARD_LARGER
+        return GateVerdict.PASS
+    if exceeds_transform_surge(source_size_bytes, output_size_bytes):
+        return GateVerdict.PASS_SURGE
     return GateVerdict.PASS

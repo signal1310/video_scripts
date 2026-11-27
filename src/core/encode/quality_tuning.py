@@ -8,6 +8,7 @@
 import math
 from dataclasses import dataclass
 
+from src.core.encode.encode_gate import GatePurpose
 from src.core.encode.stream_layout import StreamLayout
 from src.core.models import BYTES_PER_KB
 from src.core.quality_target import (
@@ -251,8 +252,13 @@ def format_tuned_reason(
     final_q: float,
     retry_count: int,
     passed_first: bool,
+    purpose: GatePurpose = GatePurpose.KEYFRAME_FIX,
 ) -> str:
-    """결과 목록 사유 줄 문구. 기준 그대로 유지한 경우와 조정된 경우를 구분"""
+    """결과 목록 사유 줄 문구. 기준 그대로 유지한 경우와 조정된 경우를 구분
+
+    - 기준을 유지한 마지막 사유는 목적에 맞춰 씀. 키프레임 교정만 기준 품질값을 우선한 것이므로
+      변환 우선과 호환 인코딩은 목적을 드러내지 않는 중립 문구를 씀
+    """
     base_txt = format_cq_value(baseline_q)
     final_txt = format_cq_value(final_q)
     if retry_count > 0:
@@ -264,4 +270,6 @@ def format_tuned_reason(
         return f"품질값 자동 조정: {base_txt} -> {final_txt} (품질 시험)"
     if passed_first:
         return f"품질값 {base_txt} 유지 (1차 시험 통과)"
-    return f"품질값 {base_txt} 유지 (키프레임 인코딩 우선)"
+    if purpose is GatePurpose.KEYFRAME_FIX:
+        return f"품질값 {base_txt} 유지 (키프레임 인코딩 우선)"
+    return f"품질값 {base_txt} 유지 (품질 시험)"

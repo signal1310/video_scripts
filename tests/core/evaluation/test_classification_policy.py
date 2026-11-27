@@ -11,7 +11,7 @@ from src.core.evaluation.classification_policy import (
     make_legacy_format_policy,
     should_use_low_quality_preset,
 )
-from src.core.models import QualityZone
+from src.core.models import ActiveFrame, QualityZone
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import DownscaleReason, SmartAction
 from tests._factories import make_video
@@ -93,6 +93,88 @@ class TestClassificationPolicy(unittest.TestCase):
         self.assertEqual(
             _run_policies(_make_context(video=make_video(is_hdr=True))),
             SmartAction.PASS_HDR,
+        )
+
+    def test_manual_active_frame_and_output_tier_policy(self) -> None:
+        """사용자 지정 활성 화면과 직접 지정 축소가 화질 등급, 절약 선별보다 먼저 적용되는지 검증"""
+        manual_frame = ActiveFrame(1920, 800, 0, 140)
+        manual_downscale = DownscaleEstimate(
+            tier=RESOLUTION_TIER_BY_KEY["720p"],
+            reason=DownscaleReason.MANUAL,
+            target_width=1280,
+            target_height=720,
+            target_optimal_kbps=1000,
+            target_bitrate_ratio=1.2,
+            source_ratio_at_target=1.2,
+            after_mb=15.0,
+            potential_saved_mb=0.5,
+            encode_sec=20.0,
+        )
+        for zone in QualityZone:
+            with self.subTest(zone=zone):
+                self.assertEqual(
+                    _run_policies(
+                        _make_context(
+                            quality_zone=zone,
+                            potential_saved_mb=0.5,
+                            manual_active_frame=manual_frame,
+                        )
+                    ),
+                    SmartAction.ENCODE_MANUAL,
+                )
+                self.assertEqual(
+                    _run_policies(
+                        _make_context(
+                            quality_zone=zone,
+                            potential_saved_mb=0.5,
+                            manual_active_frame=manual_frame,
+                            downscale=manual_downscale,
+                        )
+                    ),
+                    SmartAction.ENCODE_DOWNSCALE,
+                )
+        # - 출력 해상도 직접 지정만 있어도 절약 미달과 무관하게 축소 인코딩
+        self.assertEqual(
+            _run_policies(
+                _make_context(potential_saved_mb=0.5, downscale=manual_downscale)
+            ),
+            SmartAction.ENCODE_DOWNSCALE,
+        )
+        # - 자동 축소 후보는 직접 지정 정책을 지나 기존 절약 선별 유지
+        auto_downscale = DownscaleEstimate(
+            tier=RESOLUTION_TIER_BY_KEY["720p"],
+            reason=DownscaleReason.MAX_RESOLUTION,
+            target_width=1280,
+            target_height=720,
+            target_optimal_kbps=1000,
+            target_bitrate_ratio=1.2,
+            source_ratio_at_target=1.2,
+            after_mb=15.0,
+            potential_saved_mb=0.5,
+            encode_sec=20.0,
+        )
+        self.assertEqual(
+            _run_policies(_make_context(potential_saved_mb=0.5, downscale=auto_downscale)),
+            SmartAction.PASS_LOW_SAVED,
+        )
+
+    def test_manual_active_frame_is_ignored_when_crop_disabled(self) -> None:
+        """전역 잘라내기 설정이 꺼져 있으면 직접 지정 정책과 이미 인코딩 예외가 적용되지 않음"""
+        manual_frame = ActiveFrame(1920, 800, 0, 140)
+        disabled = ClassifierConfig(encode=EncodeConfig(crop_black_bars=False))
+        ctx = _make_context(
+            manual_active_frame=manual_frame, config=disabled, target_codec_weight=1.0
+        )
+        self.assertEqual(_run_policies(ctx), SmartAction.PASS_OPTIMAL)
+        self.assertEqual(
+            _run_policies(
+                _make_context(
+                    video=make_video(has_encode_tag=True),
+                    manual_active_frame=manual_frame,
+                    config=disabled,
+                )
+            ),
+            SmartAction.PASS_ALREADY_ENCODED,
         )
 
     def test_legacy_compat_intra_and_zone_policies(self) -> None:

@@ -20,7 +20,7 @@ import psutil
 from src.core.analysis.prober import resolve_ffprobe_executable
 from src.core.analysis.volume_identity import volume_location
 from src.core.command_history import STAGE_MAIN_ENCODE, command_scope
-from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE
+from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_REPLACE, RESULT_POLICY_SEPARATE
 from src.core.encode.encode_gate import GatePurpose, GateVerdict, OutputSummary, judge_result, summarize_probe
 from src.core.encode.encode_paths import (
     archive_path_of,
@@ -153,7 +153,7 @@ class EncodeRunner:
                 with ThreadPoolExecutor(workers) as pool:
                     self._run_pending(pool, batch_id)
                 if not self._abort.is_set():
-                    self.retry_replace_pending(batch_id)
+                    self.retry_replace_pending(batch_id, automatic=True)
                 if not any(row.state in UNFINISHED_STATES for row in self._history.list_items(batch_id)):
                     self._history.close_batch(batch_id)
         finally:
@@ -344,7 +344,9 @@ class EncodeRunner:
                 precise_quality=precise_quality, precise_reason=precise_reason,
                 previous_quality=precise_previous, precise_resolution=precise_resolution,
             ))
-        if job.purpose is GatePurpose.KEYFRAME_FIX:
+        if job.purpose in (GatePurpose.TRANSFORM, GatePurpose.KEYFRAME_FIX, GatePurpose.COMPAT):
+            # - 변환 우선, 키프레임 교정, 호환 인코딩은 크기를 지키는 것이 목적이 아니므로
+            #   결정 33 품질 시험으로 결과가 원본 목표를 넘지 않게 맞춘 뒤 인코딩
             plan, attempt = tune_and_encode(
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
                 process_factory=self._factory, abort=self._abort, emit=self._emit, build_args=build_sample_ffmpeg_args,
@@ -510,7 +512,27 @@ class EncodeRunner:
         )
         if verdict is GateVerdict.PASS:
             done_reason = tag_notice or attempt.tuning_reason
+            surge = self._transform_surge_reason(job, output_bytes)
+            if surge is not None:
+                reason = f"{done_reason} / {surge}" if done_reason else surge
+                return outcome_with_tuning(
+                    self._place(job, plan, attempt.decode_retry, reason), attempt)
             return outcome_with_tuning(self._place(job, plan, attempt.decode_retry, done_reason), attempt)
+        if verdict is GateVerdict.PASS_SURGE:
+            # - 원본 교체는 결과가 상한을 넘었으므로 원본을 건드리지 않고 교체 대기로 남겨 사용자가 판단하게 함
+            #   (강제 교체는 기존 교체 대기 재시도 경로를 그대로 씀)
+            if self._settings.result_policy == RESULT_POLICY_REPLACE:
+                return outcome_with_tuning(ItemOutcome(
+                    EncodeState.REPLACE_PENDING,
+                    reasons.transform_surge_reason(output_bytes, job.source_size),
+                    decode_retry=attempt.decode_retry,
+                    output_size=output_bytes), attempt)
+            # - 원본을 남기는 모드는 배치해도 되돌릴 수 있으므로 완료로 두고 사유에 급증 폭을 남김
+            reason = reasons.transform_surge_reason(output_bytes, job.source_size)
+            tuned = attempt.tuning_reason
+            if tuned:
+                reason = f"{tuned} / {reason}"
+            return outcome_with_tuning(self._place(job, plan, attempt.decode_retry, reason), attempt)
         self._remove_part(part)
         state, reason = reasons.gate_failure(verdict)
         # - 폐기 항목은 지운 결과 크기를 기록해 원본보다 얼마나 컸는지 결과 목록에 보임
@@ -518,6 +540,17 @@ class EncodeRunner:
         return outcome_with_tuning(
             ItemOutcome(state, reason, decode_retry=attempt.decode_retry, output_size=measured), attempt
         )
+
+    def _transform_surge_reason(self, job: EncodeJob, output_bytes: int) -> str | None:
+        """변환 우선 결과가 원본보다 커졌지만 급증 상한 안이면 그 폭을 사유로 남김(제안 2.3절 2단계)
+
+        - 변환 우선 목적만 해당. 절약 목적은 사전 예측과 사후 게이트가 커진 결과를 이미 막고,
+          키프레임 교정과 호환 인코딩은 증가를 원래 수용하며 사유가 따로 있음
+        - 원본보다 크지 않으면 None
+        """
+        if job.purpose is not GatePurpose.TRANSFORM or output_bytes <= job.source_size:
+            return None
+        return reasons.transform_priority_reason(output_bytes, job.source_size)
 
     def _probe_output(self, part: str, container: str) -> OutputSummary | None:
         try:
@@ -544,10 +577,13 @@ class EncodeRunner:
             archive_dirname=self._settings.archive_dirname, policy=self._settings.result_policy,
             mtime_ns=job.source_mtime_ns)
 
-    def retry_replace_pending(self, batch_id: int, only_source: str | None = None) -> None:
+    def retry_replace_pending(
+        self, batch_id: int, only_source: str | None = None, *, automatic: bool = False
+    ) -> None:
         """교체 대기 항목을 한 번 더 배치. 여전히 실패하면 사유만 갱신하고 대기 상태를 유지
 
         - only_source를 주면 그 원본 경로의 항목만 다시 배치(결과 목록의 행 단위 재시도)
+        - 크기 급증으로 보류한 항목은 배치 끝 자동 재시도에서만 건너뛰어, 사용자가 다시 시도를 고르면 교체함
         """
         try:
             for row in self._history.list_items(batch_id):
@@ -555,11 +591,17 @@ class EncodeRunner:
                     continue
                 if only_source is not None and row.source_path != only_source:
                     continue
+                if automatic and reasons.is_transform_surge_reason(row.reason):
+                    continue
                 job = job_from_json(row.plan_json)
                 try:
                     self._move_into_place(job, row.part_path or "", row.output_path)
                 except OSError as error:
-                    self._update(batch_id, row.source_path, {"reason": reasons.replace_pending(error)})
+                    self._update(
+                        batch_id,
+                        row.source_path,
+                        {"reason": reasons.replace_pending_after_retry(row.reason, error)},
+                    )
                     continue
                 done = {"state": EncodeState.DONE, "reason": "", "part_path": None, "ended_at": utc_now_iso(), "output_size": os.path.getsize(row.output_path)}
                 self._update(batch_id, row.source_path, done)

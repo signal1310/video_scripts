@@ -289,7 +289,11 @@ def jobs_from_evaluations(
                 source_ext=os.path.splitext(source)[1].lstrip(".").lower(),
                 fps=ev.video.fps,
                 quality=ev.applied_cq,
-                purpose=purpose_for_evaluation(ev.smart_action, ev.is_keyframe_exceeded),
+                purpose=purpose_for_evaluation(
+                    ev.smart_action,
+                    ev.is_keyframe_exceeded,
+                    manual_active_frame_applied=ev.manual_active_frame_applied,
+                ),
                 output_size=output_size,
                 scale_filter=scale_filter,
                 maxrate_kbps=maxrate,

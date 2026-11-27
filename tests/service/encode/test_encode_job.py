@@ -393,3 +393,34 @@ class TestPurposeByKeyframe(unittest.TestCase):
         """호환 목적은 키프레임 초과일 때만 KF 교정이 되고, 정상이면 그대로 호환 목적"""
         self.assertIs(self._purpose(SmartAction.ENCODE_COMPAT, True), GatePurpose.KEYFRAME_FIX)
         self.assertIs(self._purpose(SmartAction.ENCODE_COMPAT, False), GatePurpose.COMPAT)
+
+    def test_manual_encode_and_manual_active_frame_downscale_become_transform(self) -> None:
+        """직접 지정 품질 인코딩과 사용자 지정 활성 화면이 적용된 축소 인코딩은 변환 우선 목적을 받음"""
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "clip.mp4"), "wb") as handle:
+                handle.write(b"video")
+            video = make_video(filename="clip.mp4")
+            for action, applied in (
+                (SmartAction.ENCODE_MANUAL, True),
+                (SmartAction.ENCODE_MANUAL, False),
+                (SmartAction.ENCODE_DOWNSCALE, True),
+            ):
+                with self.subTest(action=action, applied=applied):
+                    evaluation = make_eval(
+                        video, smart_action=action, manual_active_frame_applied=applied
+                    )
+                    (job,) = jobs_from_evaluations([evaluation], tmp)
+                    self.assertIs(job.purpose, GatePurpose.TRANSFORM)
+
+    def test_manual_output_tier_downscale_keeps_saving_purpose(self) -> None:
+        """사용자 지정 활성 화면이 적용되지 않은 축소 인코딩은 절약 목적 유지"""
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "clip.mp4"), "wb") as handle:
+                handle.write(b"video")
+            evaluation = make_eval(
+                make_video(filename="clip.mp4"),
+                smart_action=SmartAction.ENCODE_DOWNSCALE,
+                manual_active_frame_applied=False,
+            )
+            (job,) = jobs_from_evaluations([evaluation], tmp)
+        self.assertIs(job.purpose, GatePurpose.SAVING)

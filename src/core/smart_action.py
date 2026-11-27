@@ -47,6 +47,7 @@ class SmartAction(Enum):
     ENCODE_CODEC_UPGRADE = "encode_codec_upgrade"
     ENCODE_COMPAT = "encode_compat"
     ENCODE_DOWNSCALE = "encode_downscale"
+    ENCODE_MANUAL = "encode_manual"
     PASS_OPTIMAL = "pass_optimal"
     PASS_LOW = "pass_low"
     PASS_LOW_SAVED = "pass_low_saved"
@@ -146,6 +147,13 @@ _SMART_ACTION_META: dict[SmartAction, _SmartActionMeta] = {
         "최대 해상도 초과",
         "품질 {cq} + 최대 BR + 1초 키프레임, 축소",
         "원본 규격이 최대 해상도 설정을 넘어 출력 해상도로 줄이고, 최대 비트레이트를 적용해 화질 기준값으로 인코딩합니다.",
+    ),
+    SmartAction.ENCODE_MANUAL: _SmartActionMeta(
+        ActionBadgeTone.STD_ENCODE,
+        "품질 인코딩",
+        "직접 지정",
+        "품질 {cq} + 1초 키프레임",
+        "영상별로 직접 지정한 활성 화면을 적용해 인코딩합니다. 화질 등급과 절약 선별보다 직접 지정을 먼저 따릅니다.",
     ),
     SmartAction.PASS_OPTIMAL: _SmartActionMeta(
         ActionBadgeTone.PASS,

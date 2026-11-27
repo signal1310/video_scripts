@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from src.core.config import SAVINGS_BASIS_ENCODE, ClassifierConfig
 from src.core.encode_tag import has_tag_name_keyword
 from src.core.evaluation.size_estimator import STATIC_SCREEN_RATIO_THRESHOLD
-from src.core.models import SECONDS_PER_MINUTE, QualityZone, VideoProps
+from src.core.models import SECONDS_PER_MINUTE, ActiveFrame, QualityZone, VideoProps
 from src.core.resolution_tiers import ResolutionTier
 from src.core.smart_action import DownscaleReason, SmartAction
 
@@ -66,6 +66,8 @@ class EvaluationContext:
     source_codec_weight: float = 1.0
     target_codec_weight: float = 1.0
     downscale: DownscaleEstimate | None = None
+    # - 사용자 지정 활성 화면이 잘라내기에 적용된 영상이면 그 영역. 직접 지정이 없으면 None
+    manual_active_frame: ActiveFrame | None = None
     known_encode_tag_names: tuple[str, ...] = ()
     encoded_history_filenames: frozenset[str] = frozenset()
 
@@ -203,11 +205,21 @@ def _has_encoded_evidence(ctx: EvaluationContext) -> bool:
     return False
 
 
+def _has_manual_active_frame(ctx: EvaluationContext) -> bool:
+    """사용자 지정 활성 화면이 잘라내기에 적용되는 상태인지 판별
+
+    - 전역 잘라내기 설정이 꺼져 있으면 사용자 지정도 적용되지 않음
+    """
+    return ctx.config.encode.crop_black_bars and ctx.manual_active_frame is not None
+
+
 def _policy_already_encoded(ctx: EvaluationContext) -> ClassificationDecision | None:
-    """인코딩 태그, 상세 값, 이력 중 하나라도 일치하는 영상은 보존하되, 직접 지정 축소 시에만 다음 정책으로 넘김"""
+    """인코딩 태그, 상세 값, 이력 중 하나라도 일치하는 영상은 보존하되, 직접 지정이 있으면 다음 정책으로 넘김"""
     if not _has_encoded_evidence(ctx):
         return None
     if ctx.downscale is not None and ctx.downscale.reason == DownscaleReason.MANUAL:
+        return None
+    if _has_manual_active_frame(ctx):
         return None
     return ClassificationDecision(SmartAction.PASS_ALREADY_ENCODED)
 
@@ -217,6 +229,29 @@ def _policy_hdr(ctx: EvaluationContext) -> ClassificationDecision | None:
     if ctx.video.is_hdr:
         return ClassificationDecision(SmartAction.PASS_HDR)
     return None
+
+
+def _policy_manual_encode(ctx: EvaluationContext) -> ClassificationDecision | None:
+    """영상별 직접 지정을 화질 등급과 절약 선별보다 먼저 따르는 판정
+
+    - 출력 해상도 직접 지정 축소 후보가 있으면 절약 선별 없이 축소 인코딩
+    - 사용자 지정 활성 화면이 있으면 축소 후보 유무에 따라 축소 인코딩 또는 품질 인코딩
+    - 직접 지정이 없으면 None으로 기존 정책에 넘김
+    """
+    estimate = ctx.downscale
+    if estimate is not None and estimate.reason == DownscaleReason.MANUAL:
+        return ClassificationDecision(
+            SmartAction.ENCODE_DOWNSCALE,
+            size_estimate=(estimate.after_mb, estimate.potential_saved_mb),
+        )
+    if not _has_manual_active_frame(ctx):
+        return None
+    if estimate is not None:
+        return ClassificationDecision(
+            SmartAction.ENCODE_DOWNSCALE,
+            size_estimate=(estimate.after_mb, estimate.potential_saved_mb),
+        )
+    return _make_encode_decision(SmartAction.ENCODE_MANUAL, ctx)
 
 
 def _is_force_legacy_compat_target(ctx: EvaluationContext) -> bool:
@@ -237,6 +272,7 @@ def _policy_legacy_compat(ctx: EvaluationContext) -> ClassificationDecision | No
 def _policy_downscale(ctx: EvaluationContext) -> ClassificationDecision | None:
     """축소 후보가 있으면 KF 초과, 구형 코덱 호환은 바로 축소 인코딩, 그 외는 절약 선별 후 축소 인코딩
 
+    - 직접 지정 축소 후보는 앞선 직접 지정 정책이 처리하므로 여기서는 자동 후보만 남음
     - 절약 미달이면 원인과 무관하게 축소 기준 절약 값으로 보존 판정하고 원본 해상도 재판정은 하지 않음
     - 축소 후보가 없거나 축소 후에도 화질 보호 대상이면 None으로 기존 정책에 넘김
     """
@@ -313,6 +349,7 @@ DEFAULT_CLASSIFICATION_POLICIES: tuple[ClassificationPolicy, ...] = (
     _policy_exception_rule,
     _policy_already_encoded,
     _policy_hdr,
+    _policy_manual_encode,
     _policy_downscale,
     _policy_legacy_compat,
     _policy_intra_codec,

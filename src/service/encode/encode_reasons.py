@@ -6,6 +6,7 @@
 
 from src.core.encode.encode_gate import GateVerdict
 from src.core.encode.encode_state import EncodeState
+from src.core.models import PERCENT_MULTIPLIER
 
 SOURCE_CHANGED: str = "원본 변경 또는 없음"
 SOURCE_CONTENT_CHANGED: str = "원본 내용이 바뀌어 다시 분석해야 합니다"
@@ -25,6 +26,33 @@ ARCHIVE_INTERRUPTED: str = "중단으로 교체 미완료"
 EARLY_STOP_REASON: str = "진행 중 중단, 예상 크기가 원본보다 큼"
 SAMPLE_PREDICT_REASON: str = "사전 예측, 예상 크기가 원본보다 큼"
 REPLACE_FORFEITED: str = "교체를 포기했습니다. 원본과 결과 파일이 모두 남아 있습니다."
+TRANSFORM_PRIORITY: str = "변환 우선"
+TRANSFORM_SIZE_SURGE_PREFIX: str = "원본 대비 +"
+TRANSFORM_SIZE_SURGE: str = TRANSFORM_SIZE_SURGE_PREFIX + "{percent}% 급증"
+
+
+def _surge_percent(output_size_bytes: int, source_size_bytes: int) -> int:
+    if source_size_bytes <= 0:
+        return 0
+    return round((output_size_bytes / source_size_bytes - 1.0) * PERCENT_MULTIPLIER)
+
+
+def transform_priority_reason(output_size_bytes: int, source_size_bytes: int) -> str:
+    """변환 우선 인코딩 결과가 원본보다 커졌을 때 사유(제안 2.3절 2단계)"""
+    return f"{TRANSFORM_PRIORITY}, {TRANSFORM_SIZE_SURGE_PREFIX}{_surge_percent(output_size_bytes, source_size_bytes)}%"
+
+
+def transform_surge_reason(output_size_bytes: int, source_size_bytes: int) -> str:
+    """변환 우선 결과가 급증 상한을 넘었을 때 사유(제안 2.3절 3단계)"""
+    return TRANSFORM_SIZE_SURGE.format(percent=_surge_percent(output_size_bytes, source_size_bytes))
+
+
+def is_transform_surge_reason(reason: str) -> bool:
+    """사유가 급증 상한 초과로 교체를 보류한 것인지 판별
+
+    - 배치 끝의 자동 교체 재시도가 사용자 결정 없이 원본을 바꾸지 않게 하는 표식
+    """
+    return reason.startswith(TRANSFORM_SIZE_SURGE_PREFIX)
 
 
 def processing_error(error: Exception) -> str:
@@ -50,6 +78,18 @@ def encode_retry_failed(returncode: int | None) -> str:
 def replace_pending(error: Exception) -> str:
     """결과 배치에 실패해 교체 대기로 둘 때의 사유"""
     return f"교체 대기: {error}"
+
+
+def replace_pending_after_retry(previous_reason: str, error: Exception) -> str:
+    """교체 재시도가 실패해 사유를 갱신할 때 이전 사유의 급증 표식을 유지
+
+    - 급증 보류는 사용자가 판단할 항목이므로, 재시도 실패로 표식이 사라지면 뒤따르는
+      자동 교체 재시도가 원본을 바꿔 버림. 표식을 앞에 남겨 `is_transform_surge_reason`이 계속 참이 되게 함
+    """
+    pending = replace_pending(error)
+    if is_transform_surge_reason(previous_reason):
+        return f"{previous_reason} / {pending}"
+    return pending
 
 
 def gate_failure(verdict: GateVerdict) -> tuple[EncodeState, str]:

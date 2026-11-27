@@ -1011,14 +1011,14 @@ class TestManualOutputTier(unittest.TestCase):
         self.assertIsNone(ev.downscale_reason)
         self.assertIsNone(ev.downscale_skip_reason)
 
-    def test_manual_tier_still_applies_savings_filter(self) -> None:
-        """직접 지정이어도 절약이 최소 기준에 못 미치면 원본을 보존하고 축소 기준 참고값은 남김"""
+    def test_manual_tier_ignores_savings_filter(self) -> None:
+        """직접 지정이면 절약이 최소 기준에 못 미쳐도 축소 인코딩하고 축소 기준 참고값을 남김"""
         vid = _vid("short.mp4", 1800, 10.0, width=1920, height=1080)
         ev = VideoEvaluator.evaluate_all(
             "C:/dummy", [vid], _downscale_cfg("720p"), manual_targets={"short.mp4": "720p"}
         ).evaluations[0]
-        self.assertEqual(ev.smart_action, SmartAction.PASS_LOW_SAVED)
-        self.assertFalse(ev.is_encode_target)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertTrue(ev.is_encode_target)
         self.assertEqual(ev.downscale_reason, DownscaleReason.MANUAL)
 
     def test_manual_tier_reverts_when_low_quality_after_downscale(self) -> None:
@@ -1083,6 +1083,143 @@ class TestManualOutputTier(unittest.TestCase):
         by_name = {ev.video.filename: ev for ev in report.evaluations}
         self.assertNotEqual(by_name["hd.mp4"].smart_action, SmartAction.ENCODE_DOWNSCALE)
         self.assertEqual(by_name["other.mp4"].smart_action, SmartAction.ENCODE_DOWNSCALE)
+
+
+_MANUAL_FRAME = ActiveFrame(1920, 800, 0, 140)
+
+
+class TestManualActiveFrameJudgment(unittest.TestCase):
+    """사용자 지정 활성 화면이 화질 등급과 절약 선별보다 먼저 적용되는지 조합으로 검증"""
+
+    def setUp(self) -> None:
+        _use_legacy_size_model(self)
+
+    def _evaluate(
+        self,
+        vid: VideoProps,
+        cfg: ClassifierConfig | None = None,
+        *,
+        manual_target: str | None = None,
+        with_manual_frame: bool = True,
+    ) -> VideoEvaluation:
+        return VideoEvaluator.evaluate_all(
+            "C:/dummy",
+            [vid],
+            cfg or ClassifierConfig(),
+            manual_targets=(
+                {vid.filename: manual_target} if manual_target is not None else None
+            ),
+            manual_active_frames=(
+                {vid.filename: _MANUAL_FRAME} if with_manual_frame else None
+            ),
+        ).evaluations[0]
+
+    def test_manual_active_frame_encodes_optimal_low_and_small_savings_videos(self) -> None:
+        """적정, 저화질, 절약 미달 구간 영상 모두 직접 지정으로 품질 인코딩하고 사유를 직접 지정으로 표시"""
+        cases = {
+            "optimal": _vid("ok.mp4", 2600, 120.0, width=1920, height=1080),
+            "low": _vid("low.mp4", 800, 120.0, width=1920, height=1080),
+            "small_savings": _vid("short.mp4", 9000, 10.0, width=1920, height=1080),
+        }
+        for label, vid in cases.items():
+            with self.subTest(case=label):
+                ev = self._evaluate(vid)
+                self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+                self.assertTrue(ev.is_encode_target)
+                self.assertEqual(ev.reason_label, "직접 지정")
+                self.assertEqual(ev.action_label, "품질 인코딩")
+                self.assertEqual(ev.active_frame, _MANUAL_FRAME)
+
+    def test_manual_active_frame_keeps_low_quality_preset_routing(self) -> None:
+        """저화질 구간 직접 지정은 기존 저화질 보호 프리셋 경로를 그대로 씀"""
+        ev = self._evaluate(_vid("low.mp4", 800, 120.0, width=1920, height=1080))
+        self.assertEqual(ev.quality_zone, QualityZone.LOW)
+        self.assertTrue(ev.use_low_quality_preset)
+        self.assertEqual(ev.action_badge_tone, ActionBadgeTone.LOW_KF_ENCODE)
+
+    def test_manual_active_frame_reencodes_already_encoded_video(self) -> None:
+        """이미 인코딩 영상도 사용자 지정 활성 화면이 적용되면 다시 판정"""
+        tagged = _vid("tag.mp4", 2600, 120.0, width=1920, height=1080, has_encode_tag=True)
+        self.assertEqual(
+            self._evaluate(tagged, with_manual_frame=False).smart_action,
+            SmartAction.PASS_ALREADY_ENCODED,
+        )
+        ev = self._evaluate(tagged)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+        self.assertTrue(ev.is_encode_target)
+
+    def test_manual_output_tier_with_active_frame_uses_downscale(self) -> None:
+        """출력 해상도 직접 지정과 활성 화면 지정이 함께 있으면 축소 인코딩하고 사유는 직접 지정"""
+        vid = _vid("ok.mp4", 2600, 120.0, width=1920, height=1080)
+        ev = self._evaluate(vid, manual_target="720p")
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MANUAL)
+        # - 축소 목표는 활성 화면(1920x800) 비율을 유지해 정해짐
+        self.assertEqual((ev.target_width, ev.target_height), (1280, 532))
+        self.assertEqual(ev.active_frame, _MANUAL_FRAME)
+
+    def test_manual_output_tier_without_active_frame_uses_downscale(self) -> None:
+        """활성 화면 지정이 없어도 출력 해상도 직접 지정은 절약 선별 없이 축소 인코딩"""
+        vid = _vid("ok.mp4", 2600, 120.0, width=1920, height=1080)
+        ev = self._evaluate(vid, manual_target="720p", with_manual_frame=False)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MANUAL)
+        self.assertIsNone(ev.active_frame)
+
+    def test_keep_resolution_with_active_frame_uses_manual_encode(self) -> None:
+        """축소 안 함은 축소 후보를 만들지 않으므로 활성 화면 지정은 품질 인코딩으로 처리"""
+        ev = self._evaluate(
+            _vid("ok.mp4", 2600, 120.0, width=1920, height=1080), manual_target="keep"
+        )
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+        self.assertIsNone(ev.downscale_reason)
+        self.assertIsNone(ev.target_width)
+
+    def test_exception_rule_and_hdr_keep_precedence(self) -> None:
+        """예외 규칙과 HDR 보존은 활성 화면 지정보다 우선하고 출력 해상도 정보를 남기지 않음"""
+        vid = _vid("ok.mp4", 2600, 120.0, width=1920, height=1080)
+        ev_exc = VideoEvaluator.evaluate_all(
+            "C:/dummy",
+            [vid],
+            ClassifierConfig(),
+            exception_rules=[lambda _v: True],
+            manual_active_frames={vid.filename: _MANUAL_FRAME},
+        ).evaluations[0]
+        self.assertEqual(ev_exc.smart_action, SmartAction.PASS_EXCEPTION)
+        self.assertIsNone(ev_exc.downscale_reason)
+
+        hdr = _vid("hdr.mp4", 2600, 120.0, width=1920, height=1080, is_hdr=True)
+        self.assertEqual(self._evaluate(hdr).smart_action, SmartAction.PASS_HDR)
+
+    def test_max_resolution_candidate_wins_over_manual_active_frame(self) -> None:
+        """최대 해상도 초과 자동 축소 후보가 있으면 활성 화면 지정과 함께라도 절약 선별 없이 축소 인코딩"""
+        cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
+        ev = self._evaluate(_vid("ok.mp4", 2600, 120.0, width=1920, height=1080), cfg)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertEqual(ev.downscale_reason, DownscaleReason.MAX_RESOLUTION)
+        self.assertEqual((ev.target_width, ev.target_height), (1280, 532))
+
+    def test_max_resolution_candidate_keeps_savings_filter(self) -> None:
+        """최대 해상도 초과 자동 축소는 사용자 지정 활성 화면이 없으면 기존 절약 선별을 유지"""
+        cfg = ClassifierConfig(encode=EncodeConfig(max_resolution_tier="720p"))
+        ev = self._evaluate(
+            _vid("tiny.mp4", 2400, 10.0, width=1920, height=1080),
+            cfg,
+            with_manual_frame=False,
+        )
+        self.assertEqual(ev.smart_action, SmartAction.PASS_LOW_SAVED)
+        self.assertFalse(ev.is_encode_target)
+
+    def test_manual_active_frame_is_ignored_when_crop_is_disabled(self) -> None:
+        """전역 잘라내기 설정이 꺼져 있으면 활성 화면 지정은 판정에 적용되지 않음"""
+        cfg = ClassifierConfig(encode=EncodeConfig(crop_black_bars=False))
+        vid = _vid("ok.mp4", 2600, 120.0, width=1920, height=1080)
+        auto = VideoEvaluator.evaluate_all("C:/dummy", [vid], cfg).evaluations[0]
+        ev = self._evaluate(vid, cfg)
+        self.assertEqual(ev.smart_action, auto.smart_action)
+        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+        self.assertIsNone(ev.active_frame)
+        self.assertIsNone(ev.downscale_reason)
 
 
 def _frame_target_cfg(*, max_tier: str = "none", auto_apply: bool = True) -> ClassifierConfig:
@@ -1418,15 +1555,12 @@ class TestAlreadyEncodedJudgment(unittest.TestCase):
         self.assertTrue(ev.is_encode_target)
         self.assertEqual(ev.downscale_reason, DownscaleReason.MANUAL)
 
-    def test_manual_tier_failing_savings_matches_plain_video(self) -> None:
-        """표식 영상의 직접 지정이 절약 선별에서 막히면 표식 없는 영상과 같은 보존 판정과 사유를 받음"""
-        plain = _vid("short.mp4", 1800, 10.0, width=1920, height=1080)
+    def test_manual_tier_matching_plain_video_ignores_savings(self) -> None:
+        """표식 영상의 직접 지정은 절약 미달이어도 축소 인코딩으로 다시 판정됨"""
         tagged = _vid("short.mp4", 1800, 10.0, width=1920, height=1080, has_encode_tag=True)
-        plain_ev = self._evaluate(plain, self._CFG_MAX_720P, {"short.mp4": "720p"})
         tagged_ev = self._evaluate(tagged, self._CFG_MAX_720P, {"short.mp4": "720p"})
-        self.assertEqual(plain_ev.smart_action, SmartAction.PASS_LOW_SAVED)
-        self.assertEqual(tagged_ev.smart_action, plain_ev.smart_action)
-        self.assertFalse(tagged_ev.is_encode_target)
+        self.assertEqual(tagged_ev.smart_action, SmartAction.ENCODE_DOWNSCALE)
+        self.assertTrue(tagged_ev.is_encode_target)
         self.assertEqual(tagged_ev.downscale_reason, DownscaleReason.MANUAL)
 
     def test_keep_preserves_tagged_video_without_resolution_info(self) -> None:

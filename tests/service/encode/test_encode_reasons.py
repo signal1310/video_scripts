@@ -33,6 +33,23 @@ class EncodeReasonsTest(unittest.TestCase):
             reasons.gate_failure(GateVerdict.FAIL_INTEGRITY), (EncodeState.FAILED, "결과 파일 손상 검사 실패")
         )
 
+    def test_transform_reasons_embed_surge_percent(self) -> None:
+        """변환 우선 사유는 원본 대비 증가 폭을 퍼센트로 붙이고, 급증 사유인지 구분됨을 검증"""
+        self.assertEqual(reasons.transform_priority_reason(1200, 1000), "변환 우선, 원본 대비 +20%")
+        self.assertEqual(reasons.transform_surge_reason(1400, 1000), "원본 대비 +40% 급증")
+        self.assertTrue(reasons.is_transform_surge_reason(reasons.transform_surge_reason(1400, 1000)))
+        self.assertFalse(reasons.is_transform_surge_reason(reasons.transform_priority_reason(1200, 1000)))
+        self.assertEqual(reasons.transform_surge_reason(1000, 0), "원본 대비 +0% 급증")
+
+    def test_replace_pending_after_retry_keeps_surge_marker(self) -> None:
+        """교체 재시도 실패 사유는 급증 표식을 유지해 뒤따르는 자동 교체를 막고, 일반 사유는 그대로 바꿈"""
+        surge = reasons.transform_surge_reason(1400, 1000)
+        kept = reasons.replace_pending_after_retry(surge, OSError("z"))
+        self.assertTrue(reasons.is_transform_surge_reason(kept))
+        self.assertIn(surge, kept)
+        self.assertIn("교체 대기: z", kept)
+        self.assertEqual(reasons.replace_pending_after_retry("교체 대기: y", OSError("z")), "교체 대기: z")
+
     def test_skip_and_fail_constants_are_nonempty(self) -> None:
         """건너뜀과 실패 사유 상수가 빈 문자열이 아님을 검증"""
         for text in (

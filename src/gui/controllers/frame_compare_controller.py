@@ -182,7 +182,7 @@ class FrameCompareController:
             return _error_session(source_path, str(error))
         result = None if pair is None else self._result_source(pair[1])
         filename = os.path.basename(source_path)
-        record = self._load_record(filename, info.size_bytes, info.mtime_ns)
+        record = self._load_record(original_path, filename, info.size_bytes, info.mtime_ns)
         config = self._config()
         thresholds = frame_thresholds_from_config(config)
         candidate = None if record is None else self._rejudged_candidate(record, thresholds)
@@ -365,15 +365,18 @@ class FrameCompareController:
         return None if crop_filter is None else ActiveFrame.from_crop_filter(crop_filter)
 
     def _load_record(
-        self, filename: str, size_bytes: int, mtime_ns: int
+        self, path: str, filename: str, size_bytes: int, mtime_ns: int
     ) -> FrameAnalysisRecord | None:
-        """캐시 행을 읽되 지금 분석 방식의 버전과 다르면 무시
+        """캐시 행을 내용 지문으로 읽되 지금 분석 방식의 버전과 다르면 무시
 
         - 분석 방식이 바뀐 뒤 남은 캐시는 후보와 활성 화면이 지금 판정과 어긋남
+        - 지문은 저장된 값에서 찾고, 없으면 파일을 읽어 구함(이름이 바뀌어도 같은 측정을 씀)
         """
-        record = self._store.load_many([(filename, size_bytes, mtime_ns)]).get(
-            (filename, size_bytes, mtime_ns)
-        )
+        fingerprints = self._store.resolve_content_keys([((filename, size_bytes, mtime_ns), path)])
+        fingerprint = fingerprints.get((filename, size_bytes, mtime_ns))
+        if fingerprint is None:
+            return None
+        record = self._store.load_many([(size_bytes, fingerprint)]).get((size_bytes, fingerprint))
         if record is None:
             return None
         provider = self._config_provider

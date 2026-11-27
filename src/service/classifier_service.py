@@ -13,12 +13,14 @@ from src.core.analysis.frame_analysis import (
     apply_no_bars_ratio,
     frame_thresholds_from_config,
     is_usable_analysis_version,
+    is_vr_protected,
     rejudge_candidate_tier,
     resolve_crop_frame,
     review_holds_automatic_crop,
 )
 from src.core.analysis.prober import CancelCheck, ProgressCallback, resolve_ffprobe_executable
 from src.core.config import ClassifierConfig
+from src.core.encode.encode_impact import parse_stream_summary_layout
 from src.core.encode.encode_paths import excluded_folder_names
 from src.core.evaluation.classification_policy import (
     DEFAULT_CLASSIFICATION_POLICIES,
@@ -36,6 +38,7 @@ from src.service.analysis_probe import FileEntry, StoredRows, count_pending_file
 from src.service.analysis_store import AnalysisStore
 from src.service.cache import DEFAULT_CACHE_REGISTRY, CacheRegistry, DirSignature, TableCache
 from src.service.encode.encode_output_history import EncodeOutputHistory
+from src.service.frame_analysis_record import FrameAnalysisRecord
 from src.service.frame_analysis_store import FrameAnalysisStore
 from src.service.frame_override_rows import review_region_box
 
@@ -123,7 +126,7 @@ def _resolve_frame_cache_for(
     try:
         if store.count() == 0:
             return empty
-        keys: list[tuple[str, int, int]] = []
+        entries: list[tuple[tuple[str, int, int], str]] = []
         path_by_name: dict[str, str] = {}
         size_by_name: dict[str, tuple[int, int]] = {}
         for video in videos:
@@ -134,40 +137,66 @@ def _resolve_frame_cache_for(
                 continue
             path_by_name[video.filename] = path
             size_by_name[video.filename] = (video.width, video.height)
-            keys.append((video.filename, stat.st_size, stat.st_mtime_ns))
+            entries.append(((video.filename, stat.st_size, stat.st_mtime_ns), path))
         excluded = store.load_crop_exclusions(list(path_by_name.values()))
         manual = store.load_manual_active_frames(
             {path: size_by_name[name] for name, path in path_by_name.items()}
         )
-        loaded = store.load_many(keys)
+        # - VR 보호는 경로별 지정이라, 내용이 같아 한 행을 공유하는 다른 사본에 그대로 적용되지 않게 요청별로 판정
+        manual_vr = store.load_vr_overrides(list(path_by_name.values()))
+        expected_vr: dict[str, bool] = {}
+        for video in videos:
+            path = path_by_name.get(video.filename)
+            if path is None:
+                continue
+            layout = parse_stream_summary_layout(video.stream_summary)
+            expected_vr[video.filename] = is_vr_protected(
+                video.width,
+                video.height,
+                has_vr_metadata=layout is not None and layout.is_vr,
+                manual_vr=path in manual_vr,
+            )
+        fingerprints = store.resolve_content_keys(entries)
+        records: dict[str, FrameAnalysisRecord] = {}
+        contents = store.load_many(
+            [(key[1], fingerprint) for key, fingerprint in fingerprints.items()]
+        )
+        for key, _path in entries:
+            fingerprint = fingerprints.get(key)
+            if fingerprint is None:
+                continue
+            record = contents.get((key[1], fingerprint))
+            if record is not None:
+                records[key[0]] = record
         regions = {
-            path_by_name[key[0]]: review_region_box(
+            path_by_name[name]: review_region_box(
                 apply_no_bars_ratio(
                     record.active_region,
-                    *size_by_name[key[0]],
+                    *size_by_name[name],
                     thresholds=thresholds,
                 )
             )
-            for key, record in loaded.items()
-            if key[0] in path_by_name
+            for name, record in records.items()
+            if name in path_by_name
         }
         acknowledged = store.load_crop_review_acknowledged(regions) if regions else frozenset()
         frames: dict[str, ActiveFrame] = {}
         frame_targets: dict[str, str] = {}
         manual_frames: dict[str, ActiveFrame] = {}
-        for key, record in loaded.items():
+        for name, record in records.items():
             if not is_usable_analysis_version(record.analysis_version, analysis_version):
                 continue
-            width, height = size_by_name.get(key[0], (0, 0))
+            width, height = size_by_name.get(name, (0, 0))
             region = apply_no_bars_ratio(
                 record.active_region, width, height, thresholds=thresholds
             )
-            path = path_by_name.get(key[0], "")
+            path = path_by_name.get(name, "")
             # - 사람 확인이 필요한 자동 크롭은 영상별 제외와 같은 경로로 전체 프레임 판정을 받게 함
+            vr_protected = expected_vr.get(name, False)
             review_hold = review_holds_automatic_crop(
                 region,
                 crop_enabled=crop_enabled,
-                is_vr_protected=record.is_vr_protected,
+                is_vr_protected=vr_protected,
                 manual_frame=manual.get(path),
                 acknowledged=path in acknowledged,
             )
@@ -175,14 +204,14 @@ def _resolve_frame_cache_for(
                 region,
                 crop_enabled=crop_enabled,
                 excluded=path in excluded or review_hold,
-                is_vr_protected=record.is_vr_protected,
+                is_vr_protected=vr_protected,
                 manual_frame=manual.get(path),
             )
             if frame is not None:
-                frames[key[0]] = frame
+                frames[name] = frame
             # - 사용자 지정 활성 화면이 이번 판정에서 실제로 잘라내기에 적용된 영상만 직접 지정 판정에 넘김
             if frame is not None and manual.get(path) == frame:
-                manual_frames[key[0]] = frame
+                manual_frames[name] = frame
             if not frame_targets_enabled:
                 continue
             candidate = record.candidate_tier
@@ -199,7 +228,7 @@ def _resolve_frame_cache_for(
             if (frame is not None and manual.get(path) is None) or (
                 frame is None and not region.has_black_bars
             ):
-                frame_targets[key[0]] = candidate
+                frame_targets[name] = candidate
         return FrameCacheView(frames, frame_targets, manual_frames)
     finally:
         store.close()

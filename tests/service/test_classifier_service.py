@@ -193,6 +193,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="video5.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1216,
                     active_height=2160,
                     active_x=1312,
@@ -248,6 +249,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="detect.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1216,
                     active_height=2160,
                     active_x=1312,
@@ -290,6 +292,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="crop.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1600,
                     active_height=1000,
                     active_x=260,
@@ -339,6 +342,57 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         assert job is not None
         self.assertIsNone(job().evaluations[0].active_frame)
 
+    def test_shared_content_row_keeps_per_path_vr_protection(self) -> None:
+        """내용이 같아 한 캐시 행을 공유하는 두 사본도 경로별 VR 보호를 각자 따르는지 검증
+
+        - 저장된 VR 플래그는 대표 파일명 기준이라, 다른 사본에 그대로 적용하면 VR 아닌 사본이 전체 화면으로
+          판정되거나 VR 사본이 잘림
+        """
+        data = b"v" * 2048
+        protected = os.path.join(self.root, "protected.mp4")
+        plain = os.path.join(self.root, "plain.mp4")
+        for path in (protected, plain):
+            with open(path, "wb") as handle:
+                handle.write(data)
+        stat = os.stat(plain)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.set_vr_override(source_path=protected, filename="protected.mp4", manual_vr=True)
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="protected.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(plain, stat.st_size),
+                    active_width=1600,
+                    active_height=1000,
+                    active_x=260,
+                    active_y=40,
+                    has_black_bars=True,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=True,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+        finally:
+            frame_store.close()
+        videos = [
+            make_video(filename="protected.mp4", vid_kbps=3000, vid_size_MB=23.0),
+            make_video(filename="plain.mp4", vid_kbps=3000, vid_size_MB=23.0),
+        ]
+        self.registry.put(self.root, TableCache(self.root, videos, include_keyframe=False))
+        report = self._service().evaluate_all()
+        by_name = {ev.video.filename: ev for ev in report.evaluations}
+        self.assertIsNone(by_name["protected.mp4"].active_frame)
+        self.assertEqual(by_name["plain.mp4"].active_frame, ActiveFrame(1600, 1000, 260, 40))
+
     def test_manual_active_frame_overrides_detection_and_reaches_encode_job(self) -> None:
         """사용자 지정 활성 화면이 자동 감지 대신 판정되고 인코딩 작업 crop 필터로 넘어가는지 검증"""
         clip = os.path.join(self.root, "manual.mp4")
@@ -352,6 +406,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="manual.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1600,
                     active_height=1000,
                     active_x=260,
@@ -399,6 +454,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="manual_gate.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1920,
                     active_height=1080,
                     active_x=0,
@@ -450,6 +506,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="excluded.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1920,
                     active_height=1080,
                     active_x=0,
@@ -497,6 +554,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="no_crop.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1920,
                     active_height=1080,
                     active_x=0,
@@ -545,6 +603,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="review.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1600,
                     active_height=1000,
                     active_x=260,
@@ -610,6 +669,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="target.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1920,
                     active_height=1080,
                     active_x=0,
@@ -656,6 +716,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="algo.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1920,
                     active_height=1080,
                     active_x=0,
@@ -700,6 +761,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
                     filename="target.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
                     active_width=1920,
                     active_height=1080,
                     active_x=0,

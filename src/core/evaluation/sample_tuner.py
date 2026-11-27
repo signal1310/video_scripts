@@ -18,7 +18,8 @@ from src.core.quality_target import (
 
 # - 결과 캐시 무효화 판. 판정 규칙이나 탐색 방식이 바뀌면 올림
 # - 판 3: 지표 모델을 계획 출력 크기가 아니라 크롭 뒤 기준 크기에서 고르고 축소 샘플을 기준 크기로 되돌림
-SAMPLE_TUNER_VERSION: int = 3
+# - 판 4: 캐시 키를 경로와 수정 시각에서 내용 키(크기, 지문)로 바꿔 파일을 옮기거나 이름을 바꿔도 재사용
+SAMPLE_TUNER_VERSION: int = 4
 # - 결정 18: 영상당 3~4회 샘플 인코딩을 넘기지 않음
 TUNE_MAX_PROBES: int = 4
 # - 인코더 품질 눈금. 정수 척도 인코더는 1.0, 소수 첫째 자리 인코더는 0.1(`snap_quality`와 같은 규칙)

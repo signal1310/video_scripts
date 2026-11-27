@@ -8,6 +8,7 @@ import sqlite3
 import threading
 import unittest
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
@@ -124,6 +125,7 @@ def _job(**overrides: object) -> TuneJob:
         "baseline_quality": 22.0,
         "width": 3840,
         "height": 2160,
+        "source_fingerprint": "c" * 32,
     }
     values.update(overrides)
     return TuneJob(**values)  # type: ignore[arg-type]
@@ -608,9 +610,8 @@ class TestTuneQualityForVideo(unittest.TestCase):
 
 def _cache_key(**overrides: object) -> TuneCacheKey:
     values: dict[str, object] = {
-        "source_path": "C:/work/in.mp4",
         "filesize_bytes": 1000,
-        "mtime_ns": 42,
+        "fingerprint": "c" * 32,
         "encoder": "hevc_nvenc",
         "baseline_quality": 22.0,
         "plan_hash": "abc123",
@@ -666,7 +667,7 @@ class TestSampleTunerCache(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             cache = self._cache(tmp)
             self.assertEqual(_cache_key().tuner_version, SAMPLE_TUNER_VERSION)
-            self.assertGreater(SAMPLE_TUNER_VERSION, 2)
+            self.assertGreaterEqual(SAMPLE_TUNER_VERSION, 4)
             stale = SampleTuneRecord(
                 key=_cache_key(tuner_version=2),
                 best_quality=24.0,
@@ -766,6 +767,36 @@ class TestSampleTunerCache(unittest.TestCase):
                 metric_runner=_runner,
             )
             self.assertEqual(first, second)
+            self.assertEqual(calls, [])
+            self.assertEqual(cache.count(), 1)
+
+    def test_cache_hit_after_the_file_is_moved_or_renamed(self) -> None:
+        """같은 내용의 파일을 옮기거나 이름을 바꿔도 저장된 정밀 결정을 다시 쓰는지 확인"""
+        with TemporaryDirectory() as first_dir, TemporaryDirectory() as second_dir:
+            cache = self._cache(first_dir)
+            job = _job()
+            tune_quality_cached(
+                job=job,
+                plan=_plan(first_dir),
+                cache=cache,
+                process_factory=_QualityTracker().factory,
+                metric_runner=_QualityTracker().runner,
+            )
+            self.assertEqual(cache.count(), 1)
+            calls: list[list[str]] = []
+
+            def _runner(args: list[str], work_dir: str) -> tuple[int, str]:
+                calls.append(args)
+                return (1, "")
+
+            moved = replace(job, source_path=os.path.join(second_dir, "renamed.mp4"))
+            tune_quality_cached(
+                job=moved,
+                plan=_plan(second_dir),
+                cache=cache,
+                process_factory=_factory(),
+                metric_runner=_runner,
+            )
             self.assertEqual(calls, [])
             self.assertEqual(cache.count(), 1)
 
@@ -928,9 +959,8 @@ class TestCompareDownscaleCache(unittest.TestCase):
                 "candidate_smaller",
             )
             key = TuneCacheKey(
-                source_path="C:/work/in.mp4",
                 filesize_bytes=1000,
-                mtime_ns=42,
+                fingerprint="c" * 32,
                 encoder="hevc_nvenc",
                 baseline_quality=26.0,
                 plan_hash="a" * 16 + "+" + "b" * 16,

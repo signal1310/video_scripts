@@ -4,6 +4,7 @@
 """
 
 import unittest
+from dataclasses import replace
 
 from src.core.analysis.frame_analysis import (
     CROP_SCAN_VERSION,
@@ -53,14 +54,15 @@ def _result() -> FrameAnalysisResult:
 class RecordConversionTests(unittest.TestCase):
     """캐시 행과 분석 결과의 왕복 변환"""
 
-    def test_request_key_is_filename_size_and_mtime(self) -> None:
+    def test_request_content_key_is_size_and_fingerprint(self) -> None:
+        self.assertEqual(_request().content_key, (1024, ""))
         self.assertEqual(_request().key, ("a.mp4", 1024, 42))
 
     def test_result_roundtrip_keeps_measurements(self) -> None:
         record = record_from_result(_request(), _result(), measured_at="2026-11-23T00:00:00Z")
         restored = result_from_record(record)
         self.assertEqual(restored, _result())
-        self.assertEqual(record.key, ("a.mp4", 1024, 42))
+        self.assertEqual(record.content_key, (1024, ""))
         self.assertEqual(record.active_region.to_active_frame().width, 1920)
 
     def test_margins_vary_survives_the_roundtrip(self) -> None:
@@ -134,7 +136,10 @@ class RecordConversionTests(unittest.TestCase):
         self.assertFalse(record_from_result(_request(), _result(), measured_at="x").crop_scan_failed)
 
     def test_row_roundtrip_follows_the_record_columns(self) -> None:
-        record = record_from_result(_request(), _result(), measured_at="2026-11-23T00:00:00Z")
+        record = replace(
+            record_from_result(_request(), _result(), measured_at="2026-11-23T00:00:00Z"),
+            fingerprint="a" * 32,
+        )
         row = record_to_row(record)
         self.assertEqual(len(row), len(RECORD_COLUMNS))
         self.assertEqual(row_to_record(row), record)

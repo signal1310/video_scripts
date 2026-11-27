@@ -1,5 +1,6 @@
 """화질 분석 테스트 대역: 실행기 대역, 명령 해석 도우미, 캐시 행 생성기(FFmpeg 없이 측정 흐름 검증)"""
 
+import hashlib
 import json
 import math
 import re
@@ -24,6 +25,15 @@ DEFAULT_FAKE_FRAME_SIZE: tuple[int, int] = (1920, 1080)
 DEFAULT_FAKE_SSIM_SCORE: float = 0.9995
 
 
+def fake_fingerprint(filename: str, size: int = 100, mtime: int = 1) -> str:
+    """테스트가 쓰는 결정적 내용 지문. 같은 파일 식별 값이면 같은 값이 나옴
+
+    - 실제 파일 없이도 저장 행과 요청의 내용 키를 맞추기 위해 이름, 크기, 수정 시각으로 만듬
+    """
+    digest = hashlib.blake2b(f"{filename}|{size}|{mtime}".encode(), digest_size=16)
+    return digest.hexdigest()
+
+
 def ssim_stats_line(score: float) -> str:
     """SSIM 점수 하나를 FFmpeg stats 로그 한 줄로 만듦. 점수 1은 dB가 inf"""
     if score >= 1.0:
@@ -38,8 +48,12 @@ def make_frame_record(
     mtime: int = 1,
     version: int = FRAME_ANALYSIS_VERSION,
     has_black_bars: bool = True,
+    fingerprint: str | None = None,
 ) -> FrameAnalysisRecord:
-    """화질 분석 캐시 행 대역. 테스트가 지정한 파일 식별 값과 규격 점수만 다르게 둠"""
+    """화질 분석 캐시 행 대역. 테스트가 지정한 내용 키와 규격 점수만 다르게 둠
+
+    - 지문을 주지 않으면 파일 식별 값으로 만든 결정적 값이라, 같은 파일의 요청과 내용 키가 맞음
+    """
     return FrameAnalysisRecord(
         filename=filename,
         filesize_bytes=size,
@@ -59,6 +73,7 @@ def make_frame_record(
         is_vr_protected=False,
         measured_at="2026-01-01T00:00:00Z",
         analysis_version=version,
+        fingerprint=fake_fingerprint(filename, size, mtime) if fingerprint is None else fingerprint,
     )
 
 

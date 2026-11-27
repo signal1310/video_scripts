@@ -9,14 +9,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-import sqlite3
 import tempfile
 import threading
-import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 
 from src.core.analysis.frame_analysis_runner import ProcessStderrRunner
 from src.core.encode.encode_plan import EncodePlan
@@ -25,7 +21,6 @@ from src.core.encode.quality_tuning import sample_segments
 from src.core.encoder_specs import get_encoder_spec
 from src.core.evaluation.sample_tuner import (
     REASON_UNMEASURABLE,
-    SAMPLE_TUNER_VERSION,
     TUNE_MAX_PROBES,
     DownscaleComparison,
     QualityProbe,
@@ -53,164 +48,53 @@ from src.service.analysis_store import ANALYSIS_DB_FILENAME
 from src.service.encode.encode_pause import PauseControl
 from src.service.encode.encode_ports import ProcessFactory, default_process_factory
 from src.service.encode.encode_sample_engine import run_sample_pass, sample_segment_path
+from src.service.sample_tuner_cache import (
+    CACHE_COLUMNS as CACHE_COLUMNS,
+)
+from src.service.sample_tuner_cache import (
+    SAMPLE_TUNER_TABLE_NAME as SAMPLE_TUNER_TABLE_NAME,
+)
+from src.service.sample_tuner_cache import (
+    SampleTunerCache as SampleTunerCache,
+)
+from src.service.sample_tuner_cache import (
+    SampleTuneRecord as SampleTuneRecord,
+)
+from src.service.sample_tuner_cache import (
+    TuneCacheKey as TuneCacheKey,
+)
+from src.service.sample_tuner_cache import (
+    TuneJob as TuneJob,
+)
+from src.service.sample_tuner_cache import (
+    probes_from_json as probes_from_json,
+)
+from src.service.sample_tuner_cache import (
+    probes_to_json as probes_to_json,
+)
+from src.service.sample_tuner_cache import (
+    record_from_result,
+    tune_cache_key,
+)
+from src.service.sample_tuner_cache import (
+    record_to_row as record_to_row,
+)
+from src.service.sample_tuner_cache import (
+    row_to_record as row_to_record,
+)
+from src.service.sample_tuner_cache import (
+    source_fingerprint as source_fingerprint,
+)
+from src.service.sample_tuner_cache import (
+    utc_now_iso as utc_now_iso,
+)
 
-SAMPLE_TUNER_TABLE_NAME: str = "sample_tuner_cache"
 SAMPLE_TUNER_TEMP_PREFIX: str = "d18_tuner_"
 # - 결정 18: 대표 구간 2~3개(공통 5지점에서 균등 선택)로 프로브당 비용을 묶음
 TUNABLE_SEGMENT_COUNT: int = 3
 BITS_PER_BYTE: int = 8
 BITS_PER_KBIT: int = 1000
 PLAN_HASH_HEX_DIGITS: int = 16
-SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
-CACHE_COLUMNS: tuple[str, ...] = (
-    "source_path",
-    "filesize_bytes",
-    "mtime_ns",
-    "encoder",
-    "baseline_quality",
-    "plan_hash",
-    "target_key",
-    "tuner_version",
-    "best_quality",
-    "converged",
-    "reason",
-    "probes_json",
-    "measured_at",
-)
-KEY_COLUMN_COUNT: int = 8
-_CACHE_TABLE_SQL: str = (
-    f"CREATE TABLE IF NOT EXISTS {SAMPLE_TUNER_TABLE_NAME} (\n"
-    "  source_path TEXT NOT NULL,\n"
-    "  filesize_bytes INTEGER NOT NULL,\n"
-    "  mtime_ns INTEGER NOT NULL,\n"
-    "  encoder TEXT NOT NULL,\n"
-    "  baseline_quality REAL NOT NULL,\n"
-    "  plan_hash TEXT NOT NULL,\n"
-    "  target_key TEXT NOT NULL,\n"
-    "  tuner_version INTEGER NOT NULL,\n"
-    "  best_quality REAL NOT NULL,\n"
-    "  converged INTEGER NOT NULL,\n"
-    "  reason TEXT NOT NULL,\n"
-    "  probes_json TEXT NOT NULL,\n"
-    "  measured_at TEXT NOT NULL,\n"
-    "  PRIMARY KEY (source_path, filesize_bytes, mtime_ns, encoder,\n"
-    "    baseline_quality, plan_hash, target_key, tuner_version)\n"
-    ")"
-)
-
-
-def _utc_now_iso() -> str:
-    """측정 시각을 UTC ISO 문자열로 반환"""
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-@dataclass(frozen=True, slots=True)
-class TuneJob:
-    """정밀 결정 한 영상의 입력: 원본 식별 값, 인코더, 기준 품질값, 지표 기준 화소 크기"""
-
-    source_path: str
-    source_size: int
-    source_mtime_ns: int
-    source_duration_sec: float
-    encoder: str
-    baseline_quality: float
-    width: int
-    height: int
-
-
-@dataclass(frozen=True, slots=True)
-class TuneCacheKey:
-    """캐시 키: 원본 식별 값, 인코더, 기준 품질값, 크롭/축소 계획, 목표 기준, 판 번호"""
-
-    source_path: str
-    filesize_bytes: int
-    mtime_ns: int
-    encoder: str
-    baseline_quality: float
-    plan_hash: str
-    target_key: str
-    tuner_version: int = SAMPLE_TUNER_VERSION
-
-    @property
-    def values(self) -> tuple[object, ...]:
-        """SQL 키 열 순서의 값 튜플"""
-        return (
-            self.source_path,
-            self.filesize_bytes,
-            self.mtime_ns,
-            self.encoder,
-            self.baseline_quality,
-            self.plan_hash,
-            self.target_key,
-            self.tuner_version,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class SampleTuneRecord:
-    """캐시 한 행: 키와 탐색 결과(고른 품질값, 프로브, 수렴 여부, 사유)"""
-
-    key: TuneCacheKey
-    best_quality: float
-    converged: bool
-    reason: str
-    probes: tuple[QualityProbe, ...]
-    measured_at: str
-
-    @property
-    def result(self) -> TuneResult:
-        """저장 값을 탐색 결과로 복원"""
-        return TuneResult(
-            best_quality=self.best_quality,
-            probes=self.probes,
-            converged=self.converged,
-            reason=self.reason,
-        )
-
-
-def probes_to_json(probes: Sequence[QualityProbe]) -> str:
-    """프로브 목록을 캐시 저장용 JSON으로 직렬화"""
-    return json.dumps(
-        [
-            {
-                "quality": probe.quality,
-                "vmaf": probe.vmaf,
-                "ssim": probe.ssim,
-                "bitrate_kbps": probe.bitrate_kbps,
-            }
-            for probe in probes
-        ],
-        ensure_ascii=False,
-    )
-
-
-def probes_from_json(text: str) -> tuple[QualityProbe, ...]:
-    """캐시 JSON을 프로브 목록으로 복원. 형식이 다르면 빈 튜플"""
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return ()
-    if not isinstance(data, list):
-        return ()
-    probes: list[QualityProbe] = []
-    for item in data:
-        if not isinstance(item, dict):
-            continue
-        quality = item.get("quality")
-        if not isinstance(quality, (int, float)):
-            continue
-        vmaf = item.get("vmaf")
-        ssim = item.get("ssim")
-        bitrate = item.get("bitrate_kbps")
-        probes.append(
-            QualityProbe(
-                quality=float(quality),
-                vmaf=float(vmaf) if isinstance(vmaf, (int, float)) else None,
-                ssim=float(ssim) if isinstance(ssim, (int, float)) else None,
-                bitrate_kbps=float(bitrate) if isinstance(bitrate, (int, float)) else 0.0,
-            )
-        )
-    return tuple(probes)
 
 
 def plan_signature(plan: EncodePlan) -> str:
@@ -566,35 +450,6 @@ def _metric_runner(cancel_event: threading.Event | None) -> Callable[[list[str],
     return ProcessStderrRunner(cancel_event=cancel_event)
 
 
-def _as_int(value: object) -> int:
-    """SQLite 값의 정수 변환. 형식이 다르면 0"""
-    if isinstance(value, (int, float)):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(float(value))
-        except ValueError:
-            return 0
-    return 0
-
-
-def _as_float(value: object) -> float:
-    """SQLite 값의 실수 변환. 형식이 다르면 0.0"""
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return 0.0
-    return 0.0
-
-
-def _as_str(value: object) -> str:
-    """SQLite 값의 문자열 변환. NULL은 빈 문자열"""
-    return "" if value is None else str(value)
-
-
 def compare_downscale_samples(
     *,
     job: TuneJob,
@@ -624,9 +479,7 @@ def compare_downscale_samples(
     segments = tuning_segments(job.source_duration_sec, black_ratios)
     # - 옛 작업 JSON은 원본 화소 크기가 0이라, 크롭이 있으면 탐색과 같은 크롭 크기를 기준으로 씀
     reference_size = (
-        (job.width, job.height)
-        if job.width > 0 and job.height > 0
-        else _crop_size(candidate_plan.crop_filter)
+        (job.width, job.height) if job.width > 0 and job.height > 0 else _crop_size(candidate_plan.crop_filter)
     )
     if reference_size is None and candidate_plan.scale_filter is not None:
         # - 기준 화소 크기가 없으면 두 계획 모두 지표를 잴 수 없음. 측정 없이 원본 해상도를 유지
@@ -687,7 +540,7 @@ def record_from_comparison(
         converged=comparison.use_downscale,
         reason=comparison.reason,
         probes=(comparison.candidate_probe, comparison.original_probe),
-        measured_at=measured_at if measured_at is not None else _utc_now_iso(),
+        measured_at=measured_at if measured_at is not None else utc_now_iso(),
     )
 
 
@@ -721,20 +574,18 @@ def compare_downscale_cached(
     - 취소된 비교는 오염을 막으려고 저장하지 않음
     """
     resolved_target = target if target is not None else TuneTarget()
-    key = TuneCacheKey(
-        source_path=job.source_path,
-        filesize_bytes=job.source_size,
-        mtime_ns=job.source_mtime_ns,
-        encoder=job.encoder,
+    key = tune_cache_key(
+        job,
         baseline_quality=original_quality,
         plan_hash=comparison_plan_hash(candidate_plan, original_plan),
         target_key=resolved_target.cache_key,
     )
-    cached = cache.load(key)
-    if cached is not None:
-        restored = comparison_from_record(cached)
-        if restored is not None:
-            return restored
+    if key is not None:
+        cached = cache.load(key)
+        if cached is not None:
+            restored = comparison_from_record(cached)
+            if restored is not None:
+                return restored
     comparison = compare_downscale_samples(
         job=job,
         original_plan=original_plan,
@@ -750,153 +601,9 @@ def compare_downscale_cached(
         candidate_probe=candidate_probe,
     )
     cancelled = cancel_event is not None and cancel_event.is_set()
-    if not cancelled and comparison.original_probe.measurable:
+    if key is not None and not cancelled and comparison.original_probe.measurable:
         cache.save(record_from_comparison(key, comparison))
     return comparison
-
-
-class SampleTunerCache:
-    """품질값 정밀 결정 결과 SQLite 저장소
-
-    - 화질 분석 캐시와 같은 DB 파일에 `CREATE TABLE IF NOT EXISTS`로 표만 덧붙여 옛 DB에서도 동작
-    - 기준 품질값, 계획 해시, 목표 기준, 판 번호가 모두 같을 때만 재사용
-    - 작업마다 연결을 열고 닫아 SQLite 동시 쓰기 잠금 교착을 피함
-    """
-
-    def __init__(self, db_path: str, *, sleep: Callable[[float], None] = time.sleep) -> None:
-        self._db_path: str = db_path
-        self._sleep: Callable[[float], None] = sleep
-        self._disabled: bool = False
-
-    @property
-    def db_path(self) -> str:
-        """저장소 DB 파일 경로 반환"""
-        return self._db_path
-
-    def _connect(self) -> sqlite3.Connection | None:
-        """표를 준비한 연결을 열어 반환. DB를 열 수 없으면 None(캐시 없이 계속 진행)"""
-        if self._disabled:
-            return None
-        try:
-            parent = os.path.dirname(self._db_path)
-            if parent:
-                os.makedirs(parent, exist_ok=True)
-            conn = sqlite3.connect(self._db_path, timeout=SQLITE_BUSY_TIMEOUT_SEC)
-            conn.execute(_CACHE_TABLE_SQL)
-            conn.commit()
-            return conn
-        except sqlite3.Error:
-            self._disabled = True
-            return None
-
-    def load(self, key: TuneCacheKey) -> SampleTuneRecord | None:
-        """키가 같은 캐시 행 반환. 없거나 읽을 수 없으면 None"""
-        conn = self._connect()
-        if conn is None:
-            return None
-        condition = " AND ".join(f"{name} = ?" for name in CACHE_COLUMNS[:KEY_COLUMN_COUNT])
-        try:
-            row = conn.execute(
-                f"SELECT {', '.join(CACHE_COLUMNS)} FROM {SAMPLE_TUNER_TABLE_NAME} "
-                f"WHERE {condition} LIMIT 1",
-                list(key.values),
-            ).fetchone()
-        except sqlite3.Error:
-            return None
-        finally:
-            conn.close()
-        return None if row is None else row_to_record(row)
-
-    def save(self, record: SampleTuneRecord) -> None:
-        """탐색 결과를 캐시에 기록(같은 키는 교체)"""
-        conn = self._connect()
-        if conn is None:
-            return
-        placeholders = ", ".join("?" * len(CACHE_COLUMNS))
-        try:
-            with conn:
-                conn.execute(
-                    f"INSERT OR REPLACE INTO {SAMPLE_TUNER_TABLE_NAME} "
-                    f"({', '.join(CACHE_COLUMNS)}) VALUES ({placeholders})",
-                    list(record_to_row(record)),
-                )
-        except sqlite3.Error:
-            pass
-        finally:
-            conn.close()
-
-    def count(self) -> int:
-        """저장된 캐시 행 수. 읽을 수 없으면 0"""
-        conn = self._connect()
-        if conn is None:
-            return 0
-        try:
-            return _as_int(conn.execute(f"SELECT COUNT(*) FROM {SAMPLE_TUNER_TABLE_NAME}").fetchone()[0])
-        except sqlite3.Error:
-            return 0
-        finally:
-            conn.close()
-
-    def clear(self) -> int:
-        """캐시 행을 모두 지우고 지운 수를 반환"""
-        conn = self._connect()
-        if conn is None:
-            return 0
-        try:
-            with conn:
-                deleted = conn.execute(f"DELETE FROM {SAMPLE_TUNER_TABLE_NAME}").rowcount
-            return int(deleted)
-        except sqlite3.Error:
-            return 0
-        finally:
-            conn.close()
-
-
-def row_to_record(row: Sequence[object]) -> SampleTuneRecord:
-    """SQLite 행 값을 캐시 레코드로 변환. 형식이 다른 값은 기본값으로 둠"""
-    values = dict(zip(CACHE_COLUMNS, row, strict=True))
-    key = TuneCacheKey(
-        source_path=_as_str(values["source_path"]),
-        filesize_bytes=_as_int(values["filesize_bytes"]),
-        mtime_ns=_as_int(values["mtime_ns"]),
-        encoder=_as_str(values["encoder"]),
-        baseline_quality=_as_float(values["baseline_quality"]),
-        plan_hash=_as_str(values["plan_hash"]),
-        target_key=_as_str(values["target_key"]),
-        tuner_version=_as_int(values["tuner_version"]),
-    )
-    return SampleTuneRecord(
-        key=key,
-        best_quality=_as_float(values["best_quality"]),
-        converged=bool(_as_int(values["converged"])),
-        reason=_as_str(values["reason"]),
-        probes=probes_from_json(_as_str(values["probes_json"])),
-        measured_at=_as_str(values["measured_at"]),
-    )
-
-
-def record_to_row(record: SampleTuneRecord) -> tuple[object, ...]:
-    """캐시 레코드를 SQLite 저장 값으로 변환. 열 순서는 `CACHE_COLUMNS`와 같음"""
-    return (
-        *record.key.values,
-        record.best_quality,
-        int(record.converged),
-        record.reason,
-        probes_to_json(record.probes),
-        record.measured_at,
-    )
-
-
-def record_from_result(key: TuneCacheKey, result: TuneResult, *, measured_at: str | None = None) -> SampleTuneRecord:
-    """탐색 결과를 캐시 레코드로 변환"""
-    return SampleTuneRecord(
-        key=key,
-        best_quality=result.best_quality,
-        converged=result.converged,
-        reason=result.reason,
-        probes=result.probes,
-        measured_at=measured_at if measured_at is not None else _utc_now_iso(),
-    )
 
 
 def open_default_cache() -> SampleTunerCache:
@@ -928,18 +635,16 @@ def tune_quality_cached(
     - 취소된 탐색 결과는 오염을 막으려고 저장하지 않음
     """
     resolved_target = target if target is not None else TuneTarget()
-    key = TuneCacheKey(
-        source_path=job.source_path,
-        filesize_bytes=job.source_size,
-        mtime_ns=job.source_mtime_ns,
-        encoder=job.encoder,
+    key = tune_cache_key(
+        job,
         baseline_quality=job.baseline_quality,
         plan_hash=plan_signature(plan),
         target_key=resolved_target.cache_key,
     )
-    cached = cache.load(key)
-    if cached is not None:
-        return cached.result
+    if key is not None:
+        cached = cache.load(key)
+        if cached is not None:
+            return cached.result
     result = tune_quality_for_video(
         job=job,
         plan=plan,
@@ -957,11 +662,6 @@ def tune_quality_cached(
         batch_id=batch_id,
     )
     cancelled = cancel_event is not None and cancel_event.is_set()
-    if not cancelled and result.reason != REASON_UNMEASURABLE:
+    if key is not None and not cancelled and result.reason != REASON_UNMEASURABLE:
         cache.save(record_from_result(key, result))
     return result
-
-
-
-
-

@@ -1,12 +1,15 @@
 """화질 분석 결과 캐시(SQLite) 저장소 모듈
 
 - 캐시는 분석 캐시와 같은 `video_cache.sqlite3`의 독립 테이블 `frame_analysis_cache`에 두어 분석 캐시 비우기, 스키마 재생성과 무관하게 보존
+- 캐시 행은 내용 키(파일 크기, 내용 지문)로 식별해 폴더를 옮기거나 이름을 바꿔도 같은 측정을 재사용
+- 옛 파일명 키 행은 `frame_analysis_cache_legacy`에 남겨 두고, 지문을 알게 되는 조회에서 내용 행으로 옮김(표 구성과 승격은 `frame_analysis_schema.py`)
 - 스레드별 연결, 잠금 재시도, `close()` 정리 방식은 `encode_output_history.py`와 같음
 - 영상 한 개를 마칠 때마다 `save()`가 불려 중단되어도 완료분이 남고, 다른 테이블을 만들거나 지우지 않음
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sqlite3
@@ -18,17 +21,29 @@ from typing import TypeVar
 from src.core.analysis.frame_analysis import ActiveRegion, normalize_manual_active_frame
 from src.core.models import ActiveFrame
 from src.core.workspace_paths import LogicalOwnerResolver, is_within_roots
-from src.service.frame_analysis_record import (
-    RECORD_COLUMNS,
-    FileKey,
-    FrameAnalysisRecord,
-    record_to_row,
-    row_to_record,
+from src.service.analysis_store import ContentKey, FileKey
+from src.service.frame_analysis_record import FrameAnalysisRecord, record_to_row, row_to_record
+from src.service.frame_analysis_schema import (
+    CONTENT_KEY_COLUMN_NAMES,
+    FRAME_ANALYSIS_CROP_TABLE,
+    FRAME_ANALYSIS_LEGACY_TABLE,
+    FRAME_ANALYSIS_MANUAL_FRAME_TABLE,
+    FRAME_ANALYSIS_REVIEW_ACK_TABLE,
+    FRAME_ANALYSIS_TABLE,
+    FRAME_ANALYSIS_VR_TABLE,
+    PLACEHOLDERS,
+    SELECT_COLUMNS,
+    computed_fingerprint,
+    legacy_fingerprint_targets,
+    legacy_rows_promotable,
+    prepare_cache_tables,
+    promote_legacy_rows,
+    record_legacy_fingerprints,
+    stored_fingerprint,
 )
 from src.service.frame_override_rows import (
     MANUAL_FRAME_MATCH_COLUMNS,
     REVIEW_ACK_MATCH_COLUMNS,
-    add_missing_columns,
     file_identity,
     review_region_box,
     validated_crop_exclusion_rows,
@@ -41,11 +56,6 @@ logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
-FRAME_ANALYSIS_TABLE: str = "frame_analysis_cache"
-FRAME_ANALYSIS_VR_TABLE: str = "frame_analysis_vr_override"
-FRAME_ANALYSIS_CROP_TABLE: str = "frame_analysis_crop_exclude"
-FRAME_ANALYSIS_MANUAL_FRAME_TABLE: str = "frame_analysis_manual_active_frame"
-FRAME_ANALYSIS_REVIEW_ACK_TABLE: str = "frame_analysis_crop_review_ack"
 SQLITE_BUSY_TIMEOUT_SEC: float = 5.0
 # - 조회 중 곁들이는 행 정리는 화면 스레드에서 돌므로 잠금을 오래 기다리지 않고 포기함
 ROW_CLEANUP_BUSY_TIMEOUT_SEC: float = 0.2
@@ -53,80 +63,6 @@ WRITE_RETRY_ATTEMPTS: int = 5
 WRITE_RETRY_BASE_SEC: float = 0.05
 _LOOKUP_CHUNK_SIZE: int = 500
 _LOCKED_MARKERS: tuple[str, ...] = ("locked", "busy")
-
-
-_SCHEMA_STATEMENTS: tuple[str, ...] = (
-    f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_TABLE} (\n"
-    "  filename TEXT NOT NULL,\n"
-    "  filesize_bytes INTEGER NOT NULL,\n"
-    "  mtime_ns INTEGER NOT NULL,\n"
-    "  active_width INTEGER NOT NULL,\n"
-    "  active_height INTEGER NOT NULL,\n"
-    "  active_x INTEGER NOT NULL,\n"
-    "  active_y INTEGER NOT NULL,\n"
-    "  has_black_bars INTEGER NOT NULL,\n"
-    "  metric_used TEXT NOT NULL,\n"
-    "  vmaf_model TEXT NOT NULL,\n"
-    "  tier_scores_json TEXT NOT NULL,\n"
-    "  candidate_tier TEXT,\n"
-    "  valid_segments INTEGER NOT NULL,\n"
-    "  total_segments INTEGER NOT NULL,\n"
-    "  unmeasurable INTEGER NOT NULL,\n"
-    "  is_vr_protected INTEGER NOT NULL,\n"
-    "  measured_at TEXT NOT NULL,\n"
-    "  analysis_version INTEGER NOT NULL,\n"
-    "  margins_vary INTEGER NOT NULL DEFAULT 0,\n"
-    "  dark_outliers_ignored INTEGER NOT NULL DEFAULT 0,\n"
-    "  crop_scan_failed INTEGER NOT NULL DEFAULT 0,\n"
-    "  PRIMARY KEY (filename, filesize_bytes, mtime_ns)\n"
-    ") WITHOUT ROWID",
-    f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_VR_TABLE} (\n"
-    "  source_path TEXT PRIMARY KEY,\n"
-    "  manual_vr INTEGER NOT NULL\n"
-    ") WITHOUT ROWID",
-    f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_CROP_TABLE} (\n"
-    "  source_path TEXT PRIMARY KEY,\n"
-    "  exclude_crop INTEGER NOT NULL,\n"
-    "  filesize_bytes INTEGER,\n"
-    "  mtime_ns INTEGER\n"
-    ") WITHOUT ROWID",
-    f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_MANUAL_FRAME_TABLE} (\n"
-    "  source_path TEXT PRIMARY KEY,\n"
-    "  manual_x INTEGER NOT NULL,\n"
-    "  manual_y INTEGER NOT NULL,\n"
-    "  manual_width INTEGER NOT NULL,\n"
-    "  manual_height INTEGER NOT NULL,\n"
-    "  filesize_bytes INTEGER,\n"
-    "  mtime_ns INTEGER\n"
-    ") WITHOUT ROWID",
-    f"CREATE TABLE IF NOT EXISTS {FRAME_ANALYSIS_REVIEW_ACK_TABLE} (\n"
-    "  source_path TEXT PRIMARY KEY,\n"
-    "  region_width INTEGER NOT NULL,\n"
-    "  region_height INTEGER NOT NULL,\n"
-    "  region_x INTEGER NOT NULL,\n"
-    "  region_y INTEGER NOT NULL,\n"
-    "  filesize_bytes INTEGER,\n"
-    "  mtime_ns INTEGER\n"
-    ") WITHOUT ROWID",
-)
-_SELECT_COLUMNS: str = ", ".join(RECORD_COLUMNS)
-_PLACEHOLDERS: str = ", ".join("?" * len(RECORD_COLUMNS))
-# - CREATE TABLE IF NOT EXISTS는 기존 테이블에 열을 더하지 않으므로, 이전 DB에는 이 열을 따로 덧붙임
-# - 사용자 지정 활성 화면의 파일 식별 값은 예전 행을 그대로 읽을 수 있도록 NULL을 허용
-_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    (FRAME_ANALYSIS_TABLE, "margins_vary", "INTEGER NOT NULL DEFAULT 0"),
-    (FRAME_ANALYSIS_TABLE, "dark_outliers_ignored", "INTEGER NOT NULL DEFAULT 0"),
-    (FRAME_ANALYSIS_TABLE, "crop_scan_failed", "INTEGER NOT NULL DEFAULT 0"),
-    (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "filesize_bytes", "INTEGER"),
-    (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "mtime_ns", "INTEGER"),
-    (FRAME_ANALYSIS_CROP_TABLE, "filesize_bytes", "INTEGER"),
-    (FRAME_ANALYSIS_CROP_TABLE, "mtime_ns", "INTEGER"),
-)
-
-
-def _add_missing_columns(conn: sqlite3.Connection) -> None:
-    """이전 DB의 지정 테이블에 없는 열을 덧붙임"""
-    add_missing_columns(conn, _ADDED_COLUMNS)
 
 
 def _is_locked_error(error: sqlite3.OperationalError) -> bool:
@@ -158,46 +94,72 @@ def _write_row_changes_best_effort(
             isolation_level=None,
         )
     except sqlite3.Error as error:
-        logger.warning(
-            "걸러 낸 지정 행을 정리하지 못했습니다. 다음 조회에서 다시 시도합니다: %s", error
-        )
+        logger.warning("걸러 낸 지정 행을 정리하지 못했습니다. 다음 조회에서 다시 시도합니다: %s", error)
         return
     try:
-        write_row_changes(
-            conn, table=table, drop_columns=drop_columns, dropped=dropped, stamped=stamped
-        )
+        write_row_changes(conn, table=table, drop_columns=drop_columns, dropped=dropped, stamped=stamped)
     except sqlite3.Error as error:
-        logger.warning(
-            "걸러 낸 지정 행을 정리하지 못했습니다. 다음 조회에서 다시 시도합니다: %s", error
-        )
+        logger.warning("걸러 낸 지정 행을 정리하지 못했습니다. 다음 조회에서 다시 시도합니다: %s", error)
     finally:
         conn.close()
 
 
-def _frame_cache_keys(conn: sqlite3.Connection, root_dirs: Sequence[str] | None) -> list[FileKey]:
-    """정리 범위에 드는 화질 분석 캐시 행의 파일 식별 키 목록
+def _record_and_promote_best_effort(conn: sqlite3.Connection, found: Mapping[FileKey, str]) -> None:
+    """조회 중 알게 된 지문을 옛 행에 채우고 내용 행으로 옮기는 쓰기를 시도하되 실패는 경고만 남김
 
-    - 범위 판정기를 한 번만 만들어 행마다 폴더 파싱과 파일 존재 조회를 반복하지 않음
+    - 이 승격은 조회 결과를 좇아 하는 부수 작업이라, 읽기 전용 DB나 잠금 때문에 실패해도 지문은 그대로 돌려줌
+    - 채울 행이나 옮길 행이 없으면 아무 쓰기도 하지 않아 평소 새로고침은 순수 SELECT로 끝남
     """
-    rows = conn.execute(f"SELECT filename, filesize_bytes, mtime_ns FROM {FRAME_ANALYSIS_TABLE}").fetchall()
+    targets = legacy_fingerprint_targets(conn, found)
+    if not targets and not legacy_rows_promotable(conn):
+        return
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+    except sqlite3.Error as error:
+        logger.warning("화질 분석 옛 행 승격을 시작하지 못했습니다. 다음 조회에서 다시 시도합니다: %s", error)
+        return
+    try:
+        if targets:
+            record_legacy_fingerprints(conn, targets)
+        if legacy_rows_promotable(conn):
+            promote_legacy_rows(conn)
+        conn.execute("COMMIT")
+    except sqlite3.Error as error:
+        logger.warning("화질 분석 옛 행 승격을 마치지 못했습니다. 다음 조회에서 다시 시도합니다: %s", error)
+        with contextlib.suppress(sqlite3.Error):
+            conn.execute("ROLLBACK")
+
+
+def _frame_cache_keys(
+    conn: sqlite3.Connection, root_dirs: Sequence[str] | None
+) -> tuple[list[ContentKey], list[FileKey]]:
+    """정리 범위에 드는 내용 행 키와 아직 옮기지 않은 옛 행 키 목록
+
+    - 범위 판정기는 한 번만 만들어 행마다 폴더 파싱과 파일 존재 조회를 반복하지 않음
+    - 내용 행의 파일명은 대표 값이므로 그 값으로 소속을 판정(옮기기 전과 같은 기준)
+    """
+    content_rows = conn.execute(
+        f"SELECT {', '.join(CONTENT_KEY_COLUMN_NAMES)}, filename FROM {FRAME_ANALYSIS_TABLE}"
+    ).fetchall()
+    legacy_rows = conn.execute(
+        f"SELECT filename, filesize_bytes, mtime_ns FROM {FRAME_ANALYSIS_LEGACY_TABLE}"
+    ).fetchall()
     if root_dirs is None:
-        return [(str(row[0]), int(row[1]), int(row[2])) for row in rows]
+        return (
+            [(int(row[0]), str(row[1])) for row in content_rows],
+            [(str(row[0]), int(row[1]), int(row[2])) for row in legacy_rows],
+        )
     resolver = LogicalOwnerResolver(root_dirs)
-    return [
-        (str(row[0]), int(row[1]), int(row[2]))
-        for row in rows
-        if resolver.owner(str(row[0])) is not None
-    ]
+    return (
+        [(int(row[0]), str(row[1])) for row in content_rows if resolver.owner(str(row[2])) is not None],
+        [(str(row[0]), int(row[1]), int(row[2])) for row in legacy_rows if resolver.owner(str(row[0])) is not None],
+    )
 
 
 def _path_rows(conn: sqlite3.Connection, table: str, root_dirs: Sequence[str] | None) -> list[str]:
     """경로 열 하나만 가진 지정 테이블에서 정리 범위에 드는 경로 목록"""
     rows = conn.execute(f"SELECT source_path FROM {table}").fetchall()
-    return [
-        str(row[0])
-        for row in rows
-        if root_dirs is None or is_within_roots(str(row[0]), root_dirs)
-    ]
+    return [str(row[0]) for row in rows if root_dirs is None or is_within_roots(str(row[0]), root_dirs)]
 
 
 def _delete_path_rows(conn: sqlite3.Connection, table: str, root_dirs: Sequence[str] | None) -> int:
@@ -233,39 +195,79 @@ class FrameAnalysisStore:
         """저장소 DB 파일 경로 반환"""
         return self._db_path
 
-    def load_many(self, keys: Sequence[FileKey]) -> dict[FileKey, FrameAnalysisRecord]:
-        """파일 식별 키 목록에 해당하는 캐시 행을 조회"""
+    def load_many(self, keys: Sequence[ContentKey]) -> dict[ContentKey, FrameAnalysisRecord]:
+        """내용 키(크기, 내용 지문) 목록에 해당하는 캐시 행을 조회"""
         wanted = set(keys)
         if not wanted:
             return {}
-        names = list(dict.fromkeys(name for name, _size, _mtime in keys))
+        unique = list(dict.fromkeys(keys))
 
-        def _select(conn: sqlite3.Connection) -> dict[FileKey, FrameAnalysisRecord]:
-            found: dict[FileKey, FrameAnalysisRecord] = {}
-            for start in range(0, len(names), _LOOKUP_CHUNK_SIZE):
-                chunk = names[start : start + _LOOKUP_CHUNK_SIZE]
-                placeholders = ", ".join("?" * len(chunk))
+        def _select(conn: sqlite3.Connection) -> dict[ContentKey, FrameAnalysisRecord]:
+            found: dict[ContentKey, FrameAnalysisRecord] = {}
+            for start in range(0, len(unique), _LOOKUP_CHUNK_SIZE):
+                chunk = unique[start : start + _LOOKUP_CHUNK_SIZE]
+                pairs = ", ".join("(?, ?)" for _ in chunk)
+                params = [value for key in chunk for value in key]
                 rows = conn.execute(
-                    f"SELECT {_SELECT_COLUMNS} FROM {FRAME_ANALYSIS_TABLE} WHERE filename IN ({placeholders})",
-                    chunk,
+                    f"SELECT {SELECT_COLUMNS} FROM {FRAME_ANALYSIS_TABLE} "
+                    f"WHERE ({', '.join(CONTENT_KEY_COLUMN_NAMES)}) IN ({pairs})",
+                    params,
                 ).fetchall()
                 for row in rows:
                     record = row_to_record(row)
-                    if record.key in wanted:
-                        found[record.key] = record
+                    if record.content_key in wanted:
+                        found[record.content_key] = record
+            return found
+
+        return self._run(_select)
+
+    def resolve_content_keys(self, entries: Sequence[tuple[FileKey, str]]) -> dict[FileKey, str]:
+        """파일별 내용 지문을 파일을 읽지 않고 확인할 수 있는 데까지 찾음
+
+        - 조회 순서는 1단계 분석 캐시와 같음: 볼륨 위치 표 -> 파일명 키 표 -> 화질 분석 옛 행 -> 직접 계산
+        - entries는 (파일명, 크기, 수정 시각)과 그 파일의 절대 경로. 경로가 없으면(NULL) 직접 계산을 건너뜀
+        - 찾은 지문으로 옛 파일명 키 화질 분석 행을 내용 행으로 옮겨 다음 조회부터 이름과 무관하게 찾게 함
+        - 승격 쓰기는 조회를 좇는 부수 작업이라 실패해도 지문은 그대로 돌려줌(읽기 전용 DB, 잠금)
+        """
+        wanted = dict(entries)
+        if not wanted:
+            return {}
+
+        def _select(conn: sqlite3.Connection) -> dict[FileKey, str]:
+            found: dict[FileKey, str] = {}
+            for key, path in wanted.items():
+                fingerprint = stored_fingerprint(conn, path, key)
+                if fingerprint is not None:
+                    found[key] = fingerprint
+            for key, path in wanted.items():
+                if key in found:
+                    continue
+                fingerprint = computed_fingerprint(path, key[1])
+                if fingerprint is not None:
+                    found[key] = fingerprint
+            if found:
+                _record_and_promote_best_effort(conn, found)
             return found
 
         return self._run(_select)
 
     def save(self, record: FrameAnalysisRecord) -> None:
-        """캐시 행을 저장하며 같은 키가 있으면 덮어씀"""
+        """캐시 행을 저장하며 같은 내용 키가 있으면 덮어씀
+
+        - 같은 파일의 옛 파일명 키 행은 내용 행으로 옮기므로 함께 지움
+        """
 
         def _write(conn: sqlite3.Connection) -> None:
             conn.execute("BEGIN IMMEDIATE")
             try:
                 conn.execute(
-                    f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_TABLE} ({_SELECT_COLUMNS}) VALUES ({_PLACEHOLDERS})",
+                    f"INSERT OR REPLACE INTO {FRAME_ANALYSIS_TABLE} ({SELECT_COLUMNS}) VALUES ({PLACEHOLDERS})",
                     record_to_row(record),
+                )
+                conn.execute(
+                    f"DELETE FROM {FRAME_ANALYSIS_LEGACY_TABLE} "
+                    "WHERE filename = ? AND filesize_bytes = ? AND mtime_ns = ?",
+                    (record.filename, record.filesize_bytes, record.mtime_ns),
                 )
                 conn.execute("COMMIT")
             except BaseException:
@@ -275,39 +277,55 @@ class FrameAnalysisStore:
         self._run(_write)
 
     def count(self) -> int:
-        """저장된 행 수 반환"""
+        """저장된 행 수 반환(옮기지 않은 옛 행 포함)"""
 
         def _count(conn: sqlite3.Connection) -> int:
-            return int(conn.execute(f"SELECT COUNT(*) FROM {FRAME_ANALYSIS_TABLE}").fetchone()[0])
+            content = int(conn.execute(f"SELECT COUNT(*) FROM {FRAME_ANALYSIS_TABLE}").fetchone()[0])
+            legacy = int(conn.execute(f"SELECT COUNT(*) FROM {FRAME_ANALYSIS_LEGACY_TABLE}").fetchone()[0])
+            return content + legacy
 
         return self._run(_count)
 
     def count_for_roots(self, root_dirs: Sequence[str] | None = None) -> int:
         """화질 분석 캐시 행 수. root_dirs를 주면 그 작업 폴더 소속 논리 파일명만 셈"""
-        return self._run(lambda conn: len(_frame_cache_keys(conn, root_dirs)))
+
+        def _count(conn: sqlite3.Connection) -> int:
+            content, legacy = _frame_cache_keys(conn, root_dirs)
+            return len(content) + len(legacy)
+
+        return self._run(_count)
 
     def clear_for_roots(self, root_dirs: Sequence[str] | None = None) -> int:
         """화질 분석 캐시 행을 지우고 지운 행 수 반환
 
         - 수동 VR 보호와 잘라내기 제외 지정은 별도 테이블이라 함께 지우지 않음
         """
-        keys = self._run(lambda conn: _frame_cache_keys(conn, root_dirs))
-        if not keys:
+        content, legacy = self._run(lambda conn: _frame_cache_keys(conn, root_dirs))
+        if not content and not legacy:
             return 0
 
         def _delete(conn: sqlite3.Connection) -> int:
             conn.execute("BEGIN IMMEDIATE")
             try:
-                conn.executemany(
-                    f"DELETE FROM {FRAME_ANALYSIS_TABLE} "
-                    "WHERE filename = ? AND filesize_bytes = ? AND mtime_ns = ?",
-                    keys,
-                )
+                for start in range(0, len(content), _LOOKUP_CHUNK_SIZE):
+                    chunk = content[start : start + _LOOKUP_CHUNK_SIZE]
+                    pairs = ", ".join("(?, ?)" for _ in chunk)
+                    conn.execute(
+                        f"DELETE FROM {FRAME_ANALYSIS_TABLE} "
+                        f"WHERE ({', '.join(CONTENT_KEY_COLUMN_NAMES)}) IN ({pairs})",
+                        [value for key in chunk for value in key],
+                    )
+                if legacy:
+                    conn.executemany(
+                        f"DELETE FROM {FRAME_ANALYSIS_LEGACY_TABLE} "
+                        "WHERE filename = ? AND filesize_bytes = ? AND mtime_ns = ?",
+                        legacy,
+                    )
                 conn.execute("COMMIT")
             except BaseException:
                 conn.execute("ROLLBACK")
                 raise
-            return len(keys)
+            return len(content) + len(legacy)
 
         return self._run(_delete)
 
@@ -321,15 +339,11 @@ class FrameAnalysisStore:
 
     def count_manual_active_frames(self, root_dirs: Sequence[str] | None = None) -> int:
         """사용자 지정 활성 화면 건수. root_dirs를 주면 그 범위 경로만 셈"""
-        return self._run(
-            lambda conn: len(_path_rows(conn, FRAME_ANALYSIS_MANUAL_FRAME_TABLE, root_dirs))
-        )
+        return self._run(lambda conn: len(_path_rows(conn, FRAME_ANALYSIS_MANUAL_FRAME_TABLE, root_dirs)))
 
     def clear_manual_active_frames(self, root_dirs: Sequence[str] | None = None) -> int:
         """사용자 지정 활성 화면을 지우고 지운 건수 반환"""
-        return self._run(
-            lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_MANUAL_FRAME_TABLE, root_dirs)
-        )
+        return self._run(lambda conn: _delete_path_rows(conn, FRAME_ANALYSIS_MANUAL_FRAME_TABLE, root_dirs))
 
     def count_vr_overrides(self, root_dirs: Sequence[str] | None = None) -> int:
         """수동 VR 보호 지정 건수. root_dirs를 주면 그 범위 경로만 셈"""
@@ -368,7 +382,16 @@ class FrameAnalysisStore:
         """수동 VR 보호를 저장하고 그 영상의 캐시 결과를 지워 다시 분석하게 함
 
         - 보호 여부에 따라 활성 화면과 축소 후보가 달라지므로 낡은 측정 결과를 남기지 않음
+        - 측정 행은 내용 키로 식별하므로 이름이 바뀐 영상도 지우려면 그 경로의 내용 키를 풀어 씀.
+          지문을 확인하지 못하면 옛 파일명 키 행만 지움
         """
+        identity = file_identity(source_path)
+        fingerprint: str | None = None
+        if identity is not None:
+            key: FileKey = (filename, identity[0], identity[1])
+            fingerprint = self._run(lambda conn: stored_fingerprint(conn, source_path, key))
+            if fingerprint is None:
+                fingerprint = computed_fingerprint(source_path, identity[0])
 
         def _write(conn: sqlite3.Connection) -> None:
             conn.execute("BEGIN IMMEDIATE")
@@ -383,7 +406,14 @@ class FrameAnalysisStore:
                         f"DELETE FROM {FRAME_ANALYSIS_VR_TABLE} WHERE source_path = ?",
                         (source_path,),
                     )
+                if identity is not None and fingerprint is not None:
+                    conn.execute(
+                        f"DELETE FROM {FRAME_ANALYSIS_TABLE} "
+                        f"WHERE {CONTENT_KEY_COLUMN_NAMES[0]} = ? AND {CONTENT_KEY_COLUMN_NAMES[1]} = ?",
+                        (identity[0], fingerprint),
+                    )
                 conn.execute(f"DELETE FROM {FRAME_ANALYSIS_TABLE} WHERE filename = ?", (filename,))
+                conn.execute(f"DELETE FROM {FRAME_ANALYSIS_LEGACY_TABLE} WHERE filename = ?", (filename,))
                 conn.execute("COMMIT")
             except BaseException:
                 conn.execute("ROLLBACK")
@@ -417,9 +447,7 @@ class FrameAnalysisStore:
                 f" WHERE exclude_crop = 1 AND source_path IN ({placeholders})",
                 keys,
             ).fetchall()
-            kept, stamped = validated_crop_exclusion_rows(
-                rows, identity_overrides=identity_overrides
-            )
+            kept, stamped = validated_crop_exclusion_rows(rows, identity_overrides=identity_overrides)
             _write_row_changes_best_effort(
                 self._db_path,
                 table=FRAME_ANALYSIS_CROP_TABLE,
@@ -491,9 +519,7 @@ class FrameAnalysisStore:
                 f" WHERE source_path IN ({placeholders})",
                 keys,
             ).fetchall()
-            frames, dropped, stamped = validated_manual_rows(
-                rows, frame_sizes, identity_overrides=identity_overrides
-            )
+            frames, dropped, stamped = validated_manual_rows(rows, frame_sizes, identity_overrides=identity_overrides)
             _write_row_changes_best_effort(
                 self._db_path,
                 table=FRAME_ANALYSIS_MANUAL_FRAME_TABLE,
@@ -522,11 +548,7 @@ class FrameAnalysisStore:
         """
         if not source_path:
             return
-        normalized = (
-            None
-            if frame is None
-            else normalize_manual_active_frame(frame, frame_width, frame_height)
-        )
+        normalized = None if frame is None else normalize_manual_active_frame(frame, frame_width, frame_height)
         identity = None if normalized is None else file_identity(source_path)
 
         def _write(conn: sqlite3.Connection) -> None:
@@ -585,9 +607,7 @@ class FrameAnalysisStore:
                 f" WHERE source_path IN ({placeholders})",
                 keys,
             ).fetchall()
-            kept, dropped, stamped = validated_review_ack_rows(
-                rows, regions, identity_overrides=identity_overrides
-            )
+            kept, dropped, stamped = validated_review_ack_rows(rows, regions, identity_overrides=identity_overrides)
             _write_row_changes_best_effort(
                 self._db_path,
                 table=FRAME_ANALYSIS_REVIEW_ACK_TABLE,
@@ -599,9 +619,7 @@ class FrameAnalysisStore:
 
         return self._run(_select)
 
-    def set_crop_review_acknowledged(
-        self, source_path: str, region: ActiveRegion | None
-    ) -> None:
+    def set_crop_review_acknowledged(self, source_path: str, region: ActiveRegion | None) -> None:
         """영상의 여백 확인 필요 표시를 확인한 것으로 저장. None이면 지워 표시를 되살림
 
         - 자동 감지 영역을 함께 남겨, 다시 분석해 다른 영역이 나오면 그 표시를 지우고 경고를 되살림
@@ -676,9 +694,7 @@ class FrameAnalysisStore:
         try:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = NORMAL")
-            for statement in _SCHEMA_STATEMENTS:
-                conn.execute(statement)
-            _add_missing_columns(conn)
+            prepare_cache_tables(conn)
         except BaseException:
             conn.close()
             raise

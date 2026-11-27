@@ -18,7 +18,7 @@ from concurrent.futures import (
 from concurrent.futures import (
     TimeoutError as FutureTimeoutError,
 )
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from multiprocessing import get_context
 
@@ -51,6 +51,7 @@ from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
 from src.core.quality_probe import METRIC_VMAF, resolve_metric_name
 from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, normalize_scale_algorithm
+from src.service.analysis_store import ContentKey
 from src.service.frame_analysis_record import (
     FrameAnalysisRecord,
     FrameAnalysisRequest,
@@ -124,6 +125,38 @@ def _unique_requests(requests: Sequence[FrameAnalysisRequest]) -> list[FrameAnal
     return list({request.key: request for request in requests}.values())
 
 
+def _with_fingerprints(
+    store: FrameAnalysisStore, requests: Sequence[FrameAnalysisRequest]
+) -> tuple[list[FrameAnalysisRequest], dict[ContentKey, FrameAnalysisRequest]]:
+    """요청에 내용 지문을 채우고, 지문을 알 수 없는 요청은 캐시 조회에서 뺌
+
+    - 지문이 이미 있는 요청은 다시 찾지 않고, 저장된 값이나 파일 읽기로 채움
+    - 지문을 확인하지 못한 파일(읽기 실패)은 캐시를 쓸 수 없으므로 그대로 분석만 실행
+    """
+    if not requests:
+        return [], {}
+    known = store.resolve_content_keys(
+        [
+            ((request.filename, request.filesize_bytes, request.mtime_ns), request.path)
+            for request in requests
+            if not request.fingerprint
+        ]
+    )
+    resolved: list[FrameAnalysisRequest] = []
+    keyed: dict[ContentKey, FrameAnalysisRequest] = {}
+    for request in requests:
+        fingerprint = request.fingerprint or known.get(
+            (request.filename, request.filesize_bytes, request.mtime_ns), ""
+        )
+        filled = request if fingerprint == request.fingerprint else replace(
+            request, fingerprint=fingerprint
+        )
+        resolved.append(filled)
+        if filled.fingerprint:
+            keyed[filled.content_key] = filled
+    return resolved, keyed
+
+
 def _expected_vr(request: FrameAnalysisRequest) -> bool:
     """이 요청 영상이 지금 규칙에서 VR 보호 대상인지"""
     return is_vr_protected(
@@ -151,6 +184,7 @@ def _is_reusable(
     - 전체 화질 분석은 같은 방식 버전과 같은 지표 행만 재사용하며 감지 전용 행과 감지 실패 행은 다시 잼
     - 기준이 바뀌어도 저장된 점수로 최종 후보가 확정되면 다시 재지 않고 재판정 결과를 씀
     """
+    # - VR 보호 여부에 따라 측정 영역 자체가 달라지므로, 내용이 같은 사본이라도 보호 여부가 다르면 다시 잼
     if record is None or record.is_vr_protected != _expected_vr(request):
         return False
     if crop_only:
@@ -186,6 +220,7 @@ def _rejudged_result(
     - 저장된 규격 점수는 그대로 두고 후보만 다시 고름
     - 활성 화면 면적이 현재 상한을 넘으면 전체 프레임으로 되돌림
     - keep_candidate면 감지 전용 실행처럼 후보를 그대로 보존
+    - VR 보호는 저장된 대표 값이 아니라 이 요청의 예상 값으로 보고함(내용이 같은 사본이 한 행을 공유)
     """
     base = result_from_record(record)
     region = apply_no_bars_ratio(
@@ -209,7 +244,7 @@ def _rejudged_result(
         valid_segment_count=base.valid_segment_count,
         total_segment_count=base.total_segment_count,
         unmeasurable=base.unmeasurable,
-        is_vr_protected=base.is_vr_protected,
+        is_vr_protected=_expected_vr(request),
         crop_scan_failed=base.crop_scan_failed,
         analysis_version=base.analysis_version,
     )
@@ -345,7 +380,8 @@ class FrameAnalysisService:
         """
         unique = _unique_requests(requests)
         total = len(unique)
-        cached = {} if force else self._store.load_many([request.key for request in unique])
+        prepared, keyed = _with_fingerprints(self._store, unique)
+        cached = {} if force else self._store.load_many(list(keyed))
         results: dict[str, FrameAnalysisResult] = {}
         metric_name = resolve_metric_name(self._has_vmaf)
         os.makedirs(self._work_dir, exist_ok=True)
@@ -370,7 +406,7 @@ class FrameAnalysisService:
         ) -> tuple[FrameAnalysisRequest, FrameAnalysisResult]:
             index, request = item
             request_crop_only = crop_only or request.filename in crop_only_names
-            record = cached.get(request.key)
+            record = None if not request.fingerprint else cached.get(request.content_key)
             if record is not None and _is_reusable(
                 record,
                 request,
@@ -411,7 +447,7 @@ class FrameAnalysisService:
             self._store.save(record_from_result(request, result, measured_at=self._now()))
             return request, result
 
-        items = list(enumerate(unique, start=1))
+        items = list(enumerate(prepared, start=1))
         try:
             if self._video_workers <= 1 or total <= 1:
                 for completed, item in enumerate(items, start=1):
@@ -455,13 +491,15 @@ class FrameAnalysisService:
         unique = _unique_requests(requests)
         if force or not unique:
             return 0
-        cached = self._store.load_many([request.key for request in unique])
+        prepared, keyed = _with_fingerprints(self._store, unique)
+        cached = self._store.load_many(list(keyed))
         metric_name = resolve_metric_name(self._has_vmaf)
         return sum(
             1
-            for request in unique
-            if _is_reusable(
-                cached.get(request.key),
+            for request in prepared
+            if request.fingerprint
+            and _is_reusable(
+                cached.get(request.content_key),
                 request,
                 metric_name,
                 self._analysis_version,
@@ -469,6 +507,18 @@ class FrameAnalysisService:
                 thresholds=self._thresholds,
             )
         )
+
+    def _cached_records(
+        self, requests: Sequence[FrameAnalysisRequest]
+    ) -> dict[str, FrameAnalysisRecord]:
+        """요청 파일명별로 캐시 행을 찾아 돌려줌(지문을 확인하지 못한 파일은 빠짐)"""
+        prepared, keyed = _with_fingerprints(self._store, requests)
+        records = self._store.load_many(list(keyed))
+        return {
+            request.filename: records[request.content_key]
+            for request in prepared
+            if request.content_key in records
+        }
 
     def load_active_frames(
         self, requests: Sequence[FrameAnalysisRequest], *, crop_enabled: bool = True
@@ -479,7 +529,7 @@ class FrameAnalysisService:
         - 사용자 지정 활성 화면은 자동 감지와 영상별 제외를 덮어씀
         - 사용자가 확인하지 않은 여백 확인 필요 영상도 전체 프레임을 유지해 보류를 따름
         """
-        records = self._store.load_many([request.key for request in requests])
+        loaded = self._cached_records(requests)
         excluded = self._store.load_crop_exclusions([request.path for request in requests])
         manual = self._store.load_manual_active_frames(
             {request.path: (request.width, request.height) for request in requests}
@@ -494,14 +544,14 @@ class FrameAnalysisService:
                 )
             )
             for request in requests
-            if (record := records.get(request.key)) is not None
+            if (record := loaded.get(request.filename)) is not None
         }
         acknowledged = (
             self._store.load_crop_review_acknowledged(regions) if regions else frozenset()
         )
         frames: dict[str, ActiveFrame] = {}
         for request in requests:
-            record = records.get(request.key)
+            record = loaded.get(request.filename)
             if record is None or not is_usable_analysis_version(
                 record.analysis_version, self._analysis_version
             ):
@@ -515,7 +565,7 @@ class FrameAnalysisService:
             review = crop_review_status(
                 region,
                 crop_enabled=crop_enabled,
-                is_vr_protected=record.is_vr_protected,
+                is_vr_protected=_expected_vr(request),
                 manual_frame=manual.get(request.path),
                 acknowledged=request.path in acknowledged,
                 excluded=request.path in excluded,
@@ -524,7 +574,7 @@ class FrameAnalysisService:
                 region,
                 crop_enabled=crop_enabled,
                 excluded=request.path in excluded or review.hold_applies,
-                is_vr_protected=record.is_vr_protected,
+                is_vr_protected=_expected_vr(request),
                 manual_frame=manual.get(request.path),
             )
             if frame is not None:
@@ -543,7 +593,7 @@ class FrameAnalysisService:
           전체 화면 유지 중 어느 것을 골라도 빠짐
         - 판정에 쓸 수 없는 캐시 행(측정 버전 불일치, VR 보호, 검은 여백 면적 상한 초과)은 넣지 않음
         """
-        records = self._store.load_many([request.key for request in requests])
+        records = self._cached_records(requests)
         manual = self._store.load_manual_active_frames(
             {request.path: (request.width, request.height) for request in requests}
         )
@@ -558,14 +608,14 @@ class FrameAnalysisService:
                 )
             )
             for request in requests
-            if (record := records.get(request.key)) is not None
+            if (record := records.get(request.filename)) is not None
         }
         acknowledged = (
             self._store.load_crop_review_acknowledged(regions) if regions else frozenset()
         )
         statuses: dict[str, CropReviewStatus] = {}
         for request in requests:
-            record = records.get(request.key)
+            record = records.get(request.filename)
             if record is None or not is_usable_analysis_version(
                 record.analysis_version, self._analysis_version
             ):
@@ -578,7 +628,7 @@ class FrameAnalysisService:
                     thresholds=self._thresholds,
                 ),
                 crop_enabled=crop_enabled,
-                is_vr_protected=record.is_vr_protected,
+                is_vr_protected=_expected_vr(request),
                 manual_frame=manual.get(request.path),
                 acknowledged=request.path in acknowledged,
                 excluded=request.path in excluded,
@@ -589,10 +639,10 @@ class FrameAnalysisService:
 
     def load_results(self, requests: Sequence[FrameAnalysisRequest]) -> dict[str, FrameAnalysisResult]:
         """현재 작업 폴더의 캐시된 화질 분석 결과를 표시용으로 한 번에 읽음"""
-        records = self._store.load_many([request.key for request in requests])
+        records = self._cached_records(requests)
         results: dict[str, FrameAnalysisResult] = {}
         for request in requests:
-            record = records.get(request.key)
+            record = records.get(request.filename)
             if record is None or not is_usable_analysis_version(
                 record.analysis_version, self._analysis_version
             ):

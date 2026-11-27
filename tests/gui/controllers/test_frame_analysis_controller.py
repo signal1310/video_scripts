@@ -12,6 +12,7 @@ from unittest import mock
 
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from src.core.analysis.file_fingerprint import compute_fingerprint
 from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
@@ -586,9 +587,15 @@ class ControllerTests(_ControllerCase):
 
     def _flagged_record(self) -> FrameAnalysisRecord:
         """지금 a.mp4 파일의 식별 값에 맞춘 여백 확인 필요 캐시 행"""
-        stat = os.stat(os.path.join(self.root, "a.mp4"))
+        path = os.path.join(self.root, "a.mp4")
+        stat = os.stat(path)
         return replace(
-            make_frame_record("a.mp4", size=stat.st_size, mtime=stat.st_mtime_ns),
+            make_frame_record(
+                "a.mp4",
+                size=stat.st_size,
+                mtime=stat.st_mtime_ns,
+                fingerprint=compute_fingerprint(path, stat.st_size),
+            ),
             dark_outliers_ignored=True,
         )
 

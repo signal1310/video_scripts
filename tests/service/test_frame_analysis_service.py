@@ -30,7 +30,7 @@ from src.service.frame_analysis_service import (
 )
 from src.service.frame_analysis_store import FrameAnalysisStore
 from src.service.frame_override_rows import review_region_box
-from tests._frame_analysis_fakes import FakeStderrRunner, make_frame_record
+from tests._frame_analysis_fakes import FakeStderrRunner, fake_fingerprint, make_frame_record
 
 
 def _request(
@@ -42,16 +42,19 @@ def _request(
     height: int = 1080,
     duration_sec: float = 20.0,
     has_vr_metadata: bool = False,
+    fingerprint: str | None = None,
+    path: str | None = None,
 ) -> FrameAnalysisRequest:
     return FrameAnalysisRequest(
         filename=filename,
-        path=filename,
+        path=filename if path is None else path,
         width=width,
         height=height,
         duration_sec=duration_sec,
         filesize_bytes=size,
         mtime_ns=mtime,
         has_vr_metadata=has_vr_metadata,
+        fingerprint=fake_fingerprint(filename, size, mtime) if fingerprint is None else fingerprint,
     )
 
 
@@ -134,6 +137,90 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(runner.commands, [])
         self.assertEqual(second["a.mp4"], first["a.mp4"])
 
+    def test_cache_hit_after_the_file_is_moved_or_renamed(self) -> None:
+        """이름과 폴더를 바꾼 같은 내용의 영상도 저장된 화질 분석을 다시 쓰는지 검증"""
+        first_dir = os.path.join(self.tmp_dir, "first")
+        second_dir = os.path.join(self.tmp_dir, "second")
+        os.makedirs(first_dir)
+        os.makedirs(second_dir)
+        original = os.path.join(first_dir, "clip.mp4")
+        with open(original, "wb") as handle:
+            handle.write(b"m" * 512)
+        stat = os.stat(original)
+        runner = FakeStderrRunner()
+        service = self.make_service(runner)
+        service.analyze_batch(
+            [
+                _request(
+                    "clip.mp4",
+                    size=stat.st_size,
+                    mtime=stat.st_mtime_ns,
+                    path=original,
+                    fingerprint="",
+                )
+            ]
+        )
+        moved = os.path.join(second_dir, "renamed.mp4")
+        with open(moved, "wb") as handle:
+            handle.write(b"m" * 512)
+        moved_stat = os.stat(moved)
+        runner.commands.clear()
+        service.analyze_batch(
+            [
+                _request(
+                    "renamed.mp4",
+                    size=moved_stat.st_size,
+                    mtime=moved_stat.st_mtime_ns,
+                    path=moved,
+                    fingerprint="",
+                )
+            ]
+        )
+        self.assertEqual(runner.commands, [])
+        self.assertEqual(self.store.count(), 1)
+
+    def test_same_name_size_and_mtime_with_different_content_stays_separate(self) -> None:
+        """이름, 크기, 수정 시각이 같아도 내용이 다른 두 영상은 각자 분석하는지 검증"""
+        first_dir = os.path.join(self.tmp_dir, "first")
+        second_dir = os.path.join(self.tmp_dir, "second")
+        os.makedirs(first_dir)
+        os.makedirs(second_dir)
+        first = os.path.join(first_dir, "clip.mp4")
+        second = os.path.join(second_dir, "clip.mp4")
+        with open(first, "wb") as handle:
+            handle.write(b"a" * 256)
+        with open(second, "wb") as handle:
+            handle.write(b"b" * 256)
+        os.utime(second, ns=(os.stat(first).st_atime_ns, os.stat(first).st_mtime_ns))
+        stat = os.stat(first)
+        runner = FakeStderrRunner()
+        service = self.make_service(runner)
+        service.analyze_batch(
+            [
+                _request(
+                    "clip.mp4",
+                    size=stat.st_size,
+                    mtime=stat.st_mtime_ns,
+                    path=first,
+                    fingerprint="",
+                )
+            ]
+        )
+        runner.commands.clear()
+        service.analyze_batch(
+            [
+                _request(
+                    "clip.mp4",
+                    size=stat.st_size,
+                    mtime=stat.st_mtime_ns,
+                    path=second,
+                    fingerprint="",
+                )
+            ]
+        )
+        self.assertTrue(runner.commands)
+        self.assertEqual(self.store.count(), 2)
+
     def test_relaxed_thresholds_reuse_scores_and_rejudge_candidate(self) -> None:
         """기준 완화 뒤 저장 점수로 후보가 확정되면 다시 재지 않고 새 후보를 쓰는지 검증"""
         self.store.save(self._relaxable_record())
@@ -207,7 +294,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         service = self.make_service(runner)
         service.analyze_batch([_request("a.mp4")])
         self.assertGreater(len(runner.commands), 0)
-        record = self.store.load_many([("a.mp4", 100, 1)])[("a.mp4", 100, 1)]
+        record = self.store.load_many([_request("a.mp4").content_key])[_request("a.mp4").content_key]
         self.assertEqual(record.analysis_version, FRAME_ANALYSIS_VERSION)
 
     def test_force_reanalyzes_cached_item(self) -> None:
@@ -234,7 +321,10 @@ class TestFrameAnalysisService(_ServiceTestCase):
                 on_progress=_cancel_after_first,
             )
         self.assertEqual(self.store.count(), 1)
-        self.assertIn(("a.mp4", 100, 1), self.store.load_many([("a.mp4", 100, 1)]))
+        self.assertIn(
+            _request("a.mp4").content_key,
+            self.store.load_many([_request("a.mp4").content_key]),
+        )
 
     def test_cancel_before_start_saves_nothing(self) -> None:
         cancel = threading.Event()
@@ -465,7 +555,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         service = self.make_service(FakeStderrRunner(), has_vmaf=False)
         result = service.analyze_batch([_request("a.mp4")])["a.mp4"]
         self.assertEqual(result.metric_used, "ssim")
-        record = self.store.load_many([("a.mp4", 100, 1)])[("a.mp4", 100, 1)]
+        record = self.store.load_many([_request("a.mp4").content_key])[_request("a.mp4").content_key]
         self.assertEqual(record.metric_used, "ssim")
         self.assertEqual(record.tier_scores, result.tier_scores)
 
@@ -476,7 +566,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         request = _request("a.mp4")
         result = service.analyze_batch([request], crop_only=True)["a.mp4"]
         self.assertEqual(runner.count_commands("-filter_complex"), 0)
-        record = self.store.load_many([request.key])[request.key]
+        record = self.store.load_many([request.content_key])[request.content_key]
         self.assertEqual(record.analysis_version, CROP_SCAN_VERSION)
         self.assertEqual(record.metric_used, METRIC_CROP_ONLY)
         self.assertEqual(record.tier_scores, ())
@@ -632,7 +722,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         reused = service.analyze_batch([request], crop_only=True)["a.mp4"]
         self.assertEqual(runner.commands, [])
         self.assertEqual(service.count_cached([request], crop_only=True), 1)
-        record = self.store.load_many([request.key])[request.key]
+        record = self.store.load_many([request.content_key])[request.content_key]
         self.assertEqual(record.analysis_version, FRAME_ANALYSIS_VERSION)
         self.assertEqual(record.candidate_tier, "360p")
         self.assertEqual(reused.candidate_tier, "360p")
@@ -644,14 +734,15 @@ class TestFrameAnalysisService(_ServiceTestCase):
         request = _request("a.mp4")
         crop_service.analyze_batch([request], crop_only=True)
         self.assertEqual(
-            self.store.load_many([request.key])[request.key].analysis_version, CROP_SCAN_VERSION
+            self.store.load_many([request.content_key])[request.content_key].analysis_version,
+            CROP_SCAN_VERSION,
         )
         full_runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
         full_service = self.make_service(full_runner)
         self.assertEqual(full_service.count_cached([request]), 0)
         result = full_service.analyze_batch([request])["a.mp4"]
         self.assertGreater(full_runner.count_commands("-filter_complex"), 0)
-        record = self.store.load_many([request.key])[request.key]
+        record = self.store.load_many([request.content_key])[request.content_key]
         self.assertEqual(record.analysis_version, FRAME_ANALYSIS_VERSION)
         self.assertIsNotNone(record.candidate_tier)
         self.assertEqual(result.analysis_version, FRAME_ANALYSIS_VERSION)
@@ -671,8 +762,25 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(again.analysis_version, CROP_SCAN_VERSION)
         self.assertEqual(self.store.count(), 1)
 
+    def test_shared_row_decides_crop_by_each_request_vr(self) -> None:
+        """내용이 같은 두 사본이 한 행을 공유해도 잘라내기 판정과 보고는 각 요청의 VR 보호를 따르는지 검증"""
+        runner = FakeStderrRunner(boxes=[(1600, 1000, 260, 40)])
+        service = self.make_service(runner)
+        shared = fake_fingerprint("a.mp4", 100, 1)
+        plain = _request("a.mp4", fingerprint=shared)
+        service.analyze_batch([plain, _request("b.mp4", fingerprint=shared)])
+        self.assertEqual(self.store.count(), 1)
+        vr_request = replace(_request("b.mp4", fingerprint=shared), has_vr_metadata=True)
+        self.assertEqual(service.load_active_frames([plain]), {"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
+        self.assertEqual(service.load_active_frames([vr_request]), {})
+        self.assertTrue(service.load_results([vr_request])["b.mp4"].is_vr_protected)
+        self.assertFalse(service.load_results([plain])["a.mp4"].is_vr_protected)
+
     def test_manual_vr_or_metric_change_invalidates_cached_row(self) -> None:
-        """VR 보호 설정이나 측정 지표가 캐시와 다르면 다시 분석함을 검증"""
+        """VR 보호 설정이나 측정 지표가 캐시와 다르면 다시 분석함을 검증
+
+        - VR 보호 여부에 따라 측정 영역 자체가 달라지므로 저장된 행의 보호 여부가 다르면 재사용하지 않음
+        """
         runner = FakeStderrRunner()
         service = self.make_service(runner)
         service.analyze_batch([_request("a.mp4")])
@@ -714,7 +822,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(fast_service.count_cached([_request("a.mp4")]), 0)
         fast_service.analyze_batch([_request("a.mp4")])
         self.assertGreater(len(fast_runner.commands), 0)
-        record = self.store.load_many([("a.mp4", 100, 1)])[("a.mp4", 100, 1)]
+        record = self.store.load_many([_request("a.mp4").content_key])[_request("a.mp4").content_key]
         self.assertEqual(record.analysis_version, analysis_version_for_mode("fast"))
 
     def test_scale_algorithm_change_invalidates_cache_and_changes_filters(self) -> None:
@@ -737,7 +845,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
             with self.subTest(chain=chain):
                 self.assertIn("flags=lanczos", chain)
                 self.assertNotIn("flags=bicubic", chain)
-        record = self.store.load_many([("a.mp4", 100, 1)])[("a.mp4", 100, 1)]
+        record = self.store.load_many([_request("a.mp4").content_key])[_request("a.mp4").content_key]
         self.assertEqual(
             record.analysis_version, analysis_version_for_mode("balanced", "lanczos")
         )

@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from collections.abc import Sequence
 
+from src.core.analysis.file_fingerprint import compute_fingerprint
 from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL
 from src.core.encode.encode_impact import parse_stream_summary_layout
 from src.core.models import VideoEvaluation
@@ -85,7 +86,10 @@ def build_requests(
     root_dir: str,
     overrides: frozenset[str],
 ) -> list[FrameAnalysisRequest]:
-    """평가 결과와 원본 파일 정보로 화질 분석 요청 목록 생성, 없는 파일은 건너뜀"""
+    """평가 결과와 원본 파일 정보로 화질 분석 요청 목록 생성, 없는 파일은 건너뜀
+
+    - 내용 지문은 여기서 파일을 읽어 채우고, 읽지 못하면 비워 두어 실행 서비스가 다시 시도하게 함
+    """
     requests: list[FrameAnalysisRequest] = []
     for ev in evaluations:
         path = resolve_source_filepath(root_dir, ev.video.filename)
@@ -93,6 +97,10 @@ def build_requests(
             stat = os.stat(path)
         except OSError:
             continue
+        try:
+            fingerprint = compute_fingerprint(path, stat.st_size)
+        except OSError:
+            fingerprint = ""
         layout = parse_stream_summary_layout(ev.video.stream_summary)
         requests.append(
             FrameAnalysisRequest(
@@ -105,6 +113,7 @@ def build_requests(
                 mtime_ns=stat.st_mtime_ns,
                 has_vr_metadata=layout is not None and layout.is_vr,
                 manual_vr=path in overrides,
+                fingerprint=fingerprint,
             )
         )
     return requests

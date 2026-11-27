@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL
 from src.core.smart_action import SmartAction
@@ -102,6 +103,19 @@ class RequestBuildingTests(unittest.TestCase):
     def test_build_requests_skips_missing_files(self) -> None:
         missing = make_eval(video=make_video(filename="missing.mp4"))
         self.assertEqual(build_requests([missing], self.root, frozenset()), [])
+
+    def test_build_requests_keeps_a_file_that_cannot_be_read(self) -> None:
+        """stat은 되지만 읽히지 않는 파일도 지문만 비운 채 요청에 넣어 서비스가 다시 시도하게 함"""
+        ev = make_eval(video=make_video(filename="a.mp4"))
+        with patch(
+            "src.gui.controllers.frame_analysis_targets.compute_fingerprint",
+            side_effect=PermissionError("다른 프로세스가 파일을 잠금"),
+        ):
+            requests = build_requests([ev], self.root, frozenset())
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].filename, "a.mp4")
+        self.assertEqual(requests[0].fingerprint, "")
+        self.assertEqual(requests[0].filesize_bytes, 5)
 
 
 class TargetNoticeTextTests(unittest.TestCase):

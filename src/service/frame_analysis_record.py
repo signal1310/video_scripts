@@ -1,7 +1,8 @@
 """화질 분석 캐시 행과 분석 요청 표현, 행/결과 변환
 
 - 저장소와 실행 서비스는 이 표현을 그대로 쓰고, SQLite 입출력만 `frame_analysis_store.py`가 맡음
-- 열 순서(`RECORD_COLUMNS`)를 한 곳에 두어 스키마와 행 변환이 어긋나지 않게 함
+- 열 정의(`RECORD_COLUMN_TYPES`)를 한 곳에 두어 스키마와 행 변환이 어긋나지 않게 함
+- 캐시 행의 식별은 내용 키(크기, 지문)이고, 파일명과 수정 시각은 표시용 대표 값으로 함께 남김
 """
 
 from __future__ import annotations
@@ -16,37 +17,43 @@ from src.core.analysis.frame_analysis import (
     tier_scores_to_json,
 )
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
+from src.service.analysis_store import ContentKey as ContentKey
+from src.service.analysis_store import FileKey as FileKey
 
-FileKey = tuple[str, int, int]
-
-RECORD_COLUMNS: tuple[str, ...] = (
-    "filename",
-    "filesize_bytes",
-    "mtime_ns",
-    "active_width",
-    "active_height",
-    "active_x",
-    "active_y",
-    "has_black_bars",
-    "metric_used",
-    "vmaf_model",
-    "tier_scores_json",
-    "candidate_tier",
-    "valid_segments",
-    "total_segments",
-    "unmeasurable",
-    "is_vr_protected",
-    "measured_at",
-    "analysis_version",
-    "margins_vary",
-    "dark_outliers_ignored",
-    "crop_scan_failed",
+# - 열 이름과 SQLite 타입. 저장소가 표 DDL을 이 정의에서 만들어 스키마와 행 변환 순서가 어긋나지 않게 함
+RECORD_COLUMN_TYPES: tuple[tuple[str, str], ...] = (
+    ("filename", "TEXT"),
+    ("filesize_bytes", "INTEGER"),
+    ("mtime_ns", "INTEGER"),
+    ("active_width", "INTEGER"),
+    ("active_height", "INTEGER"),
+    ("active_x", "INTEGER"),
+    ("active_y", "INTEGER"),
+    ("has_black_bars", "INTEGER"),
+    ("metric_used", "TEXT"),
+    ("vmaf_model", "TEXT"),
+    ("tier_scores_json", "TEXT"),
+    ("candidate_tier", "TEXT"),
+    ("valid_segments", "INTEGER"),
+    ("total_segments", "INTEGER"),
+    ("unmeasurable", "INTEGER"),
+    ("is_vr_protected", "INTEGER"),
+    ("measured_at", "TEXT"),
+    ("analysis_version", "INTEGER"),
+    ("margins_vary", "INTEGER"),
+    ("dark_outliers_ignored", "INTEGER"),
+    ("crop_scan_failed", "INTEGER"),
+    ("fingerprint", "TEXT"),
 )
+RECORD_COLUMNS: tuple[str, ...] = tuple(name for name, _sql_type in RECORD_COLUMN_TYPES)
 
 
 @dataclass(frozen=True, slots=True)
 class FrameAnalysisRecord:
-    """화질 분석 캐시 한 행(파일 식별 키와 측정 결과)"""
+    """화질 분석 캐시 한 행(내용 키와 측정 결과)
+
+    - filename과 mtime_ns는 표시용 대표 값이며, 같은 내용의 다른 파일을 찾을 때는 쓰지 않음
+    """
 
     filename: str
     filesize_bytes: int
@@ -72,11 +79,13 @@ class FrameAnalysisRecord:
     dark_outliers_ignored: bool = False
     # - 검은 여백 감지 자체가 실패했는지. 이 열이 없던 DB에는 없으므로 기본값을 둠
     crop_scan_failed: bool = False
+    # - 내용 지문. 이 열이 없던 DB의 옛 행은 빈 문자열로 읽음
+    fingerprint: str = ""
 
     @property
-    def key(self) -> FileKey:
-        """파일 식별 키(이름, 크기, 수정 시각) 반환"""
-        return (self.filename, self.filesize_bytes, self.mtime_ns)
+    def content_key(self) -> ContentKey:
+        """내용 식별 키(크기, 내용 지문) 반환"""
+        return (self.filesize_bytes, self.fingerprint)
 
     @property
     def active_region(self) -> ActiveRegion:
@@ -94,7 +103,10 @@ class FrameAnalysisRecord:
 
 @dataclass(frozen=True, slots=True)
 class FrameAnalysisRequest:
-    """화질 분석 대상 한 개의 파일 식별 값과 측정 입력"""
+    """화질 분석 대상 한 개의 파일 식별 값과 측정 입력
+
+    - fingerprint는 내용 지문이며, 비어 있으면 실행 서비스가 저장소와 파일에서 채움
+    """
 
     filename: str
     path: str
@@ -105,10 +117,16 @@ class FrameAnalysisRequest:
     mtime_ns: int
     has_vr_metadata: bool = False
     manual_vr: bool = False
+    fingerprint: str = ""
+
+    @property
+    def content_key(self) -> ContentKey:
+        """내용 식별 키(크기, 내용 지문) 반환"""
+        return (self.filesize_bytes, self.fingerprint)
 
     @property
     def key(self) -> FileKey:
-        """파일 식별 키(이름, 크기, 수정 시각) 반환"""
+        """파일 식별 키(이름, 크기, 수정 시각) 반환. 같은 파일의 중복 요청을 줄일 때 씀"""
         return (self.filename, self.filesize_bytes, self.mtime_ns)
 
 
@@ -138,6 +156,7 @@ def row_to_record(row: sqlite3.Row | tuple[object, ...]) -> FrameAnalysisRecord:
         margins_vary=bool(values["margins_vary"]),
         dark_outliers_ignored=bool(values["dark_outliers_ignored"]),
         crop_scan_failed=bool(values["crop_scan_failed"]),
+        fingerprint=str(values["fingerprint"]),
     )
 
 
@@ -165,6 +184,7 @@ def record_to_row(record: FrameAnalysisRecord) -> tuple[object, ...]:
         int(record.margins_vary),
         int(record.dark_outliers_ignored),
         int(record.crop_scan_failed),
+        record.fingerprint,
     )
 
 
@@ -198,6 +218,7 @@ def record_from_result(
         margins_vary=region.margins_vary,
         dark_outliers_ignored=region.dark_outliers_ignored,
         crop_scan_failed=result.crop_scan_failed,
+        fingerprint=request.fingerprint,
     )
 
 

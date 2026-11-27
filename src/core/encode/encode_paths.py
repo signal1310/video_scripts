@@ -7,7 +7,12 @@
 import os
 from collections.abc import Callable
 
-from src.core.config import NAME_CONFLICT_NUMBER, NAME_CONFLICT_SKIP, ExecutionConfig
+from src.core.config import (
+    NAME_CONFLICT_NUMBER,
+    NAME_CONFLICT_SKIP,
+    PREVIOUS_OUTPUT_DIRNAME,
+    ExecutionConfig,
+)
 
 PART_SUFFIX: str = ".part"
 MAX_NUMBERED_CANDIDATES: int = 999
@@ -15,9 +20,13 @@ CONTAINER_EXTENSIONS: dict[str, str] = {"mp4": ".mp4", "mkv": ".mkv", "mov": ".m
 
 
 def excluded_folder_names(execution: ExecutionConfig) -> tuple[str, ...]:
-    """스캔에서 빼야 할 인코딩 폴더 이름(보관 폴더, 별도 출력 폴더)"""
-    names = (execution.archive_dirname.strip(), execution.output_dirname.strip())
-    return tuple(name for name in names if name)
+    """스캔에서 빼야 할 인코딩 폴더 이름(보관 폴더, 별도 출력 폴더, 예전 기본 출력 폴더)"""
+    names = (
+        execution.archive_dirname.strip(),
+        execution.output_dirname.strip(),
+        PREVIOUS_OUTPUT_DIRNAME,
+    )
+    return tuple(dict.fromkeys(name for name in names if name))
 
 
 def in_place_output_path(source_path: str, container: str) -> str:

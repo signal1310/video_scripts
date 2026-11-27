@@ -280,7 +280,8 @@ class EncodeRunner:
                 batch_id=batch_id, job=job, plan=plan, layout=layout, ffmpeg_exec=self._ffmpeg,
                 process_factory=self._factory, abort=self._abort, build_args=build_sample_ffmpeg_args,
                 control=self._control, emit=self._emit,
-                discard_factor=self._settings.sample_saving_discard_factor)
+                discard_factor=self._settings.sample_saving_discard_factor,
+                delta_max=self._settings.protect_cq_delta_max)
             if prediction is None:
                 return ItemOutcome(EncodeState.PENDING)
             if prediction.succeeded_segments == prediction.total_segments > 0:

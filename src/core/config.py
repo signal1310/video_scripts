@@ -430,6 +430,10 @@ DEFAULT_PROCESS_PRIORITY: str = "normal"
 DEFAULT_NAME_CONFLICT_POLICY: str = NAME_CONFLICT_SKIP
 # - 동시 인코딩 수 설정 입력 상한. 장치 사양과 무관한 화면 범위 값이며 자동 규칙은 encode_concurrency 참조
 CONCURRENT_JOBS_MAX: int = 4
+DEFAULT_ARCHIVE_DIRNAME: str = "_원본보관"
+DEFAULT_OUTPUT_DIRNAME: str = "_인코딩결과"
+# - 예전 기본 출력 폴더 이름. 기본값을 쓰던 작업에서 남은 결과가 재귀 스캔에 다시 잡히지 않게 함
+PREVIOUS_OUTPUT_DIRNAME: str = "_재인코딩결과"
 
 
 @dataclass(slots=True)
@@ -451,11 +455,11 @@ class ExecutionConfig:
         ),
     )
     archive_dirname: str = field(
-        default="_원본보관",
+        default=DEFAULT_ARCHIVE_DIRNAME,
         metadata=setting_meta("원본 보관 폴더 이름"),
     )
     output_dirname: str = field(
-        default="_인코딩결과",
+        default=DEFAULT_OUTPUT_DIRNAME,
         metadata=setting_meta("별도 출력 폴더 이름"),
     )
     container_policy: str = field(

@@ -110,6 +110,7 @@ class TestSampleSizePrediction(unittest.TestCase):
         abort: threading.Event | None = None,
         emit: EventSink | None = None,
         discard_factor: float = SAMPLE_SAVING_DISCARD_FACTOR,
+        delta_max: float = PROTECT_CQ_DELTA_MAX,
     ):
         job, layout, plan = _inputs(tmp)
         return predict_saving_size(
@@ -123,6 +124,7 @@ class TestSampleSizePrediction(unittest.TestCase):
             build_args=build_sample_ffmpeg_args,
             emit=emit,
             discard_factor=discard_factor,
+            delta_max=delta_max,
         )
 
     def test_prediction_below_factor_keeps_encoding(self) -> None:
@@ -289,6 +291,40 @@ class TestSamplePredictionQualityAdjustment(unittest.TestCase):
             size,
             max(1, round(30_000_000 * quality_size_factor(quality - 24.0, encoder="libsvtav1"))),
         )
+
+    def test_prediction_respects_configured_delta_max(self) -> None:
+        """사전 예측이 배치의 품질값 자동 조절 한도를 넘겨 올리지 않는지 검증"""
+        with TemporaryDirectory() as tmp:
+            job, layout, plan = _inputs(tmp)
+            job = dataclasses.replace(job, corrected_target_kbps=1000.0)
+            capped = predict_saving_size(
+                batch_id=1,
+                job=job,
+                plan=plan,
+                layout=layout,
+                ffmpeg_exec="ffmpeg",
+                process_factory=lambda args, _cb: _FakeProcess(args, 1_200_000),
+                abort=threading.Event(),
+                build_args=build_sample_ffmpeg_args,
+                delta_max=0.0,
+            )
+            default = predict_saving_size(
+                batch_id=1,
+                job=job,
+                plan=plan,
+                layout=layout,
+                ffmpeg_exec="ffmpeg",
+                process_factory=lambda args, _cb: _FakeProcess(args, 1_200_000),
+                abort=threading.Event(),
+                build_args=build_sample_ffmpeg_args,
+            )
+        assert capped is not None and default is not None
+        # 5구간 x 1,200,000바이트를 10초에서 60초로 환산한 36,000,000바이트가 그대로 남음
+        self.assertIsNone(capped.adjusted_quality)
+        self.assertEqual(capped.predicted_total_bytes, 36_000_000)
+        assert default.adjusted_quality is not None
+        self.assertLessEqual(default.adjusted_quality, 22.0 + PROTECT_CQ_DELTA_MAX)
+        self.assertGreater(default.adjusted_quality, 22.0)
 
     def test_prediction_passes_configured_baseline_as_cap_base(self) -> None:
         """사전 예측이 작업의 기준 품질값을 상한 기준으로 넘기는지 검증"""

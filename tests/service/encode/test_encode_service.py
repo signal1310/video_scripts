@@ -1167,6 +1167,19 @@ class TestSavingQualityAdjustmentFlow(_ServiceCase):
         )
         self.assertEqual(item.tuned_quality, expected)
 
+    def test_configured_delta_max_zero_keeps_quality(self) -> None:
+        """배치의 품질값 자동 조절 한도가 0이면 사전 예측 초과에도 품질값을 올리지 않는지 검증"""
+        path = self._source(size=self._SOURCE_SIZE_BYTES)
+        job = self._job_with_target(path, self._TARGET_KBPS)
+        settings = dataclasses.replace(self._settings(), protect_cq_delta_max=0.0)
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        encoder = _FakeEncoder(sample_bytes=self._segment_bytes(self._CAPPED_KBPS))
+        self._runner(settings, encoder=encoder).run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertIsNone(item.tuned_quality)
+        self.assertNotIn("품질값 자동 조정", item.reason)
+
     def test_adjustment_stops_at_baseline_delta_max(self) -> None:
         """아주 큰 초과라도 기준 품질값 + 한도에서 멈춤"""
         path = self._source(size=self._SOURCE_SIZE_BYTES)

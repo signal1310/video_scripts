@@ -98,12 +98,14 @@ def predict_saving_size(
     control: PauseControl | None = None,
     emit: EventSink | None = None,
     discard_factor: float = SAMPLE_SAVING_DISCARD_FACTOR,
+    delta_max: float = PROTECT_CQ_DELTA_MAX,
 ) -> SampleSizePrediction | None:
     """절약 목적 영상의 샘플 크기를 예측. 취소되면 None
 
     - 성공 구간이 하나라도 모자라면 예측을 믿지 않고 원본 크기를 그대로 돌려 초과 판정을 하지 않음
     - 예측 전체 크기가 원본 x 중단 기준 배수 이상이면 exceeds_original 참
     - emit이 있으면 구간 완료마다 사전 예측 단계 이벤트를 보내 진행 창에 표시
+    - delta_max는 배치의 품질값 자동 조절 한도로, 본 인코딩과 같은 상한을 쓰게 함
     """
     segments = sample_segments(job.source_duration_sec)
     sample_duration = sum(segment[1] for segment in segments)
@@ -153,6 +155,7 @@ def predict_saving_size(
         predicted_video_bytes=predicted_video,
         # - 상한은 실제 기준 CQ 기준. 품질값은 저화질 보호 오프셋만큼 기준보다 높을 수 있음
         baseline_quality=job.quality if job.baseline_quality is None else job.baseline_quality,
+        delta_max=delta_max,
     )
     predicted_total = other_bytes + predicted_video
     exceeds = predicted_total >= round(job.source_size * discard_factor)

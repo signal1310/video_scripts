@@ -86,28 +86,54 @@ class TestNameConflict(unittest.TestCase):
 class TestScanSkipsEncodeFolders(unittest.TestCase):
     """재귀 스캔이 보관 폴더와 출력 폴더의 영상을 대상으로 다시 잡지 않음(재처리 방지)"""
 
+    def _tree(self, root: str, relatives: tuple[str, ...]) -> list[str]:
+        for relative in relatives:
+            path = os.path.join(root, relative)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as handle:
+                handle.write(b"v")
+        return get_video_filenames(
+            root, recursive=True, excluded_dirnames=excluded_folder_names(ExecutionConfig())
+        )
+
     def test_recursive_scan_ignores_archive_and_output_folders(self) -> None:
         with tempfile.TemporaryDirectory() as root:
-            for relative in ("clip.mp4", os.path.join("_원본보관", "old.mp4"), os.path.join("_인코딩결과", "new.mkv")):
-                os.makedirs(os.path.dirname(os.path.join(root, relative)), exist_ok=True)
-                with open(os.path.join(root, relative), "wb") as handle:
-                    handle.write(b"v")
-            names = get_video_filenames(
-                root, recursive=True, excluded_dirnames=excluded_folder_names(ExecutionConfig())
+            names = self._tree(
+                root,
+                ("clip.mp4", os.path.join("_원본보관", "old.mp4"), os.path.join("_인코딩결과", "new.mkv")),
+            )
+        self.assertEqual(names, ["clip.mp4"])
+
+    def test_recursive_scan_ignores_previous_default_output_folder(self) -> None:
+        """기본값을 쓰던 작업에 남은 예전 기본 출력 폴더의 결과도 다시 잡지 않음"""
+        with tempfile.TemporaryDirectory() as root:
+            names = self._tree(
+                root,
+                (
+                    "clip.mp4",
+                    os.path.join("_인코딩결과", "new.mkv"),
+                    os.path.join("_재인코딩결과", "sub", "old.mkv"),
+                ),
             )
         self.assertEqual(names, ["clip.mp4"])
 
 
 class TestExcludedFolderNames(unittest.TestCase):
-    """스캔 제외 목록은 보관 폴더와 출력 폴더 이름(빈 이름은 제외)"""
+    """스캔 제외 목록은 보관 폴더, 출력 폴더, 예전 기본 출력 폴더 이름(빈 이름과 중복은 제외)"""
 
     def test_both_folder_names_are_excluded(self) -> None:
         execution = ExecutionConfig()
-        self.assertEqual(excluded_folder_names(execution), ("_원본보관", "_인코딩결과"))
+        self.assertEqual(
+            excluded_folder_names(execution), ("_원본보관", "_인코딩결과", "_재인코딩결과")
+        )
 
     def test_blank_names_are_not_excluded(self) -> None:
         execution = ExecutionConfig(archive_dirname=" ", output_dirname="out")
-        self.assertEqual(excluded_folder_names(execution), ("out",))
+        self.assertEqual(excluded_folder_names(execution), ("out", "_재인코딩결과"))
+
+    def test_previous_default_saved_as_current_output_is_not_duplicated(self) -> None:
+        execution = ExecutionConfig(output_dirname="_재인코딩결과")
+        self.assertEqual(excluded_folder_names(execution), ("_원본보관", "_재인코딩결과"))
 
 
 if __name__ == "__main__":

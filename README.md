@@ -21,7 +21,7 @@
 모듈별 책임, 의존성 다이어그램, 실행 흐름 및 세부 디렉터리 맵은 **[ARCHITECTURE.md](ARCHITECTURE.md)** 를 참고하세요.
 
 - **핵심 실행, 엔진**: [`src/__main__.py`](src/__main__.py) (`python -m src` GUI/CLI 통합 진입점), `classify.ipynb` (CUI/Jupyter, 자동 생성), [`src/`](src/) (`core`, `service`, `cui`, `gui`, `classifier.py`)
-- **검증, 자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/check_runner.py`](scripts/check_runner.py), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`scripts/verify_module_size.py`](scripts/verify_module_size.py), [`scripts/verify_test_coverage.py`](scripts/verify_test_coverage.py), [`scripts/sync_skills.py`](scripts/sync_skills.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`setting`, `test`, `sync`, `perf`, `refactor`, `gui-design`, `review`, `adhd-mode`, `commit`)
+- **검증, 자동화**: [`scripts/check.ps1`](scripts/check.ps1), [`scripts/check_runner.py`](scripts/check_runner.py), [`scripts/verify_hygiene.py`](scripts/verify_hygiene.py), [`scripts/verify_module_size.py`](scripts/verify_module_size.py), [`scripts/verify_test_coverage.py`](scripts/verify_test_coverage.py), [`scripts/sync_skills.py`](scripts/sync_skills.py), [`tests/`](tests/), [`.agents/skills/`](.agents/skills/) (`setting`, `test`, `sync`, `perf`, `refactor`, `gui-design`, `review`, `adhd-mode`, `commit`, `periodic-review`)
 
 ---
 
@@ -199,4 +199,5 @@ git config core.hooksPath scripts/hooks
 | `review` | 커밋 전 diff 감수 (`"리뷰"`, `"검수"`, `"코드 확인"`) | 3계층 경계, 기준 정의, 개조식 주석, 테스트 격리, 저장소 위생 점검 |
 | `adhd-mode` | 사용자가 명시 호출 (`"ADHD 모드"`, `"/adhd-mode"`), `"일반 모드"`로 해제 | 다음 행동 우선, 번호 단계, 상태 재진술, 구체적 시간 추정, 서두/맺음말 제거 등 ADHD 독자용 응답 형식 유지 |
 | `commit` | 논리 단위 커밋 (`"커밋"`, `"commit"`) | 관심사별 분할 스테이징, 위생, `check.ps1` 검증 및 훅 준수 커밋 |
+| `periodic-review` | 정기 통합 리뷰 (`"정기 리뷰"`, `"통합 리뷰"`, `"미검토 커밋 검토"`, 병합 5건 누적) | 누적 diff를 영역별로 읽어 병합 간 상호작용, 중복, 계층 위반, 죽은 코드를 찾고 미검토 커밋 범위를 읽기 전용 세션에 맡김 |
 

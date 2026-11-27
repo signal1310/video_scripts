@@ -180,6 +180,55 @@ class MainWindowActionTests(GuiTestCase):
             self.window.frame_analysis.run_frame_mode()
         self.assertEqual(self.window.frame_analysis._pending_followup, "")
 
+    def test_analysis_busy_covers_metadata_and_frame_analysis(self) -> None:
+        """인코딩 시작을 막는 판정이 메타데이터 분석과 화질 분석 실행을 모두 포함하는지 검증"""
+        with mock.patch.object(self.window._tasks, "is_running", return_value=False):
+            self.assertFalse(self.window._is_analysis_busy())
+        with mock.patch.object(self.window._tasks, "is_running", return_value=True):
+            self.assertTrue(self.window._is_analysis_busy())
+        with (
+            mock.patch.object(self.window._tasks, "is_running", return_value=False),
+            mock.patch.object(
+                type(self.window.frame_analysis),
+                "is_running",
+                new_callable=mock.PropertyMock,
+                return_value=True,
+            ),
+        ):
+            self.assertTrue(self.window._is_analysis_busy())
+
+    def test_running_encode_batch_keeps_the_start_item_enabled_during_frame_analysis(self) -> None:
+        """인코딩 배치 중 화질 분석이 겹쳐도 시작 상태가 진행 안내를 유지하는지 검증"""
+        from src.core.encode.encode_start_state import (
+            ENCODE_RUNNING_TEXT,
+            evaluate_start_state,
+        )
+        from src.core.encode.encoder_trial import EncoderTrialResult
+        from src.core.encode.ffmpeg_capability import FfmpegCapability
+
+        with (
+            mock.patch.object(self.window._tasks, "is_running", return_value=False),
+            mock.patch.object(
+                type(self.window.frame_analysis),
+                "is_running",
+                new_callable=mock.PropertyMock,
+                return_value=True,
+            ),
+            mock.patch.object(
+                type(self.window._encode), "is_running", new_callable=mock.PropertyMock, return_value=True
+            ),
+        ):
+            self.assertFalse(self.window._is_analysis_busy())
+            state = evaluate_start_state(
+                analysis_busy=self.window._is_analysis_busy(),
+                encode_running=self.window._encode.is_running,
+                has_targets=True,
+                capability=FfmpegCapability("ffmpeg", "", (6, 1), usable=True),
+                encoder=EncoderTrialResult("libx264", usable=True, reason=""),
+            )
+        self.assertTrue(state.enabled)
+        self.assertEqual(state.reason, ENCODE_RUNNING_TEXT)
+
     def test_cancel_active_task_stops_the_worker_and_the_restore_flow(self) -> None:
         """작업 취소가 백그라운드 작업과 이전 결과 판정 중단을 함께 요청하는지 검증"""
         with (

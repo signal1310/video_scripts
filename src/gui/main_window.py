@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
             self.set_status_text,
         )
         self.frame_compare = attach_frame_compare(self, self._preview)
-        self._encode = EncodeCoordinator(self, self._session, self._tasks.is_running, self._preview, self.close, compare_files=self.frame_compare.open_path)
+        self._encode = EncodeCoordinator(self, self._session, self._is_analysis_busy, self._preview, self.close, compare_files=self.frame_compare.open_path)
         self._encode.attach_view(self.table_model.set_encode_book, self.footer_bar.set_encode_status)
         self.table_model.set_previous_discard_provider(self._encode.previous_discard_paths)
         self.footer_bar.encode_window_requested.connect(self._encode.open_progress_window)
@@ -383,6 +383,21 @@ class MainWindow(QMainWindow):
 
     def _current_root_dir(self) -> str:
         return self._session.current_root_dir(self.header_bar.path_edit.text())
+
+    def _is_analysis_busy(self) -> bool:
+        """인코딩 시작을 막아야 하는 분석 작업이 도는지 여부
+
+        - 인코더 생성 전에도 호출되므로 화질 분석 컨트롤러는 없을 수 있음
+        - 검은 여백 감지가 도는 중이면 아직 감지하지 못한 영상에 자르기 없이 인코딩될 수 있어 함께 막음
+        - 인코딩 배치가 도는 중이면 화질 분석이 겹쳐도 시작 항목은 진행 안내를 유지해야 하므로 막지 않음
+        """
+        encode = getattr(self, "_encode", None)
+        if encode is not None and encode.is_running:
+            return False
+        frame_analysis = getattr(self, "frame_analysis", None)
+        return self._tasks.is_running() or (
+            frame_analysis is not None and frame_analysis.is_running
+        )
 
     def _sync_widgets_from_session(self) -> None:
         self._session.sync_to_widgets(

@@ -344,16 +344,20 @@ class FooterBar(QFrame, ThemeAwareMixin):
         work_dir: str = "",
         crop_only: bool = False,
     ) -> None:
-        """화질 분석 또는 검은 여백 감지 진행 상태 줄, 진행 막대, 중단 버튼과 임시 작업 폴더 툴팁 표시
+        """화질 분석 또는 검은 여백 감지 진행 상태 줄, 진행 막대, 중단 버튼과 임시 작업 폴더, 남은 시간 툴팁 표시
 
-        - 남은 시간은 다른 분석처럼 진행 막대 안 문구에 두고, 긴 파일명이 잘려도 보이게 상태 줄에는 붙이지 않음
+        - 남은 시간은 긴 파일명이 잘려도 보이도록 상태 줄 대신 진행 막대 문구와 툴팁에 함께 둠
+        - 툴팁은 임시 작업 폴더 줄 아래에 남은 시간 줄을 붙여 두 값을 한 번에 확인하게 함
         """
         prefix = CROP_SCAN_STATUS_PREFIX if crop_only else FRAME_ANALYSIS_STATUS_PREFIX
         text = f"{prefix} ({completed}/{total}) {filename}"
         if detail:
             text += f" / {detail}"
         self._frame_progress_text = text
-        tooltip = f"임시 작업 폴더: {work_dir}" if work_dir else ""
+        tooltip_lines = [f"임시 작업 폴더: {work_dir}"] if work_dir else []
+        if remaining:
+            tooltip_lines.append(remaining)
+        tooltip = "\n".join(tooltip_lines)
         self.set_status_text(text, tooltip)
         self.progress_bar.setRange(0, max(total, 1))
         self.progress_bar.setValue(completed)

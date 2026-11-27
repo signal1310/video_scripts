@@ -334,12 +334,19 @@ class MainMenuController:
         running: bool,
         crop_running: bool = False,
     ) -> None:
-        """화질 분석과 검은 여백 감지 항목을 현재 대상, 선택, 실행 상태에 맞춤"""
+        """화질 분석과 검은 여백 감지 항목을 현재 대상, 선택, 실행 상태에 맞춤
+
+        - 화질 분석 실행도 인코딩 시작을 막으므로, 실행 상태가 실제로 바뀔 때만 시작 항목 상태를 다시 계산
+        - 선택만 바뀐 갱신에서는 인코딩 이력 조회가 싸지 않아 다시 계산하지 않고 이전 상태를 그대로 둠
+        """
+        state_changed = running != self._frame_running or crop_running != self._crop_scan_running
         self._frame_has_list = has_list
         self._has_selection = has_selection
         self._frame_running = running
         self._crop_scan_running = crop_running
         self._apply_frame_analysis_state()
+        if state_changed:
+            self.refresh_encode_state()
 
     def _refresh_manual_target_menu(self) -> None:
         """하위 메뉴를 열 때 현재 선택 행 기준으로 직접 지정 항목의 활성, 체크 상태를 다시 계산"""

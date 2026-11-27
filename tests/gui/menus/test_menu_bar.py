@@ -98,6 +98,23 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.menu.refresh_encode_state()
         header.set_encode_start_state.assert_called_once_with(self.state)
 
+    def test_sync_frame_analysis_state_recalculates_the_encode_start_item(self) -> None:
+        """화질 분석 실행 상태가 바뀌면 인코딩 시작 항목 상태도 다시 계산하는지 검증"""
+        before = self.state_calls
+        self.menu.sync_frame_analysis_state(has_list=True, has_selection=False, running=True)
+        self.assertGreater(self.state_calls, before)
+
+    def test_selection_only_update_does_not_recompute_the_encode_start_item(self) -> None:
+        """선택만 바뀐 화질 분석 상태 갱신은 인코딩 시작 항목을 다시 계산하지 않는지 검증"""
+        self.menu.sync_frame_analysis_state(has_list=True, has_selection=False, running=False)
+        before = self.state_calls
+        self.menu.sync_frame_analysis_state(has_list=True, has_selection=True, running=False)
+        self.assertEqual(self.state_calls, before)
+        self.menu.sync_frame_analysis_state(
+            has_list=True, has_selection=True, running=False, crop_running=True
+        )
+        self.assertGreater(self.state_calls, before)
+
     def test_sync_analyze_mode_checks_all_three_ladder_items(self) -> None:
         """기본 분석 모드 동기화가 빠른 분석, 정밀 분석, 화질 분석 세 항목을 모두 반영하는지 검증"""
         for mode in ("fast", "full", "frame"):

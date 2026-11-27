@@ -133,6 +133,35 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         )
         self.assertIn("검은 띠가 없어", active_frame_tooltip(_result()))
 
+    def test_crop_off_tooltip_says_the_bars_will_not_be_cropped(self) -> None:
+        """검은 여백 잘라내기를 끄면 활성 화면 크기 툴팁이 자르지 않는다고 알리는지 검증"""
+        cropped = _result(active=ActiveRegion(1920, 800, 0, 140, True))
+        tip = active_frame_tooltip(cropped, crop_enabled=False)
+        self.assertIn("검은 여백 잘라내기 설정이 꺼져 있어", tip)
+        self.assertNotIn("검은 여백 잘라내기 설정이 꺼져 있어", active_frame_tooltip(cropped))
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": cropped})
+        self.assertIn("잘라내기 설정이 꺼져 있어", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False))
+        self.assertNotIn("잘라내기 설정이 꺼져 있어", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
+        view.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
+        manual_off = view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False)
+        self.assertIn("사용자 지정 활성 화면입니다.", manual_off)
+        self.assertIn("잘라내기 설정이 꺼져 있어", manual_off)
+
+    def test_crop_off_excluded_row_keeps_the_exclusion_reason(self) -> None:
+        """잘라내기 설정이 꺼져 있어도 영상별 제외 사유를 함께 보여 주는지 검증"""
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": _result(active=ActiveRegion(1920, 800, 0, 140, True))})
+        view.set_crop_excluded(["a.mp4"])
+        tip = view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False)
+        self.assertIn("검은 여백 잘라내기 제외됨 (원본 유지)", tip)
+        self.assertIn("검은 여백 잘라내기 설정이 꺼져 있어", tip)
+        not_excluded = FrameAnalysisResults()
+        not_excluded.set_results({"a.mp4": _result(active=ActiveRegion(1920, 800, 0, 140, True))})
+        other_tip = not_excluded.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False)
+        self.assertNotIn("검은 여백 잘라내기 제외됨 (원본 유지)", other_tip)
+        self.assertIn("검은 여백 잘라내기 설정이 꺼져 있어", other_tip)
+
     def test_downscale_tooltips_include_scores_and_valid_segments(self) -> None:
         tip = downscale_candidate_tooltip(_result(candidate="1080p"))
         self.assertIn("- 1080p: VMAF 98.7, SSIM 0.9983", tip)
@@ -286,6 +315,39 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         view.set_manual_frames({"a.mp4": ActiveFrame(1280, 720, 0, 180)})
         self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_VR_TEXT)
         self.assertNotIn("사용자 지정 활성 화면입니다.", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
+
+    def test_crop_off_setting_mutes_black_bar_rows_but_keeps_manual_frames(self) -> None:
+        """검은 여백 잘라내기가 꺼져 있으면 검은 띠가 있는 활성 화면 셀을 흐리게 표시하는지 검증"""
+        view = FrameAnalysisResults()
+        view.set_results(
+            {
+                "a.mp4": _result(active=ActiveRegion(1600, 1000, 260, 40, True)),
+                "b.mp4": _result(),
+            }
+        )
+        ev_a = make_eval(video=make_video(filename="a.mp4"))
+        ev_b = make_eval(video=make_video(filename="b.mp4"))
+        self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE))
+        self.assertEqual(
+            view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE, crop_enabled=False),
+            _PALETTE.text_muted,
+        )
+        self.assertEqual(
+            foreground_color(ev_a, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
+                             encode_label=None, encode_state_col=99, crop_enabled=False),
+            _PALETTE.text_muted,
+        )
+        self.assertIsNone(
+            foreground_color(ev_a, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
+                             encode_label=None, encode_state_col=99)
+        )
+        self.assertIsNone(
+            foreground_color(ev_b, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
+                             encode_label=None, encode_state_col=99, crop_enabled=False),
+            "검은 띠가 없는 행은 흐리게 표시하지 않음",
+        )
+        view.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
+        self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE, crop_enabled=False))
 
     def test_foreground_color_delegates_frame_and_output_columns(self) -> None:
         """셀 글자색 계산은 화질 분석 열과 열 정의, 인코딩 상태를 같은 규칙으로 처리"""

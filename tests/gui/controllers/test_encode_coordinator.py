@@ -275,6 +275,18 @@ class EncodeCoordinatorTests(unittest.TestCase):
             self.coordinator._start_from_window(frozenset({path}))
         start.assert_not_called()
 
+    def test_start_button_explains_why_the_batch_cannot_start(self) -> None:
+        """창의 시작 버튼이 분석 중 등으로 막히면 사유를 안내하는지 검증"""
+        self.busy = True
+        self.coordinator.start_from_menu()
+        self.assertIsNone(self.coordinator._progress_window)
+        with mock.patch.object(
+            coordinator_module, "notify_text"
+        ) as notify:
+            self.coordinator._start_from_window(frozenset())
+        notify.assert_called_once()
+        self.assertEqual(notify.call_args.args[1], ANALYSIS_BUSY_TEXT)
+
     def test_finished_batch_shows_a_new_brief_when_targets_remain(self) -> None:
         """배치를 마친 뒤에도 새 대상이 있으면 기존 창에 새 브리핑을 채워 요약 탭을 엶"""
         self.coordinator.book.start([resolve_source_filepath(self.root, "a.mp4")])

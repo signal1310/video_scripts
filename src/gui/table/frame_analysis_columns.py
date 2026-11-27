@@ -52,6 +52,10 @@ _ACTIVE_FRAME_TIP: str = (
 )
 _ACTIVE_FRAME_FULL_TIP: str = "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."
 _ACTIVE_FRAME_EXCLUDED_TIP: str = "검은 여백 잘라내기 제외됨 (원본 유지)"
+# - 설정이 꺼져 있으면 감지한 크기를 보고하되 잘라내지는 않음을 같은 사유 툴팁으로 알림
+_ACTIVE_FRAME_CROP_OFF_TIP: str = (
+    "검은 여백 잘라내기 설정이 꺼져 있어 인코딩할 때 검은 띠를 자르지 않습니다."
+)
 # - 사용자 지정 활성 화면은 자동 감지 결과를 덮어쓴 상태임을 알리는 한 문장
 _ACTIVE_FRAME_MANUAL_TIP: str = "사용자 지정 활성 화면입니다."
 # - 구간마다 여백이 달라 합집합만 잡힌 영상에 덧붙이는 안내
@@ -114,21 +118,37 @@ def active_frame_text(result: FrameAnalysisResult | None) -> str:
 
 
 def active_frame_tooltip(
-    result: FrameAnalysisResult | None, *, excluded: bool = False, manual: bool = False
+    result: FrameAnalysisResult | None,
+    *,
+    excluded: bool = False,
+    manual: bool = False,
+    crop_enabled: bool = True,
 ) -> str:
     """활성 화면 셀 툴팁. 잘라내기를 쓰지 않는 영상과 직접 지정 영상은 그 사유를 보여 줌
 
     - 직접 지정은 값 문구에 크기를 그대로 두고 문장 한 줄만 덧붙임
     - 구간별 여백이 달라 합집합으로만 잡힌 영상은 직접 지정 안내를 한 문장 더 붙임(직접 지정 시 생략)
+    - 검은 여백 잘라내기 설정이 꺼져 있으면 크기만 보여 주고 자르지 않는다는 줄을 덧붙임
     """
     if result is None:
         return _NO_RESULT_TIP
     if result.is_vr_protected:
         return _ACTIVE_FRAME_VR_TIP
     if manual:
-        return f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
+        tip = f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
+        if not crop_enabled:
+            return f"{tip}\n{_ACTIVE_FRAME_CROP_OFF_TIP}"
+        return tip
     if result.active_region.has_black_bars:
-        tip = _ACTIVE_FRAME_EXCLUDED_TIP if excluded else _ACTIVE_FRAME_TIP
+        if not crop_enabled:
+            # - 영상별 잘라내기 제외는 설정을 다시 켜면 다시 자르므로, 꺼진 상태에서도 제외 사유를 잃지 않게 덧붙임
+            tip = (
+                f"{_ACTIVE_FRAME_EXCLUDED_TIP}\n{_ACTIVE_FRAME_CROP_OFF_TIP}"
+                if excluded
+                else f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_CROP_OFF_TIP}"
+            )
+        else:
+            tip = _ACTIVE_FRAME_EXCLUDED_TIP if excluded else _ACTIVE_FRAME_TIP
     else:
         tip = _ACTIVE_FRAME_FULL_TIP
     if result.active_region.margins_vary:
@@ -340,32 +360,42 @@ class FrameAnalysisResults:
             return downscale_candidate_sort_value(result)
         return quality_metric_sort_value(result)
 
-    def tooltip(self, filename: str, col: int) -> str:
-        """화질 분석 열의 셀 툴팁"""
+    def tooltip(self, filename: str, col: int, *, crop_enabled: bool = True) -> str:
+        """화질 분석 열의 셀 툴팁. 활성 화면은 잘라내기 설정이 꺼져 있으면 그 사유를 함께 보여 줌"""
         result = self._results.get(filename)
         manual = self._manual_frames.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
             if result is None and manual is not None:
-                return f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
+                tip = f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
+                if not crop_enabled:
+                    return f"{tip}\n{_ACTIVE_FRAME_CROP_OFF_TIP}"
+                return tip
             return active_frame_tooltip(
                 result,
                 excluded=self.is_crop_excluded(filename),
                 manual=manual is not None,
+                crop_enabled=crop_enabled,
             )
         if col == DOWNSCALE_CANDIDATE_COLUMN:
             return downscale_candidate_tooltip(result)
         return quality_metric_tooltip(result)
 
-    def foreground(self, filename: str, col: int, palette: "ThemePalette") -> str | None:
-        """활성 화면 글자색. 검은 여백 잘라내기 제외 영상은 흐리게 표시
+    def foreground(
+        self,
+        filename: str,
+        col: int,
+        palette: "ThemePalette",
+        *,
+        crop_enabled: bool = True,
+    ) -> str | None:
+        """활성 화면 글자색. 검은 여백 잘라내기를 쓰지 않는 영상은 흐리게 표시
 
         - 사용자 지정 활성 화면은 제외 지정보다 우선하므로 흐리게 표시하지 않음
+        - 잘라내기 설정이 꺼져 있으면 검은 띠가 있는 행을 같은 사유 툴팁과 함께 흐리게 표시
         """
-        if (
-            col != ACTIVE_FRAME_COLUMN
-            or not self.is_crop_excluded(filename)
-            or self.manual_frame(filename) is not None
-        ):
+        if col != ACTIVE_FRAME_COLUMN or self.manual_frame(filename) is not None:
+            return None
+        if not self.is_crop_excluded(filename) and crop_enabled:
             return None
         result = self._results.get(filename)
         if result is None or not result.active_region.has_black_bars:

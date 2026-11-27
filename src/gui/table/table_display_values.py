@@ -29,15 +29,18 @@ def foreground_color(
     frame_view: FrameAnalysisResults,
     encode_label: str | None,
     encode_state_col: int,
+    crop_enabled: bool = True,
 ) -> str | None:
     """셀 글자색. 인코딩 상태, 화질 분석 열, 열 정의 순서로 결정
 
-    - 화질 분석 활성 화면은 잘라내기 제외 영상을 흐린 색으로 표시
+    - 화질 분석 활성 화면은 잘라내기를 쓰지 않는 영상(제외 지정 또는 설정 꺼짐)을 흐린 색으로 표시
     """
     if col == encode_state_col:
         return encode_state_foreground(encode_label, palette)
     if is_frame_analysis_column(col):
-        return frame_view.foreground(ev.video.filename, col, palette)
+        return frame_view.foreground(
+            ev.video.filename, col, palette, crop_enabled=crop_enabled
+        )
     col_def = COL_DEF_MAP.get(col)
     if col_def is None or col_def.foreground_getter is None:
         return None

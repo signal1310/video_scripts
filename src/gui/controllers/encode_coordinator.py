@@ -298,6 +298,9 @@ class EncodeCoordinator:
         state = self.start_state()
         report = self._current_report()
         if not state.enabled or report is None:
+            # - 창의 시작 버튼은 대상 유무만 보므로, 분석 등으로 막힌 사유를 그대로 알려 조용히 끝나지 않게 함
+            if state.reason:
+                notify_text(self._ensure_progress_window(), state.reason)
             return
         config = self._session.state.to_classifier_config()
         settings = EncodeSettings.from_config(config)

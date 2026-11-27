@@ -646,6 +646,7 @@ class VideoTableModel(QAbstractTableModel):
         hex_color = foreground_color(
             ev, col, ThemeManager().current_palette, frame_view=self._frame_view,
             encode_label=self._encode_label(ev), encode_state_col=self.COL_ENCODE_STATE,
+            crop_enabled=self._config.encode.crop_black_bars,
         )
         return self._get_cached_color(hex_color) if hex_color is not None else None
 
@@ -751,7 +752,9 @@ class VideoTableModel(QAbstractTableModel):
             if col == self.COL_OUTPUT_RES:
                 return self._with_ffmpeg_args(ev, format_output_res_tooltip(ev, self._config))
             if is_frame_analysis_column(col):
-                return self._frame_view.tooltip(ev.video.filename, col)
+                return self._frame_view.tooltip(
+                    ev.video.filename, col, crop_enabled=self._config.encode.crop_black_bars
+                )
             if col == self.COL_ENCODE_STATE and (state_tip := self._encode_tooltip(ev)) is not None:
                 return state_tip
             if col == self.COL_NAME:

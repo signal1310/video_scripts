@@ -217,6 +217,8 @@ class _FakeService:
         self.crop_only_names = crop_only_names
         if self.behaviour == "error":
             raise RuntimeError("boom")
+        if self.behaviour == "empty_error":
+            raise RuntimeError()
         if self.behaviour == "cancel" and cancel_event is not None:
             cancel_event.set()
             raise InterruptedError("cancel")
@@ -233,11 +235,15 @@ class _FakeService:
         crop_only: bool = False,
         crop_only_names: frozenset[str] = frozenset(),
     ) -> int:
+        if self.behaviour == "count_error":
+            raise RuntimeError("cache locked")
         self.count_crop_only = crop_only
         self.count_crop_only_names = crop_only_names
         return self.cached_count if requests else 0
 
     def load_results(self, requests: list[object]) -> dict[str, FrameAnalysisResult]:
+        if self.behaviour == "load_error":
+            raise RuntimeError("cache read failed")
         self.load_calls += 1
         return {"a.mp4": _result()}
 
@@ -381,6 +387,33 @@ class WorkerBodyTests(unittest.TestCase):
         error_finished = error_events[-1]
         assert isinstance(error_finished, FrameAnalysisFinished)
         self.assertIn("boom", error_finished.error)
+
+    def test_exception_without_a_message_reports_its_class_name(self) -> None:
+        """메시지 없는 예외도 오류로 분류되도록 예외 이름을 문구에 담는지 검증"""
+        events: list[object] = []
+        run_frame_analysis_body(
+            cast("FrameAnalysisService", _FakeService("empty_error")),
+            [],
+            threading.Event(),
+            events.append,
+        )
+        finished = events[-1]
+        assert isinstance(finished, FrameAnalysisFinished)
+        self.assertEqual(finished.error, "RuntimeError")
+
+    def test_cache_errors_still_finish_with_the_error_message(self) -> None:
+        """캐시 조회나 결과 읽기가 실패해도 오류 문구를 담은 종료 이벤트를 보내는지 검증"""
+        for behaviour, message in (("count_error", "cache locked"), ("load_error", "cache read failed")):
+            events: list[object] = []
+            run_frame_analysis_body(
+                cast("FrameAnalysisService", _FakeService(behaviour)),
+                [],
+                threading.Event(),
+                events.append,
+            )
+            finished = events[-1]
+            assert isinstance(finished, FrameAnalysisFinished)
+            self.assertIn(message, finished.error)
 
     def test_body_reports_request_total_and_cache_reuse(self) -> None:
         """요청 수와 캐시 재사용 수를 실행 전에 재어 종료 이벤트에 담는지 검증"""
@@ -766,6 +799,15 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.view.table_model.results, {})
         self.assertEqual(self.reevaluated, 0)
         self.assertEqual(self.notifications, [])
+
+    def test_error_without_a_message_still_shows_the_error_notice(self) -> None:
+        """메시지 없는 예외로 끝난 분석도 성공으로 보지 않고 오류를 알리는지 검증"""
+        controller = self.make_controller()
+        controller._start_root = self.root
+        controller._on_completed(FrameAnalysisFinished({}, error="RuntimeError"))
+        self.assertIn("오류가 발생했습니다", self.notifications[-1])
+        self.assertIn("RuntimeError", self.notifications[-1])
+        self.assertEqual(self.reevaluated, 0)
 
     def test_completion_cancel_error_and_shutdown(self) -> None:
         controller = self.make_controller()

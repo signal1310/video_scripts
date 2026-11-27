@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import tempfile
@@ -151,7 +152,7 @@ def run_frame_analysis_body(
     - crop_only면 검은 여백 스캔만 실행하고 캐시 재사용 수도 같은 기준으로 셈
     - crop_only_names에 든 영상은 전체 실행에서도 검은 여백만 감지
     - 취소는 예외로 올라오므로 삼키고, 이미 저장된 완료분을 캐시에서 다시 읽어 보존
-    - 예상하지 못한 오류는 문구를 담아 종료 이벤트로 넘겨 화면이 실행 중 상태에 머물지 않게 함
+    - 캐시 조회와 결과 읽기도 DB 오류가 날 수 있어 같은 오류 경계 안에서 실행하고, 실패는 문구를 담아 종료 이벤트로 넘김
     - 캐시 재사용 수는 실행 전에 재어 두어야 결과를 저장한 뒤와 구분됨
     """
 
@@ -164,24 +165,25 @@ def run_frame_analysis_body(
         sink(FrameAnalysisStageProgress(0, 0, filename, stage, done, total_stage))
 
     total = len({request.key for request in requests})
-    cached_count = service.count_cached(requests, crop_only=crop_only, crop_only_names=crop_only_names)
+    # - 캐시 조회와 결과 읽기도 DB 오류가 날 수 있으므로 함께 경계 안에 둠
     try:
-        service.analyze_batch(
-            requests,
-            crop_only=crop_only,
-            cancel_event=cancel_event,
-            on_progress=on_progress,
-            on_stage=on_stage,
-            crop_only_names=crop_only_names,
-        )
-    except InterruptedError:
-        pass
+        cached_count = service.count_cached(requests, crop_only=crop_only, crop_only_names=crop_only_names)
+        with contextlib.suppress(InterruptedError):
+            service.analyze_batch(
+                requests,
+                crop_only=crop_only,
+                cancel_event=cancel_event,
+                on_progress=on_progress,
+                on_stage=on_stage,
+                crop_only_names=crop_only_names,
+            )
+        results = service.load_results(requests)
     except Exception as error:
-        sink(FrameAnalysisFinished({}, error=str(error), crop_only=crop_only))
+        sink(FrameAnalysisFinished({}, error=str(error) or type(error).__name__, crop_only=crop_only))
         return
     sink(
         FrameAnalysisFinished(
-            service.load_results(requests),
+            results,
             cancelled=cancel_event.is_set(),
             total=total,
             cached_count=cached_count,

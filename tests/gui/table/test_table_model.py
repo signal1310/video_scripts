@@ -263,6 +263,59 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
             [("apply", self.evals), ("vr", True), ("crop", True), ("manual", manual)],
         )
 
+    def test_crop_off_setting_adds_the_no_crop_line_to_the_active_frame_tooltip(self) -> None:
+        """검은 여백 잘라내기 설정이 꺼져 있으면 활성 화면 툴팁이 자르지 않는다고 알리는지 검증"""
+        from src.core.analysis.frame_analysis import ActiveRegion
+        from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
+        from src.core.config import ClassifierConfig
+
+        cropped = FrameAnalysisResult(
+            active_region=ActiveRegion(1920, 800, 0, 140, True),
+            metric_used="vmaf",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=5,
+            total_segment_count=5,
+            unmeasurable=False,
+            is_vr_protected=False,
+        )
+        self.model.set_frame_analysis_results({"a.mp4": cropped})
+        index = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
+        self.assertNotIn("검은 여백 잘라내기 설정이 꺼져 있어", self.model.data(index, _TOOLTIP))
+        config = ClassifierConfig()
+        config.encode.crop_black_bars = False
+        self.model.set_config(config)
+        self.assertIn("검은 여백 잘라내기 설정이 꺼져 있어", self.model.data(index, _TOOLTIP))
+
+    def test_crop_off_setting_mutes_the_active_frame_cell(self) -> None:
+        """잘라내기 설정이 꺼지면 표의 활성 화면 셀이 흐린 색으로 다시 그려지는지 검증"""
+        from src.core.config import ClassifierConfig
+
+        self.model.set_frame_analysis_results(
+            {
+                "a.mp4": FrameAnalysisResult(
+                    active_region=ActiveRegion(1920, 800, 0, 140, True),
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segment_count=5,
+                    total_segment_count=5,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                )
+            }
+        )
+        index = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
+        self.assertIsNone(self.model.data(index, _FOREGROUND))
+        config = ClassifierConfig()
+        config.encode.crop_black_bars = False
+        self.model.set_config(config)
+        color = self.model.data(index, _FOREGROUND)
+        self.assertIsInstance(color, QColor)
+        self.assertEqual(color, QColor(ThemeManager().current_palette.text_muted))
+
     def test_manual_active_frames_redraw_the_active_frame_column(self) -> None:
         """사용자 지정 활성 화면이 표시 값에 반영되고 활성 화면 열이 다시 그려지는지 검증"""
         self.model.set_frame_analysis_results({"a.mp4": self.result})

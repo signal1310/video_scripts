@@ -89,7 +89,6 @@
     "src/gui/controllers/shortcuts_controller.py::ShortcutsController._open_manual_target_popup",
     "src/gui/controllers/shortcuts_controller.py::ShortcutsController._popup_anchor",
     "src/gui/controllers/shortcuts_controller.py::ShortcutsController.popup_manual_target_menu",
-    "src/gui/controllers/shortcuts_controller.py::ShortcutsController.trigger_command_for_key",
     "src/gui/controllers/shortcuts_controller.py::_is_text_input",
     "src/gui/dialogs/exception_rules_dialog.py::ExceptionRulesDialog._on_edit_selected",
     "src/gui/dialogs/log_dialog.py::LogPanel._copy_logs",

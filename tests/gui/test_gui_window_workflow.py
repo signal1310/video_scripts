@@ -26,7 +26,7 @@ from src.gui.table.table_model import VideoTableModel
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.service.analysis_store import load_manual_target_store
 from src.service.cache import DEFAULT_CACHE_REGISTRY, TableCache
-from tests._factories import make_video
+from tests._factories import make_eval, make_video
 from tests._gui_helpers import isolate_app_state
 from tests._gui_window_base import ASYNC_WAIT_SECONDS, GuiWindowTestCase, settle_reevaluation, wait_for_flag
 
@@ -65,6 +65,27 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
                 os.path.normpath(win._current_root_dir()), os.path.normpath(tmpdir)
             )
             self.assertEqual(os.path.normpath(header.committed_path), os.path.normpath(tmpdir))
+
+    def test_main_window_typed_path_refreshes_the_table_immediately(self) -> None:
+        """직접 입력한 폴더로 Enter 확정하면 이전 폴더의 표 행이 즉시 비워지는지 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dir_a = os.path.join(tmpdir, "a")
+            dir_b = os.path.join(tmpdir, "b")
+            os.makedirs(dir_a)
+            os.makedirs(dir_b)
+            win = MainWindow(initial_dir=dir_a)
+            self.addCleanup(win.close)
+            win.table_model.set_data_source(
+                [make_eval(make_video(filename="clip.mp4"))], root_dir=dir_a
+            )
+            self.assertEqual(win.table_model.rowCount(), 1)
+
+            win.header_bar.begin_path_edit()
+            win.header_bar.path_edit.setText(dir_b)
+            win.header_bar.path_edit.returnPressed.emit()
+
+            self.assertEqual(os.path.normpath(win._current_root_dir()), os.path.normpath(dir_b))
+            self.assertEqual(win.table_model.rowCount(), 0)
 
     def test_main_window_dashboard_and_live_threshold_tuning(self) -> None:
         """MainWindow가 VideoClassifier를 래핑하여 대시보드 카드를 갱신하고 실시간 임계값 변경을 즉시 반영하는지 검증"""

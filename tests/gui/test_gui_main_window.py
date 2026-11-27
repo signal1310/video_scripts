@@ -154,6 +154,50 @@ class TestPathInputFeedback(GuiTestCase):
         self.assertIs(self.header.path_stack.currentWidget(), self.header.folder_name_btn)
 
 
+class TestHeaderRefreshButton(GuiTestCase):
+    """헤더의 새로고침 버튼 배치, 모양, 신호, 툴팁을 검증"""
+
+    def setUp(self) -> None:
+        self.header = HeaderBar("")
+        self.addCleanup(self.header.deleteLater)
+
+    def test_refresh_button_sits_left_of_folder_icon(self) -> None:
+        """새로고침 버튼이 경로 묶음 맨 앞, 폴더 아이콘 바로 왼쪽에 있는지 검증"""
+        layout = self.header.layout()
+        assert layout is not None
+        refresh = layout.indexOf(self.header.btn_refresh)
+        self.assertEqual(refresh, layout.indexOf(self.header.folder_icon) - 1)
+        self.assertEqual(layout.indexOf(self.header.folder_icon), layout.indexOf(self.header.path_stack) - 1)
+
+    def test_refresh_button_is_transparent_icon_only_with_shortcut_tooltip(self) -> None:
+        """새로고침 버튼이 아이콘만 가진 투명 버튼이고 툴팁에 기본 단축키가 붙는지 검증"""
+        button = self.header.btn_refresh
+        self.assertEqual(button.objectName(), "TransparentIconButton")
+        self.assertEqual(button.text(), "")
+        self.assertEqual(button.accessibleName(), "새로고침")
+        self.assertFalse(button.icon().isNull())
+        self.assertIn("현재 작업 폴더를 다시 읽어 표를 새로고침합니다. [Ctrl+R]", button.toolTip())
+
+    def test_refresh_button_signal_and_custom_shortcut(self) -> None:
+        """새로고침 버튼이 신호를 내고 지정 단축키가 툴팁에 반영되는지 검증"""
+        clicked: list[bool] = []
+        self.header.refresh_clicked.connect(lambda: clicked.append(True))
+        self.header.btn_refresh.click()
+        self.assertEqual(clicked, [True])
+
+        self.header.update_shortcut_tooltips(
+            cancel_key="Esc", collapse_key="Ctrl+F1", refresh_key="Ctrl+Shift+R"
+        )
+        self.assertTrue(self.header.btn_refresh.toolTip().endswith("[Ctrl+Shift+R]"))
+
+    def test_refresh_button_is_disabled_while_busy(self) -> None:
+        """작업 중에는 새로고침 버튼이 비활성화되는지 검증"""
+        self.header.set_busy(True)
+        self.assertFalse(self.header.btn_refresh.isEnabled())
+        self.header.set_busy(False)
+        self.assertTrue(self.header.btn_refresh.isEnabled())
+
+
 class TestPathColumnFontAndSeparator(unittest.TestCase):
     """파일 이름 열의 경로 전용 글꼴과 운영체제 구분자 표기를 검증"""
 

@@ -109,6 +109,7 @@ class ShortcutHost:
     dialogs: DialogCoordinator
     is_busy: Callable[[], bool]
     refresh_after_restore: Callable[[], None]
+    refresh_folder: Callable[[], None]
     set_theme_mode: Callable[[str], None]
     clear_manual_targets: Callable[[], None]
     clear_column_filters: Callable[[], None]
@@ -439,6 +440,8 @@ class ShortcutsController:
         host = self._host
         if action_id == "file.edit_path":
             return lambda: host.header_bar.begin_path_edit()
+        if action_id == "file.refresh":
+            return host.refresh_folder
         if action_id == "edit.clear_column_filters":
             return host.clear_column_filters
         if action_id == _CLEAR_ALL_ID:
@@ -476,6 +479,7 @@ class ShortcutsController:
             add_dir_key=effective["file.add_dir"],
             recursive_key=effective["analyze.toggle_recursive"],
             encode_key=effective["encode.start"],
+            refresh_key=effective["file.refresh"],
         )
         host.top_area.update_shortcut_tooltip(effective["view.toggle_top_area"])
         host.filter_bar.set_exception_shortcut(effective["edit.exception_editor"])

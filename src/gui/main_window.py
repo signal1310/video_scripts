@@ -82,6 +82,8 @@ from src.gui.window_layout import (
 from src.service.session import ClassifierSession
 
 _SETTINGS_PREWARM_DELAY_MS: int = 1000
+REFRESH_NO_FOLDER_TEXT: str = "새로고침할 작업 폴더가 없습니다. 작업 폴더를 먼저 선택해 주세요."
+REFRESH_BUSY_TEXT: str = "작업 중에는 새로고침할 수 없습니다."
 
 
 class MainWindow(QMainWindow):
@@ -135,6 +137,7 @@ class MainWindow(QMainWindow):
         self.header_bar = widgets.header_bar
         self.header_bar.path_submitted.connect(self.set_working_directory)
         self.header_bar.path_rejected.connect(self.set_status_text)
+        self.header_bar.refresh_clicked.connect(self.refresh_current_folder)
         self.dashboard, self.filter_bar = widgets.dashboard, widgets.filter_bar
         self.table_view = widgets.table_view
         self._external_resync = attach_external_resync(
@@ -281,6 +284,7 @@ class MainWindow(QMainWindow):
             dialogs=self.dialogs,
             is_busy=self._tasks.is_running,
             refresh_after_restore=self._refresh_after_history_restore,
+            refresh_folder=self.refresh_current_folder,
             set_theme_mode=self._theme_mgr.set_mode,
             clear_manual_targets=self.manual_targets.clear,
             clear_column_filters=self.proxy_model.clear_all_column_filters,
@@ -700,6 +704,19 @@ class MainWindow(QMainWindow):
             note_event(CATEGORY_FOLDER, describe_folder_change(self._current_root_dir()))
             self._clear_analysis_view()
             self._restore_flow.start()
+
+    def refresh_current_folder(self) -> None:
+        """현재 작업 폴더를 다시 읽어 변경된 영상을 표에 반영
+
+        - 백그라운드 점검이 진행 중이거나 분석 중이면 끝난 뒤 반영되므로 안내만 남김
+        """
+        if not self._current_root_dir():
+            self.set_status_text(REFRESH_NO_FOLDER_TEXT)
+            return
+        if self._tasks.is_running():
+            self.set_status_text(REFRESH_BUSY_TEXT)
+            return
+        self._external_resync.request(immediate=True)
 
     def _on_settings_tab_changed(self, tab_index: int) -> None:
         normalized = SettingsDialog.normalize_tab_index(tab_index)

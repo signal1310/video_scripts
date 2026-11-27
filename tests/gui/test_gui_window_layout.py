@@ -493,7 +493,7 @@ class TestGUIWindowLayout(GuiWindowTestCase):
                     _APP.processEvents()
 
     def test_main_window_can_shrink_horizontally_with_scrollable_dashboard(self) -> None:
-        """대시보드가 가로 스크롤 가능해져 메인 창을 기존 한계(959px)보다 훨씬 좁게 줄일 수 있음을 검증"""
+        """대시보드가 가로 스크롤 가능해져 메인 창을 경로 줄 기본 폭보다 좁게 줄일 수 있음을 검증"""
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = os.path.join(tmpdir, "app_state.json")
             dummy_root = os.path.join(tmpdir, ".rootdir")
@@ -503,12 +503,12 @@ class TestGUIWindowLayout(GuiWindowTestCase):
             ):
                 mw = MainWindow()
                 try:
-                    self.assertLess(mw.minimumSizeHint().width(), 600)
+                    self.assertLess(mw.minimumSizeHint().width(), 660)
                     mw.resize(520, 620)
                     mw.show()
                     _APP.processEvents()
-                    # - 인코딩 진입이 문구 있는 보조 버튼이라 최소 폭이 570보다 조금 커짐
-                    self.assertLessEqual(mw.width(), 600)
+                    # - 인코딩 진입 보조 버튼과 새로고침 버튼 때문에 최소 폭이 620보다 조금 커짐
+                    self.assertLessEqual(mw.width(), 660)
                     h_bar = mw.dashboard._scroll_area.horizontalScrollBar()
                     assert h_bar is not None
                     self.assertGreater(h_bar.maximum(), 0)

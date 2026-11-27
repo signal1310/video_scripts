@@ -109,6 +109,39 @@ class MainWindowActionTests(GuiTestCase):
             self.window.set_working_directory("D:/clips")
         self.assertEqual(changed.call_args.args, ("작업 폴더", "변경: clips"))
 
+    def test_refresh_current_folder_requests_an_immediate_resync(self) -> None:
+        """새로고침 요청이 현재 작업 폴더를 즉시 다시 읽도록 점검을 요청하는지 검증"""
+        with (
+            mock.patch.object(self.window, "_current_root_dir", return_value="C:/media"),
+            mock.patch.object(self.window._external_resync, "request") as request,
+            mock.patch.object(self.window, "set_status_text") as status,
+        ):
+            self.window.refresh_current_folder()
+        request.assert_called_once_with(immediate=True)
+        status.assert_not_called()
+
+    def test_refresh_without_a_folder_only_shows_a_status_note(self) -> None:
+        """작업 폴더가 없으면 점검을 요청하지 않고 안내만 남기는지 검증"""
+        with (
+            mock.patch.object(self.window, "_current_root_dir", return_value=""),
+            mock.patch.object(self.window._external_resync, "request") as request,
+            mock.patch.object(self.window, "set_status_text") as status,
+        ):
+            self.window.refresh_current_folder()
+        request.assert_not_called()
+        self.assertIn("작업 폴더", status.call_args.args[0])
+
+    def test_refresh_button_click_goes_through_the_refresh_slot(self) -> None:
+        """헤더 새로고침 버튼과 단축키 명령이 같은 다시 읽기 동작으로 이어지는지 검증"""
+        with (
+            mock.patch.object(self.window._external_resync, "request") as request,
+            mock.patch.object(self.window, "set_busy_state"),
+        ):
+            self.window.header_bar.btn_refresh.click()
+            self.assertEqual(self.window.shortcuts.effective_shortcuts["file.refresh"], "Ctrl+R")
+            self.assertTrue(self.window.shortcuts.trigger_command_for_key("Ctrl+R"))
+        self.assertEqual(request.call_args_list, [mock.call(immediate=True)] * 2)
+
     def test_recursive_toggle_resets_view_only_when_scan_changed(self) -> None:
         """하위 폴더 포함 전환이 스캔 설정을 바꿨을 때만 분석 뷰를 초기화하는지 검증"""
         with (

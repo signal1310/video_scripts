@@ -474,7 +474,8 @@ class SessionCoordinator:
     ) -> bool:
         """작업 폴더 목록을 전환하고 상태, 최근 목록을 저장한 뒤 경로 변경 여부 반환"""
         norm_dir = normalize_root_spec(directory)
-        prev_dir = header_bar.path_edit.text().strip()
+        # - 경로 입력 확정 직후에는 입력창이 이미 새 경로이므로 적용된 경로와 비교해야 전환을 알아챔
+        prev_dir = header_bar.committed_path.strip()
         dir_changed = not prev_dir or _root_keys(prev_dir) != _root_keys(norm_dir)
         header_bar.set_path(norm_dir)
         self.classifier, _ = bind_classifier_directory(

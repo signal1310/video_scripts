@@ -157,6 +157,22 @@ QPushButton#SegmentButton:disabled {{
 QFrame#SegmentDivider {{
     background-color: {p.btn_border};
 }}
+QPushButton#TransparentIconButton {{
+    background-color: transparent;
+    border: none;
+    border-radius: 7px;
+    padding: 0px;
+    min-height: 0px;
+}}
+QPushButton#TransparentIconButton:hover {{
+    background-color: {p.bg_hover};
+}}
+QPushButton#TransparentIconButton:pressed {{
+    background-color: {p.bg_selected};
+}}
+QPushButton#TransparentIconButton:disabled {{
+    background-color: transparent;
+}}
 QPushButton#DangerButton {{
     background-color: {p.action_danger_bg};
     color: {p.text_on_accent};

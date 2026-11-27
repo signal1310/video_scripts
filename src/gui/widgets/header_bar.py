@@ -76,6 +76,7 @@ _PATH_EDIT_HINT: str = "Enter로 확정하고 Esc로 취소합니다."
 _BROWSE_TOOLTIP: str = "작업 폴더 선택\n고른 폴더로 현재 작업 폴더 목록을 바꿉니다."
 _ADD_DIR_TOOLTIP_BASE: str = "작업 폴더 추가\n현재 작업 폴더를 유지하고 다른 작업 폴더를 함께 추가합니다."
 _OPEN_EXPLORER_TOOLTIP: str = "탐색기에서 작업 폴더 열기\n첫 번째 작업 폴더를 탐색기로 엽니다."
+_REFRESH_TOOLTIP_BASE: str = "새로고침\n현재 작업 폴더를 다시 읽어 표를 새로고침합니다."
 _RECURSIVE_TOOLTIP_BASE: str = "하위 폴더 포함\n작업 폴더 아래의 모든 하위 폴더 영상을 함께 분석합니다."
 _ENCODE_START_TOOLTIP: str = "인코딩 시작\n인코딩 창을 엽니다. 시작 전 브리핑은 요약 탭에서 확인하고 시작할 수 있습니다."
 _ENCODE_ACTIVE_TOOLTIP: str = "인코딩 진행 중\n진행 중인 인코딩 창을 엽니다."
@@ -313,6 +314,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
     encode_start_clicked = pyqtSignal()
     cancel_clicked = pyqtSignal()
     collapse_toggle_clicked = pyqtSignal()
+    refresh_clicked = pyqtSignal()
     path_submitted = pyqtSignal(str)
     path_rejected = pyqtSignal(str)
     committed_path_changed = pyqtSignal(str)
@@ -324,6 +326,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.setObjectName("HeaderBar")
         self._committed_path: str = initial_dir
         self._edit_path_key: str = DEFAULT_SHORTCUTS["file.edit_path"]
+        self._refresh_key: str = DEFAULT_SHORTCUTS["file.refresh"]
         self._encode_start_key: str = DEFAULT_SHORTCUTS["encode.start"]
         self._encode_start_state: StartState | None = None
         self._encoding_active: bool = False
@@ -407,6 +410,17 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         )
         self.btn_recursive.setCheckable(True)
 
+        # 폴더 아이콘 왼쪽에 두어 경로 묶음의 맨 앞에서 현재 폴더를 다시 읽는 동작임을 드러냄
+        self.btn_refresh = create_icon_button(
+            self,
+            format_tooltip_with_shortcut(_REFRESH_TOOLTIP_BASE, self._refresh_key),
+            self.refresh_clicked.emit,
+            accessible_name="새로고침",
+            fixed_size=TOOLBAR_ICON_BTN_SIZE,
+            object_name="TransparentIconButton",
+        )
+
+        layout.addWidget(self.btn_refresh)
         layout.addWidget(self.folder_icon)
         layout.addWidget(self.path_stack, stretch=1)
         layout.addWidget(self.action_group)
@@ -543,9 +557,15 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         add_dir_key: str = "",
         recursive_key: str = "",
         encode_key: str | None = None,
+        refresh_key: str | None = None,
     ) -> None:
         """단축키 설정 변경 시 버튼과 경로 입력 툴팁의 단축키 표기를 갱신"""
         self._edit_path_key = edit_path_key
+        if refresh_key is not None:
+            self._refresh_key = refresh_key
+        self.btn_refresh.setToolTip(
+            format_tooltip_with_shortcut(_REFRESH_TOOLTIP_BASE, self._refresh_key)
+        )
         if encode_key is not None:
             self._encode_start_key = encode_key
         self._refresh_encode_start_tooltip()
@@ -647,6 +667,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.btn_add_dir.setEnabled(not busy)
         self.btn_recursive.setEnabled(not busy)
         self.btn_open_explorer.setEnabled(not busy)
+        self.btn_refresh.setEnabled(not busy)
         self.split_analyze.setEnabled(not busy)
         self.btn_encode_start.setEnabled(
             False
@@ -669,6 +690,7 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             (self.btn_add_dir, "folder-plus"),
             (self.btn_recursive, "folder-tree"),
             (self.btn_open_explorer, "external-link"),
+            (self.btn_refresh, "rotate-cw"),
             (self.btn_collapse_top, TOP_AREA_COLLAPSE_ICON),
         ):
             set_button_icon(

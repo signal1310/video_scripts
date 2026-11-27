@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 from collections.abc import Mapping
+from dataclasses import replace
 
 from src.core.analysis.frame_analysis import (
     EDGE_SNAP_MIN_PX,
@@ -30,9 +31,16 @@ from src.core.encode.encode_gate import (
     DURATION_TOLERANCE_MIN_SEC,
     DURATION_TOLERANCE_RATIO,
 )
-from src.core.encode.precise_tune_policy import PRECISE_TUNE_BOUNDARY_MARGIN
+from src.core.encode.precise_tune_policy import (
+    PRECISE_TUNE_BOUNDARY_MARGIN,
+    PRECISE_TUNE_COMPARE_TOLERANCE,
+)
 from src.core.encode.quality_tuning import SAMPLE_TARGET_TOLERANCE, TUNE_RETRY_MIN_DELTA_Q
-from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
+from src.core.encoder_specs import (
+    get_encode_codec_family,
+    get_encode_codec_label,
+    resolve_level_cap_kbps,
+)
 from src.core.evaluation.classification_policy import (
     INTRA_CODEC_MIN_WEIGHT,
     LEGACY_BLOCK_NOISE_MAX_RATIO,
@@ -46,6 +54,7 @@ from src.core.evaluation.quality_metrics import (
     REFERENCE_ENCODE_HEIGHT,
     REFERENCE_ENCODE_WIDTH,
     calc_optimal_bitrate,
+    calc_optimal_pair,
 )
 from src.core.evaluation.size_estimator import (
     DEFAULT_UNKNOWN_KF_SEC,
@@ -57,6 +66,7 @@ from src.core.evaluation.size_estimator import (
     STATIC_SCREEN_RATIO_FLOOR,
     STATIC_SCREEN_RATIO_THRESHOLD,
     calc_keyframe_increase_ratio,
+    combine_video_caps_kbps,
     estimate_after_size_mb,
     estimate_video_stream_mb,
 )
@@ -73,9 +83,11 @@ from src.core.quality_target import (
     ROUNDTRIP_SSIM_THRESHOLD,
     ROUNDTRIP_VMAF_THRESHOLD,
     calc_base_bitrate_kbps,
+    corrected_target_kbps,
     effective_quality_bitrate_k,
     encoder_size_factor,
     format_cq_value,
+    general_maxrate_kbps,
     protect_cq_value,
     quality_size_factor,
 )
@@ -118,6 +130,15 @@ def _workload_ratio(width: int, height: int, fps: float) -> float:
     return (width * height * fps) / (
         REFERENCE_ENCODE_WIDTH * REFERENCE_ENCODE_HEIGHT * REFERENCE_ENCODE_FPS
     )
+
+
+def _cap_label(maxrate_kbps: int | None, level_cap_kbps: int | None) -> str:
+    """실제로 적용된 상한 이름 표기(둘 다 있으면 더 작은 쪽, 규격 상한이 없으면 레벨 상한)"""
+    if level_cap_kbps is not None and (
+        maxrate_kbps is None or level_cap_kbps <= maxrate_kbps
+    ):
+        return "레벨 상한"
+    return "최대 비트레이트 상한"
 
 
 def _outline_html() -> str:
@@ -327,6 +348,16 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     stream_mb = estimate_video_stream_mb(vid)
     other_mb = vid.vid_size_MB - stream_mb
     source_ratio = vid.vid_kbps / evaluation.optimal_kbps
+    if evaluation.target_width is not None and evaluation.target_height is not None:
+        # - 축소 인코딩의 용량 추정은 출력 해상도 기준 원본 비율을 쓰므로 같은 기준으로 다시 계산
+        source_ratio = vid.vid_kbps / calc_optimal_pair(
+            replace(
+                vid,
+                width=evaluation.target_width,
+                height=evaluation.target_height,
+            ),
+            cfg,
+        )[0]
     ratio = evaluation.target_bitrate_ratio
     source_weight = cfg.get_codec_weight(vid.codec)
     codec_weight_ratio = cfg.get_codec_weight(family) / source_weight
@@ -357,6 +388,46 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         encoder=codec,
     )
     kf_target_mb = other_mb + stream_mb * (1.0 + kf_ratio)
+    # - 평가와 같은 상한을 다시 계산: 축소 인코딩만 규격 상한을 포함한 최대 비트레이트를 쓰고,
+    #   레벨 상한은 NVENC 계열에서만 나오므로 나머지 인코더는 상한이 없음
+    out_w = evaluation.target_width or vid.width
+    out_h = evaluation.target_height or vid.height
+    maxrate_kbps = (
+        general_maxrate_kbps(
+            corrected_target_kbps(evaluation.target_optimal_kbps, codec),
+            evaluation.target_tier.max_bitrate_kbps,
+        )
+        if evaluation.target_tier is not None
+        else None
+    )
+    level_cap_kbps = resolve_level_cap_kbps(codec, out_w, out_h, vid.fps)
+    cap_kbps = combine_video_caps_kbps(maxrate_kbps, level_cap_kbps)
+    capped_mb = estimate_after_size_mb(
+        vid,
+        ratio,
+        rate,
+        cap_at_original=True,
+        source_ratio=source_ratio,
+        codec_weight_ratio=codec_weight_ratio,
+        base_fps=cfg.bitrate_model.base_fps,
+        output_delta_cq=output_delta,
+        max_video_kbps=cap_kbps,
+        encoder=codec,
+    )
+    # - 상한은 증가율과 품질 계수를 반영한 뒤의 영상 스트림과 비교하므로 그 값을 그대로 보여 줌
+    stream_after_mb = plain_mb - other_mb
+    cap_term = (
+        f"{_cap_label(maxrate_kbps, level_cap_kbps)} = {other_mb:,.1f} + "
+        f"min(상한 전 영상 스트림 {stream_after_mb:,.1f}, {cap_kbps:,} kbps × "
+        f"{vid.duration / 60.0:g}분) = {capped_mb:,.1f} MB<br/>"
+        if cap_kbps is not None
+        else ""
+    )
+    # - 예시 항은 인코딩했을 때의 가상 값이며, 원본 보존 판정은 그 값 대신 원본 용량을 그대로 씀
+    terms_mb = [plain_mb, kf_target_mb, vid.vid_size_MB]
+    if cap_kbps is not None:
+        terms_mb.append(capped_mb)
+    is_encode = evaluation.smart_action.is_encode
     over_example = (
         f"<b>계산 예시 (판정표 예상 용량)</b>: {vid.vid_size_MB:,.0f} MB 영상(영상 스트림 {stream_mb:,.1f} MB, "
         f"나머지 {other_mb:,.1f} MB), 키프레임 간격 {vid.keyframe_interval:g}초<br/>"
@@ -368,7 +439,10 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         f"{quality_factor:.4f} = {plain_mb:,.1f} MB<br/>"
         f"키프레임 목표 = {other_mb:,.1f} + {stream_mb:,.1f} × (1 + {kf_ratio:.4f}) = {kf_target_mb:,.1f} MB, "
         f"원본 상한 = {vid.vid_size_MB:,.1f} MB<br/>"
-        f"판정 예상 용량 = 위 셋 중 가장 작은 값 = <b>{evaluation.expected_after_mb:,.1f} MB</b>, "
+        f"{cap_term}"
+        f"인코딩 예상 용량 = 위 {len(terms_mb)}개 항 중 가장 작은 값 = <b>{min(terms_mb):,.1f} MB</b><br/>"
+        f"판정 예상 용량 = <b>{evaluation.expected_after_mb:,.1f} MB</b>"
+        f"{'' if is_encode else ' (원본 보존 판정, 인코딩 예상은 참고값)'}, "
         f"절약 ΔS = <b>{evaluation.expected_delta_mb:,.1f} MB</b>"
     )
     return "".join(
@@ -388,6 +462,15 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                     (note_html(p, "예상 용량 계산 (실제 인코딩과 원본 보존 행의 가상 값 모두 같은 식)"),),
                     (
                         "예상 용량 = 고정 용량 + 영상 스트림 용량 × factor<sub>br</sub> × (1 + 증가율) × 품질 계수",
+                    ),
+                    (
+                        "최대 비트레이트가 있으면 영상 스트림 용량 = min(위 값, 최대 비트레이트 × 길이)",
+                        note_html(
+                            p,
+                            "증가율과 품질 계수를 반영한 뒤 상한 적용. 상한은 축소 인코딩의 최대 비트레이트와 "
+                            "NVENC 계열 인코더 레벨 상한 중 작은 값. 크기를 줄이지 않는 일반 인코딩에는 "
+                            "NVENC 계열의 레벨 상한만 적용",
+                        ),
                     ),
                     (
                         "factor<sub>br</sub> = min( E, ",
@@ -608,6 +691,9 @@ def _order_html(cfg: ClassifierConfig) -> str:
     protect_cq = format_cq_value(protect_cq_value(cfg.encode.baseline_cq))
     upgrade_gain = cfg.thresholds.codec_upgrade_min_gain_ratio
     codec = cfg.encode.encode_codec
+    over_ratio = cfg.thresholds.over_bitrate_ratio
+    low_ratio = cfg.thresholds.low_bitrate_ratio
+    margin_limit = PRECISE_TUNE_BOUNDARY_MARGIN + PRECISE_TUNE_COMPARE_TOLERANCE
     return (
         "<a name=\"order\"></a><h3>6. 한 영상이 판정되는 순서</h3>"
         "<ol>"
@@ -637,8 +723,9 @@ def _order_html(cfg: ClassifierConfig) -> str:
         f"목표에 가까울수록 올리는 폭이 작아지고, 상한은 {protect_cq}입니다. "
         f"현재 <b>{html.escape(get_encode_codec_label(codec))}</b>의 <code>K<sub>유효</sub></code>는 "
         f"<code>{effective_quality_bitrate_k(codec):.2f}</code>입니다.</p>"
-        f"<p><b>최대 비트레이트</b>: 축소 인코딩과 일반 인코딩 모두 "
+        f"<p><b>최대 비트레이트</b>: 축소 인코딩과, 정밀 결정이 원본 해상도를 고른 영상에만 "
         f"<code>-maxrate = min(규격 상한, {MAXRATE_ROUND_KBPS}k 단위 올림(보정 목표 × {MAXRATE_HEADROOM_MULTIPLIER:.1f}))</code>를 씁니다. "
+        f"크기를 줄이지 않는 일반 인코딩은 명시 최대 비트레이트 없이 인코딩합니다. "
         f"보정 목표는 <code>목표 비트레이트 × 인코더 크기 보정 {encoder_size_factor(codec):.2f}배</code>입니다.</p>"
         f"<p><b>품질값 자동 조정</b>: 절약 목적 사전 예측에서 대표 구간 샘플의 예상 비트레이트가 "
         f"보정 목표의 <code>{SAMPLE_TARGET_TOLERANCE:.2f}배</code>를 넘으면, 샘플을 더 돌리지 않고 "
@@ -647,11 +734,16 @@ def _order_html(cfg: ClassifierConfig) -> str:
         f"<p><b>품질값 정밀 결정</b>(6a): 설정의 <code>품질값 정밀 결정</code>이 켜져 있으면 본 인코딩 전에 "
         f"대표 구간 몇 곳을 짧게 인코딩해 화질 기준(VMAF {ROUNDTRIP_VMAF_THRESHOLD:.1f}점, "
         f"SSIM {ROUNDTRIP_SSIM_THRESHOLD:.3f})을 지키는 가장 높은 품질값을 이진 탐색으로 찾습니다. "
-        f"<code>선택 적용 (기본)</code>은 절약 목적 인코딩 대상 중 축소 후보이거나 비트레이트 비율이 "
-        f"과화질/저화질 경계에서 {PRECISE_TUNE_BOUNDARY_MARGIN:.2f}배 안쪽인 영상만, "
+        f"<code>선택 적용 (기본)</code>은 절약 목적 인코딩 대상 중 축소 후보이거나 원본 코덱 기준 비트레이트 비율이 "
+        f"과화질/저화질 경계에서 {margin_limit:.2f} 이내인 영상만, "
         f"<code>모든 대상</code>은 모든 절약 목적 대상, <code>사용 안 함</code>은 건너뜁니다. "
+        f"경계는 설정값 그대로 과화질 {over_ratio:.2f}배, 저화질 {low_ratio:.2f}배이며, 화질 등급의 과화질 판정에 쓰는 "
+        f"유효 상한(동급 코덱, 10비트 여유를 더한 값)과는 별개입니다. 비율이 경계와의 차이에서 {margin_limit:.2f} 이내이면 "
+        f"(과화질은 {over_ratio + margin_limit:.2f}배까지) 대상입니다. "
         f"결정 33의 1초 키프레임 인코딩과 코덱 호환은 절약 목적이 아니므로 대상이 아닙니다. "
-        f"원본(크롭) 해상도와 축소 해상도를 비교하는 축소 비교는 아직 판정에 연결하지 않았습니다.</p>"
+        f"정밀 결정이 끝나면 원본(크롭) 해상도 구성과 축소 해상도 구성을 같은 구간 표본으로 인코딩해 비교하는 "
+        f"원본/축소 해상도 비교를 이어서 실행합니다. 축소 후보가 화질 기준을 넘지 못하거나 비트레이트가 더 낮지 않으면 "
+        f"원본 크기로 출력하고 사유를 남깁니다.</p>"
     )
 
 
@@ -672,9 +764,10 @@ def _downscale_html() -> str:
         "</ol>"
         "<p><b>최대 비트레이트 대가</b>: 축소 영상에는 최대 비트레이트(<code>-maxrate</code>)가 적용되어 "
         "움직임이 많은 장면은 상한에 걸려 화질이 낮아질 수 있습니다. 이 상한은 "
-        "<code>min(규격 상한, 100k 단위 올림(보정 목표 비트레이트 × 1.5))</code>이며, "
+        f"<code>min(규격 상한, {MAXRATE_ROUND_KBPS}k 단위 올림(보정 목표 비트레이트 × {MAXRATE_HEADROOM_MULTIPLIER:.1f}))</code>이며, "
         "보정 목표는 목표 비트레이트에 인코더 크기 보정을 곱한 값입니다. "
-        "여유 배수가 경고 기준 미만이면 출력 해상도 셀에 <b>최대 BR 근접</b>으로 표시합니다.</p>"
+        "여유 배수(축소 후보 규격 상한 ÷ 축소 후보 목표 비트레이트)가 경고 기준 미만이면 "
+        "출력 해상도 셀에 <b>최대 BR 근접</b>으로 표시하며, 이 배지는 판정 시점의 축소 후보 여유로 계산합니다.</p>"
         "<p><b>직접 지정 우선</b>: 영상별 출력 해상도를 직접 고르면 최대 해상도와 비트레이트 맞춤보다 우선합니다. "
         "<b>축소 안 함</b>을 고르면 상한도 적용하지 않습니다.</p>"
         "<p><b>비트레이트 맞춤 축소</b>(기본 꺼짐): 원본이 저화질이면 원본보다 낮은 규격을 높은 순으로 살펴 "
@@ -682,8 +775,15 @@ def _downscale_html() -> str:
         "최대 해상도와 함께 켜져 있으면 두 규격 중 낮은 쪽을 적용하고, 같은 규격이면 <b>최대 해상도 초과</b>로 표시합니다.</p>"
         "<p><b>비트레이트 맞춤 위험</b>: 화면 녹화, 애니메이션처럼 비트레이트가 낮아도 세부가 중요한 영상은 글자가 뭉개질 수 있습니다. "
         "필요한 경우에만 켜고, 예외 규칙으로 특정 영상을 제외해 주세요.</p>"
-        "<p><b>품질값 정밀 결정</b>: 6절의 정밀 결정은 본 인코딩 전에 확정 품질값만 정합니다. "
-        "원본(크롭) 해상도 구성과 축소 해상도 구성을 직접 비교해 축소 여부를 뒤집는 축소 비교 판정은 아직 연결하지 않았습니다.</p>"
+        "<p><b>품질값 정밀 결정</b>: 6절의 정밀 결정은 본 인코딩 전에 확정 품질값을 정하고, 이어서 "
+        "원본(크롭) 해상도 구성과 축소 해상도 구성을 같은 구간 표본으로 인코딩해 비교하는 "
+        "원본/축소 해상도 비교를 실행합니다. "
+        "비교는 정밀 결정 대상이면서 축소 후보가 있고 출력 해상도를 직접 지정하지 않은 영상에서만 하며, "
+        "이미 확정한 판정이 기록에 있으면 다시 하지 않습니다. 원본 구성이 이기면 출력 크기를 원본(크롭) 크기로 "
+        "되돌리고 축소 필터를 빼며, 최대 비트레이트를 원본 화소 크기에 규격 상한이 있으면 그 상한과 "
+        f"{MAXRATE_HEADROOM_MULTIPLIER:.1f}배 올림 중 작은 값으로 다시 계산합니다"
+        f"(규격 상한이 없으면 {MAXRATE_HEADROOM_MULTIPLIER:.1f}배 올림 값). "
+        "축소 구성이 이기면 축소를 그대로 씁니다.</p>"
     )
 
 

@@ -5,7 +5,13 @@ from __future__ import annotations
 import html
 
 from src.core.config import ClassifierConfig
-from src.core.quality_target import PROTECT_CQ_OFFSET, format_cq_value, protect_cq_value
+from src.core.quality_target import (
+    MAXRATE_HEADROOM_MULTIPLIER,
+    MAXRATE_ROUND_KBPS,
+    PROTECT_CQ_OFFSET,
+    format_cq_value,
+    protect_cq_value,
+)
 from src.gui.help.glossary_data import GLOSSARY_CATEGORIES, GLOSSARY_TERMS, GlossaryTerm
 from src.gui.help.help_blocks import GAP_HTML, card_html
 from src.gui.styles.palettes import ThemePalette
@@ -49,6 +55,8 @@ def glossary_placeholder_values(config: ClassifierConfig) -> dict[str, str]:
         "baseline_cq": format_cq_value(config.encode.baseline_cq),
         "protect_cq": format_cq_value(protect_cq_value(config.encode.baseline_cq)),
         "protect_offset": format_cq_value(PROTECT_CQ_OFFSET),
+        "maxrate_headroom": f"{MAXRATE_HEADROOM_MULTIPLIER:.1f}",
+        "maxrate_round": str(MAXRATE_ROUND_KBPS),
     }
 
 

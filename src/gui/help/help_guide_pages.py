@@ -8,7 +8,12 @@ from collections.abc import Mapping
 from src.core.config import ClassifierConfig
 from src.core.evaluation.exception_rules import get_exception_syntax_reference
 from src.core.evaluation.size_estimator import DEFAULT_UNKNOWN_KF_SEC
-from src.core.quality_target import format_cq_value, protect_cq_value
+from src.core.quality_target import (
+    MAXRATE_HEADROOM_MULTIPLIER,
+    MAXRATE_ROUND_KBPS,
+    format_cq_value,
+    protect_cq_value,
+)
 from src.core.settings.shortcuts import (
     DEFAULT_SHORTCUTS,
     SHORTCUT_GROUPS,
@@ -213,8 +218,11 @@ def _shipped_features_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         ),
         (
             "최대 비트레이트",
-            "축소와 일반 인코딩 모두 보정 목표 비트레이트의 1.5배를 100k 단위로 올림한 값과 규격 상한 중 작은 값을 씁니다. "
-            "여유가 부족하면 출력 해상도 셀에 <b>최대 BR 근접</b>이 붙습니다.",
+            "축소 인코딩과, 정밀 결정이 원본 해상도를 고른 영상에만 규격 상한과 "
+            f"보정 목표 비트레이트의 {MAXRATE_HEADROOM_MULTIPLIER:.1f}배를 {MAXRATE_ROUND_KBPS}k 단위로 올림한 값 중 작은 값을 "
+            "<code>-maxrate</code>로 씁니다. 크기를 줄이지 않는 일반 인코딩에는 이 상한을 걸지 않습니다. "
+            "축소 후보의 규격 상한이 목표 비트레이트에 근접해 여유가 부족하면(판정 시점의 축소 후보 여유로 계산) "
+            "출력 해상도 셀에 <b>최대 BR 근접</b>이 붙습니다.",
         ),
         (
             "품질값 자동 조정, 정밀 결정",

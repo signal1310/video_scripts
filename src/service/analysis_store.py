@@ -317,14 +317,71 @@ def _entry_to_row(entry: StoredEntry) -> tuple[Any, ...]:
     return tuple(values[name] for name in ALL_COLUMN_NAMES)
 
 
-def root_scope_key(root_dir: str | None) -> str:
-    """조회 키 행에 남길 분석 범위 키(정규화한 작업 폴더 목록), 범위를 모르면 빈 문자열
+def scope_folders(root_spec: str | Sequence[str] | None) -> frozenset[str]:
+    """작업 폴더 범위를 정규화한 절대 경로 집합으로 바꿈
 
-    - 폴더 표기 차이(구분자, 대소문자, 끝 구분자)를 없애 같은 범위가 같은 문자열이 되게 함
+    - 상대 경로와 절대 경로, 구분자, 대소문자 차이를 없애 같은 폴더가 같은 값이 되게 함
     """
-    if not root_dir:
-        return ""
-    return format_root_dirs([os.path.normcase(os.path.normpath(path)) for path in parse_root_dirs(root_dir)])
+    if not root_spec:
+        return frozenset()
+    return frozenset(os.path.normcase(os.path.abspath(path)) for path in parse_root_dirs(root_spec))
+
+
+def root_scope_key(root_dir: str | Sequence[str] | None) -> str:
+    """조회 키 행에 남길 분석 범위 키(정렬한 정규화 절대 경로 목록), 범위를 모르면 빈 문자열
+
+    - 폴더 순서가 달라도, 상대 경로와 절대 경로가 섞여도 같은 범위가 같은 문자열이 되게 함
+    """
+    return format_root_dirs(sorted(scope_folders(root_dir)))
+
+
+def _scope_entries(root_spec: str) -> frozenset[tuple[tuple[str, ...], bool]]:
+    """범위 문자열의 폴더별 (경로 구성 요소, 상대 경로 여부) 집합
+
+    - 절대 경로는 정규화한 경로의 구성 요소를, 옛 상대 경로 표기는 문자열 그대로의 구성 요소를 씀
+    - 상대 경로 표기는 지금 해석하면 현재 폴더 기준이 되므로 저장 당시 표기를 그대로 비교에 씀
+    """
+    entries: set[tuple[tuple[str, ...], bool]] = set()
+    for path in parse_root_dirs(root_spec):
+        relative = not os.path.isabs(path)
+        normalized = os.path.normcase(os.path.normpath(path)) if relative else os.path.normcase(
+            os.path.abspath(path)
+        )
+        parts = tuple(part for part in normalized.replace(os.sep, "/").split("/") if part)
+        entries.add((parts, relative))
+    return frozenset(entries)
+
+
+def _folder_matches(stored: tuple[tuple[str, ...], bool], current: tuple[tuple[str, ...], bool]) -> bool:
+    """저장 폴더 표기가 현재 폴더와 같은 곳인지
+
+    - 절대 경로 표기는 정규화한 경로가 같아야 함
+    - 옛 상대 경로 표기는 그때의 셸 작업 폴더를 알 수 없으므로 경로 끝 구성 요소로 비교(최선 노력)
+    """
+    stored_parts, stored_relative = stored
+    current_parts, current_relative = current
+    if stored_parts == current_parts:
+        return True
+    if not (stored_relative or current_relative) or not stored_parts or not current_parts:
+        return False
+    depth = min(len(stored_parts), len(current_parts))
+    return stored_parts[-depth:] == current_parts[-depth:]
+
+
+def scope_matches(stored_scope: str, scope: str) -> bool:
+    """저장 범위 행이 지금 범위의 작업 폴더를 하나라도 포함하는지
+
+    - 폴더 순서가 다른 옛 표기나 상대 경로로 저장한 옛 표기도 폴더 단위로 비교해 함께 찾음
+    - 여러 폴더를 함께 훑어 저장한 범위는 그중 한 폴더만 지정해도 그 폴더의 파일이므로 함께 봄
+    - 범위가 빈 저장 행은 어느 작업 폴더의 키도 아니므로 여기서 맞지 않는다고 봄
+    """
+    if not stored_scope or not scope:
+        return False
+    current = _scope_entries(scope)
+    return any(
+        _folder_matches(stored, folder) for stored in _scope_entries(stored_scope) for folder in current
+    )
+
 
 
 def _entry_to_legacy_row(entry: StoredEntry, scope: str) -> tuple[Any, ...]:
@@ -377,7 +434,8 @@ LEGACY_UPSERT_SQL: str = (
     f"VALUES (?, ?, ?, ?, ?)"
 )
 DELETE_LEGACY_KEY_SQL: str = (
-    f"DELETE FROM {LEGACY_TABLE_NAME} WHERE filename = ? AND filesize_bytes = ? AND mtime_ns = ?"
+    f"DELETE FROM {LEGACY_TABLE_NAME} "
+    f"WHERE filename = ? AND filesize_bytes = ? AND mtime_ns = ? AND root_scope = ?"
 )
 # - 같은 범위(같은 작업 폴더 목록)의 같은 경로에 다른 파일이 놓이면 그 이름의 옛 키는 지금 파일을 가리키지 않으므로 남기지 않음
 # - 범위를 함께 보아 다른 작업 폴더가 저장한 같은 이름의 키는 지우지 않음(단일 작업 폴더는 접두사 없는 이름이 겹칠 수 있음)
@@ -455,36 +513,92 @@ def _ensure_rebuild_space(conn: sqlite3.Connection) -> None:
         raise sqlite3.OperationalError("분석 캐시 스키마 변환에 필요한 디스크 여유 공간이 부족합니다")
 
 
+def _expected_info(columns: Sequence[ColumnSpec], key_names: Sequence[str]) -> list[ColumnInfo]:
+    """열 정의와 기본 키 구성으로 비교할 (이름, 타입, NOT NULL, PK 순번) 목록"""
+    rows: list[ColumnInfo] = []
+    for col in columns:
+        pk_pos = key_names.index(col.name) + 1 if col.name in key_names else 0
+        rows.append((col.name, col.sql_type, col.not_null or pk_pos > 0, pk_pos))
+    return rows
+
+
+def _table_shape_ok(
+    conn: sqlite3.Connection, table_name: str, columns: Sequence[ColumnSpec], key_names: Sequence[str]
+) -> bool:
+    """표의 열과 기본 키 구성이 기대와 같은지(열 이름만 맞고 키가 다른 반쯤 변환된 표를 걸러 냄)"""
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    if not rows:
+        return False
+    actual = [(str(r[1]), str(r[2]).upper(), bool(r[3]), int(r[5])) for r in rows]
+    return sorted(actual) == sorted(_expected_info(columns, key_names))
+
+
+def _rebuild_table(
+    conn: sqlite3.Connection,
+    table_name: str,
+    columns: Sequence[ColumnSpec],
+    key_names: Sequence[str],
+    source_exprs: Sequence[str] | None,
+) -> None:
+    """표를 현재 구성으로 다시 만들고, 옮길 수 있는 행은 옮김(옮길 수 없으면 빈 표로 둠)"""
+    tmp = f"{table_name}_rebuilt"
+    conn.execute(f"DROP TABLE IF EXISTS {tmp}")
+    conn.execute(_create_table_sql(tmp, columns, key_names))
+    if source_exprs is not None:
+        names = ", ".join(col.name for col in columns)
+        conn.execute(f"INSERT OR IGNORE INTO {tmp} ({names}) SELECT {', '.join(source_exprs)} FROM {table_name}")
+    conn.execute(f"DROP TABLE {table_name}")
+    conn.execute(f"ALTER TABLE {tmp} RENAME TO {table_name}")
+
+
 def _ensure_legacy_scope_column(conn: sqlite3.Connection) -> None:
-    """옛 조회 키 표에 없던 분석 범위 열을 현재 기본 키로 다시 만들어 덧붙임
+    """조회 키 표의 열이나 기본 키가 현재 구성과 다르면 현재 구성으로 다시 만들어 행을 옮김
 
     - 같은 이름의 키가 작업 폴더 범위마다 따로 남아야 하므로 범위 열은 기본 키에 들어감(열만 더할 수 없음)
     - 옛 행의 범위는 알 수 없으므로 빈 문자열. 범위가 빈 키는 어느 작업 폴더의 프루닝에도 걸리지 않음
+    - 범위 열은 있는데 기본 키에 빠진 반쯤 변환된 표도 이 검사로 다시 변환
     """
-    present = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({LEGACY_TABLE_NAME})").fetchall()}
-    if LEGACY_SCOPE_COLUMN.name in present:
+    if _table_shape_ok(conn, LEGACY_TABLE_NAME, LEGACY_COLUMNS, LEGACY_KEY_COLUMN_NAMES):
         return
-    tmp = f"{LEGACY_TABLE_NAME}_migrated"
-    conn.execute(_create_table_sql(tmp, LEGACY_COLUMNS, LEGACY_KEY_COLUMN_NAMES))
-    conn.execute(
-        f"INSERT INTO {tmp} (filename, filesize_bytes, mtime_ns, fingerprint, root_scope) "
-        f"SELECT filename, filesize_bytes, mtime_ns, fingerprint, '' FROM {LEGACY_TABLE_NAME}"
-    )
-    conn.execute(f"DROP TABLE {LEGACY_TABLE_NAME}")
-    conn.execute(f"ALTER TABLE {tmp} RENAME TO {LEGACY_TABLE_NAME}")
+    present = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({LEGACY_TABLE_NAME})").fetchall()}
+    if not present:
+        conn.execute(LEGACY_TABLE_SQL)
+        return
+    names = [col.name for col in LEGACY_COLUMNS]
+    # - 범위 열만 없던 옛 표는 빈 범위로 옮기고, 그 밖의 열이 빠진 표는 행을 쓸 수 없어 비움
+    if set(names) - {LEGACY_SCOPE_COLUMN.name} <= present:
+        exprs: list[str] | None = [name if name in present else "''" for name in names]
+    else:
+        exprs = None
+    _rebuild_table(conn, LEGACY_TABLE_NAME, LEGACY_COLUMNS, LEGACY_KEY_COLUMN_NAMES, exprs)
+
+
+def _ensure_location_shape(conn: sqlite3.Connection) -> None:
+    """위치 표의 열이나 기본 키가 현재 구성과 다르면 현재 구성으로 다시 만들어 행을 옮김"""
+    if _table_shape_ok(conn, LOCATION_TABLE_NAME, LOCATION_COLUMNS, LOCATION_KEY_COLUMN_NAMES):
+        return
+    present = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({LOCATION_TABLE_NAME})").fetchall()}
+    if not present:
+        conn.execute(LOCATION_TABLE_SQL)
+        return
+    names = [col.name for col in LOCATION_COLUMNS]
+    _rebuild_table(conn, LOCATION_TABLE_NAME, LOCATION_COLUMNS, LOCATION_KEY_COLUMN_NAMES, names if set(names) <= present else None)
 
 
 def _ensure_aux_tables(conn: sqlite3.Connection) -> None:
-    """파일명 조회 키 표와 위치 표를 만듬(이미 있으면 그대로 둠)
+    """파일명 조회 키 표와 위치 표를 만들고, 열, 기본 키, 인덱스가 현재 구성과 맞는지 확인
 
     - 조회 키 표를 이번에 새로 만들었다면(옛 내용 행만 있던 DB) 내용 행의 대표 파일명으로 키를 채움
+    - 열만 맞고 키나 인덱스가 빠진 반쯤 변환된 표도 다시 만들어, 조회가 의존하는 구조를 갖추게 함
     """
     legacy_existed = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (LEGACY_TABLE_NAME,)
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? AND sql LIKE '%root_scope%'",
+        (LEGACY_TABLE_NAME,),
     ).fetchone() is not None
     conn.execute(LEGACY_TABLE_SQL)
     _ensure_legacy_scope_column(conn)
     conn.execute(LOCATION_TABLE_SQL)
+    _ensure_location_shape(conn)
     conn.execute(LEGACY_CONTENT_INDEX_SQL)
     conn.execute(LOCATION_CONTENT_INDEX_SQL)
     if not legacy_existed:
@@ -593,15 +707,20 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
 
 def _probe_scope_rows(
     conn: sqlite3.Connection, root_dirs: Sequence[str] | None
-) -> tuple[list[tuple[FileKey, str]], list[LocationRecord]]:
-    """정리 범위의 파일명 조회 키 행과 위치 행 목록(위치는 작업 폴더의 볼륨 접두사로 소속을 판정)"""
+) -> tuple[list[tuple[FileKey, str, str]], list[LocationRecord]]:
+    """정리 범위의 파일명 조회 키 행과 위치 행 목록(위치는 작업 폴더의 볼륨 접두사로 소속을 판정)
+
+    - 키 행은 저장 범위 문자열까지 함께 돌려주어 같은 이름의 다른 범위 행을 지우지 않게 함
+    - 저장 범위가 있는 키는 그 범위로 소속을 판정해, 다른 작업 폴더의 같은 이름 키를 이 범위로 세지 않음
+    """
+    scope = "" if root_dirs is None else root_scope_key(root_dirs)
     owner = None if root_dirs is None else LogicalOwnerResolver(root_dirs)
     legacy = [
-        ((str(name), int(size), int(mtime)), str(fingerprint))
-        for name, size, mtime, fingerprint in conn.execute(
-            f"SELECT filename, filesize_bytes, mtime_ns, fingerprint FROM {LEGACY_TABLE_NAME}"
+        ((str(name), int(size), int(mtime)), str(fingerprint), str(stored_scope))
+        for name, size, mtime, fingerprint, stored_scope in conn.execute(
+            f"SELECT filename, filesize_bytes, mtime_ns, fingerprint, root_scope FROM {LEGACY_TABLE_NAME}"
         )
-        if owner is None or owner.owner(str(name)) is not None
+        if owner is None or _key_in_scope(str(name), str(stored_scope), scope, owner)
     ]
     columns = ", ".join(col.name for col in LOCATION_COLUMNS)
     locations = [_row_to_location(row) for row in conn.execute(f"SELECT {columns} FROM {LOCATION_TABLE_NAME}")]
@@ -609,6 +728,13 @@ def _probe_scope_rows(
         return legacy, locations
     prefixes = [(location.volume_id, location.volume_path) for location in map(volume_location, root_dirs)]
     return legacy, [record for record in locations if _is_location_in_scope(record, prefixes)]
+
+
+def _key_in_scope(name: str, stored_scope: str, scope: str, owner: LogicalOwnerResolver) -> bool:
+    """조회 키 행이 정리 범위에 드는지. 저장 범위가 있으면 그 범위로, 옛 빈 범위 행은 폴더 내용으로 판정"""
+    if stored_scope:
+        return scope_matches(stored_scope, scope)
+    return owner.owner(name) is not None
 
 
 def _is_location_in_scope(record: LocationRecord, prefixes: Sequence[LocationKey]) -> bool:
@@ -620,10 +746,35 @@ def _is_location_in_scope(record: LocationRecord, prefixes: Sequence[LocationKey
     )
 
 
-def _probe_cache_count(legacy: Sequence[tuple[FileKey, str]], locations: Sequence[LocationRecord]) -> int:
+def _probe_cache_count(legacy: Sequence[tuple[FileKey, str, str]], locations: Sequence[LocationRecord]) -> int:
     """정리 범위의 분석 캐시 행 수(파일명 키 행과, 파일명 키로 찾을 수 없는 위치 행을 합침)"""
-    covered = {(size, fingerprint) for (_name, size, _mtime), fingerprint in legacy}
+    covered = {(size, fingerprint) for (_name, size, _mtime), fingerprint, _scope in legacy}
     return len(legacy) + sum(1 for record in locations if (record.filesize_bytes, record.fingerprint) not in covered)
+
+
+def _delete_scoped_keys(conn: sqlite3.Connection, delete_keys: Sequence[FileKey], scope: str) -> None:
+    """파일 식별 키의 조회 키 행 중 주어진 범위의 행과 범위를 모르는 같은 파일 행만 지움
+
+    - 같은 이름, 크기, 수정 시각의 키가 다른 작업 폴더에도 있을 수 있으므로 저장 범위를 함께 확인
+    - 범위를 모르는 옛 행(빈 범위)은 같은 파일이면 함께 지움. 그 밖의 다른 범위 행은 남김
+    - 범위를 주지 않은 호출은 언제나 범위가 빈 같은 파일 행만 지움
+    """
+    if not delete_keys:
+        return
+    for chunk in _chunks(delete_keys, LOOKUP_CHUNK_SIZE):
+        params = [value for key in chunk for value in key]
+        marks = ", ".join("(?, ?, ?)" for _ in chunk)
+        rows = conn.execute(
+            f"SELECT filename, filesize_bytes, mtime_ns, root_scope FROM {LEGACY_TABLE_NAME} "
+            f"WHERE (filename, filesize_bytes, mtime_ns) IN ({marks})",
+            params,
+        ).fetchall()
+        doomed = [
+            (str(name), int(size), int(mtime), str(stored))
+            for name, size, mtime, stored in rows
+            if stored == "" or (scope and scope_matches(str(stored), scope))
+        ]
+        conn.executemany(DELETE_LEGACY_KEY_SQL, doomed)
 
 
 def _delete_location_keys(conn: sqlite3.Connection, keys: Sequence[LocationKey]) -> None:
@@ -784,7 +935,7 @@ class AnalysisStore:
         """지정 파일명 키를 지우고 항목을 내용 행과 조회 키 행에 저장(같은 내용은 최신 측정 값만 유지)
 
         - root_dir은 이번 저장이 분석한 작업 폴더 범위. 같은 이름의 옛 키는 이 범위 안에서만 지움
-        - 범위를 주지 않으면(인코딩 후 행 삭제 등) 범위가 빈 키로 저장되어 프루닝 대상에서 빠짐
+        - 범위를 주지 않으면(범위를 모르는 저장, 인코딩 후 삭제) 같은 이름의 다른 범위 키를 지우지 않음
         """
         if not delete_keys and not entries:
             return
@@ -796,11 +947,7 @@ class AnalysisStore:
 
         def _write(conn: sqlite3.Connection) -> None:
             with transaction(conn):
-                if delete_keys:
-                    conn.executemany(
-                        f"DELETE FROM {LEGACY_TABLE_NAME} WHERE filename = ? AND filesize_bytes = ? AND mtime_ns = ?",
-                        delete_keys,
-                    )
+                _delete_scoped_keys(conn, delete_keys, scope)
                 conn.executemany(CONTENT_UPSERT_SQL, rows)
                 conn.executemany(LEGACY_PRUNE_SQL, prune_rows)
                 conn.executemany(MIGRATED_KEY_PRUNE_SQL, migrated_rows)
@@ -842,11 +989,14 @@ class AnalysisStore:
         return self._run(lambda conn: _probe_cache_count(*_probe_scope_rows(conn, root_dirs)), 0)
 
     def clear_for_roots(self, root_dirs: Sequence[str] | None = None) -> int:
-        """영상 분석 캐시 행과 위치 행을 지우고 지운 행 수 반환(root_dirs를 주면 그 작업 폴더 소속만)"""
+        """영상 분석 캐시 행과 위치 행을 지우고 지운 행 수 반환(root_dirs를 주면 그 작업 폴더 소속만)
+
+        - 같은 이름, 크기, 수정 시각의 키가 다른 작업 폴더에도 있으므로 저장 범위까지 함께 맞춰 지움
+        """
         legacy, locations = self._run(lambda conn: _probe_scope_rows(conn, root_dirs), ([], []))
         if not legacy and not locations:
             return 0
-        keys = [key for key, _fingerprint in legacy]
+        keys = [(*key, scope) for key, _fingerprint, scope in legacy]
         location_keys = [(record.volume_id, record.volume_path) for record in locations]
 
         def _delete(conn: sqlite3.Connection) -> int:

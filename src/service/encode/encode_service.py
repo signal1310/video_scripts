@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 import psutil
 
 from src.core.analysis.prober import resolve_ffprobe_executable
+from src.core.analysis.volume_identity import volume_location
 from src.core.command_history import STAGE_MAIN_ENCODE, command_scope
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_SEPARATE
 from src.core.encode.encode_gate import GatePurpose, GateVerdict, OutputSummary, judge_result, summarize_probe
@@ -44,7 +45,7 @@ from src.core.encode.stream_layout import StreamLayout, parse_stream_layout
 from src.core.encoder_specs import get_encode_codec_family
 from src.core.evaluation.sample_tuner import DECISION_KEEP_DOWNSCALE, DECISION_KEEP_ORIGINAL
 from src.core.exceptions import DomainInterruptedError, DomainRuntimeError, DomainTimeoutError
-from src.service.analysis_store import AnalysisStore
+from src.service.analysis_store import AnalysisStore, compute_fingerprint, root_scope_key, scope_matches
 from src.service.encode import encode_reasons as reasons
 from src.service.encode.encode_early_stop import EarlyStopWatch
 from src.service.encode.encode_events import (
@@ -147,6 +148,7 @@ class EncodeRunner:
         """배치의 대기 항목을 동시 실행하고, 중지하지 않았다면 교체 대기 항목을 다시 시도한 뒤 끝난 배치를 닫음"""
         try:
             with prevent_sleep(self._settings.prevent_sleep):
+                self._drop_content_changed(batch_id)
                 workers = resolve_workers(self._settings, self._cpu_count)
                 with ThreadPoolExecutor(workers) as pool:
                     self._run_pending(pool, batch_id)
@@ -158,6 +160,50 @@ class EncodeRunner:
             self._control.finish()
             if self._owns_output_history:
                 self._output_history.close()
+
+    def _drop_content_changed(self, batch_id: int) -> None:
+        """배치 시작 전에 대상 원본의 내용 지문을 다시 재어, 저장된 지문과 다르면 그 영상을 배치에서 뺌
+
+        - 스캔은 위치, 이름, 크기, 수정 시각만 보므로 같은 크기와 수정 시각으로 내용이 바뀐 파일을 걸러 내지 못함
+        - 바뀐 영상은 저장된 분석과 영상별 지정을 쓰지 않도록 캐시를 지우고 건너뜀(다시 분석해야 함)
+        """
+        if self._store is None:
+            return
+        for row in self._history.list_items(batch_id):
+            if row.state is not EncodeState.PENDING:
+                continue
+            job = job_from_json(row.plan_json)
+            stored = self._stored_fingerprint(job)
+            if stored is None or self._current_fingerprint(job) == stored:
+                continue
+            self._forget_analysis_row(job)
+            location = volume_location(job.source_path)
+            self._store.remove_locations([(location.volume_id, location.volume_path)])
+            self._update(batch_id, row.source_path, {
+                "state": EncodeState.SKIPPED, "reason": reasons.SOURCE_CONTENT_CHANGED, "ended_at": utc_now_iso(),
+            })
+
+    def _stored_fingerprint(self, job: EncodeJob) -> str | None:
+        """저장된 분석 캐시가 이 원본에 대해 기록한 내용 지문(위치 행 우선, 없으면 같은 범위의 이름 키)"""
+        assert self._store is not None
+        location = volume_location(job.source_path)
+        records = self._store.fetch_locations([(location.volume_id, location.volume_path)])
+        if records:
+            return records[0].fingerprint
+        scope = root_scope_key(job.root_dir)
+        for entry in self._store.fetch_by_names([job.filename]):
+            if entry.key != (job.filename, job.source_size, job.source_mtime_ns):
+                continue
+            if not entry.root_scope or scope_matches(entry.root_scope, scope):
+                return entry.fingerprint
+        return None
+
+    def _current_fingerprint(self, job: EncodeJob) -> str | None:
+        """지금 원본 파일의 내용 지문(읽지 못하면 None)"""
+        try:
+            return compute_fingerprint(job.source_path, job.source_size)
+        except OSError:
+            return None
 
     def _run_pending(self, pool: ThreadPoolExecutor, batch_id: int) -> None:
         """대기 항목을 풀에 넣어 실행. 현재 영상 후 중지 때문에 시작하지 못한 항목은 예약이 풀리면 같은 배치에서 다시 넣음"""
@@ -546,9 +592,12 @@ class EncodeRunner:
             self._forget_analysis_row(job)
 
     def _forget_analysis_row(self, job: EncodeJob) -> None:
-        """원본 행을 분석 캐시에서 지워 다음 분석이 결과 파일을 새로 읽게 함"""
+        """원본 행을 분석 캐시에서 지워 다음 분석이 결과 파일을 새로 읽게 함
+
+        - 저장 범위를 함께 넘겨 같은 이름, 크기, 수정 시각의 다른 작업 폴더 행은 남김
+        """
         if self._store is not None:
-            self._store.apply([(job.filename, job.source_size, job.source_mtime_ns)], [])
+            self._store.apply([(job.filename, job.source_size, job.source_mtime_ns)], [], job.root_dir)
 
     def _update(self, batch_id: int, source_path: str, fields: Mapping[str, object]) -> None:
         self._history.update_item(batch_id, source_path, fields)

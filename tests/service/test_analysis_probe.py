@@ -475,6 +475,32 @@ class TestScopeAwareReuse(_ProbeTestCase):
         self.assertEqual([props.width for props in resolved_a], [640])
         self.assertEqual([props.width for props in resolved_b], [1920])
 
+    def test_scanning_one_root_does_not_report_a_rename_from_another_root(self) -> None:
+        """다른 작업 폴더의 같은 크기, 같은 지문 행과 짝지어 이름 변경으로 기록하지 않는지 검증"""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root_a = os.path.join(tmp.name, "a")
+        root_b = os.path.join(tmp.name, "b")
+        os.makedirs(root_a)
+        os.makedirs(root_b)
+        content = b"same-content" * 1024
+        with open(os.path.join(root_a, "a.mp4"), "wb") as handle:
+            handle.write(content)
+        with open(os.path.join(root_b, "b.mp4"), "wb") as handle:
+            handle.write(content)
+        resolved_b = probe_mod.probe_directory_with_store(root_b, include_keyframe=False, store=self.store)
+        self.assertEqual([props.filename for props in resolved_b], ["b.mp4"])
+        self.assertEqual(self.store.count(), 1)
+
+        # - A 폴더의 파일을 새 이름으로 바꿔도 B의 같은 내용 행이 아니라 A의 행만 쓰고 이름 변경으로 기록하지 않아야 함
+        os.rename(os.path.join(root_a, "a.mp4"), os.path.join(root_a, "renamed.mp4"))
+        renamed: dict[str, str] = {}
+        self.recorder.calls.clear()
+        probe_mod.probe_directory_with_store(
+            root_a, include_keyframe=False, store=self.store, renamed_out=renamed
+        )
+        self.assertEqual(renamed, {})
+
 
 class TestStoredRowsScope(unittest.TestCase):
     """판정이 담은 파일 목록 시그니처와 범위 비교를 검증"""

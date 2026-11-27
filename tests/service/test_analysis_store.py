@@ -507,6 +507,41 @@ class TestScopedClear(_StoreTestCase):
         self.assertEqual(self.store.count_table_selections(), 1)
         self.assertEqual(self.store.count_table_selections([self.root_b]), 1)
 
+    def test_same_file_key_in_two_roots_survives_clearing_the_other_root(self) -> None:
+        """같은 이름, 크기, 수정 시각의 파일이 두 작업 폴더에 있으면 A 정리가 B의 캐시를 지우지 않는지 검증"""
+        entry = _entry("clip.mp4", size=100, mtime=1, fp="a" * 32)
+        self.store.apply((), [entry], self.root_a)
+        self.store.apply((), [entry], self.root_b)
+        self.assertEqual(self.store.count(), 2)
+
+        self.assertEqual(self.store.clear_for_roots([self.root_a]), 1)
+
+        self.assertEqual(self.store.count(), 1)
+        self.assertEqual(
+            [hit.root_scope for hit in self.store.fetch_by_names(["clip.mp4"])],
+            [store_mod.root_scope_key(self.root_b)],
+        )
+
+    def test_forgetting_a_key_after_encode_leaves_the_other_root(self) -> None:
+        """인코딩 뒤 A의 키를 잊어도 같은 파일 키를 가진 B의 캐시 행은 남는지 검증"""
+        entry = _entry("clip.mp4", size=100, mtime=1, fp="a" * 32)
+        self.store.apply((), [entry], self.root_a)
+        self.store.apply((), [entry], self.root_b)
+
+        self.store.apply([("clip.mp4", 100, 1)], [], self.root_a)
+
+        self.assertEqual(self.store.count(), 1)
+        self.assertEqual(
+            self.store.fetch_by_names(["clip.mp4"])[0].root_scope,
+            store_mod.root_scope_key(self.root_b),
+        )
+
+    def test_forgetting_a_key_without_scope_leaves_scoped_rows(self) -> None:
+        """삭제 범위를 모르는 호출(빈 범위)은 범위가 있는 키를 지우지 않는지 검증"""
+        self.store.apply((), [_entry("clip.mp4", size=100, mtime=1, fp="a" * 32)], self.root_a)
+        self.store.apply([("clip.mp4", 100, 1)], [])
+        self.assertEqual(self.store.count(), 1)
+
 
 class TestContentAndLocationRows(_StoreTestCase):
     """내용 행과 위치 행: 같은 내용이 두 폴더에 있으면 내용 행 하나, 위치 행 둘, 같은 경로 교체는 위치 행 갱신"""
@@ -617,6 +652,129 @@ class TestContentAndLocationRows(_StoreTestCase):
             self.store.apply((), [older])
         hit = self.store.fetch_by_names(["a.mp4"])[0]
         self.assertEqual((hit.props.width, hit.probe_version), (3840, store_mod.PROBE_VERSION))
+
+
+class TestScopeKeyForm(TestScopedClear):
+    """범위 문자열이 폴더 순서와 상대/절대 표기에 흔들리지 않고 옛 표기 행도 찾는지 검증"""
+
+    def test_scope_key_ignores_root_order_and_relative_paths(self) -> None:
+        """폴더 순서나 상대 경로가 달라도 같은 작업 폴더 범위가 같은 문자열이 되는지 검증"""
+        cwd = os.getcwd()
+        try:
+            os.chdir(os.path.dirname(self.root_a))
+            relative_a = os.path.basename(self.root_a)
+            self.assertEqual(store_mod.root_scope_key(self.root_a), store_mod.root_scope_key(relative_a))
+        finally:
+            os.chdir(cwd)
+        forward = store_mod.root_scope_key(f"{self.root_a};{self.root_b}")
+        backward = store_mod.root_scope_key(f"{self.root_b};{self.root_a}")
+        self.assertEqual(forward, backward)
+        self.assertNotEqual(forward, store_mod.root_scope_key(self.root_a))
+
+    def test_old_scope_form_rows_are_still_found_and_pruned(self) -> None:
+        """옛 표기(폴더 순서, 상대 경로)로 저장한 범위 행도 현재 범위로 찾아 지우는지 검증"""
+        self.store.apply((), [_entry("clip.mp4", size=100, mtime=1, fp="a" * 32)], self.root_b)
+        cwd = os.getcwd()
+        try:
+            os.chdir(os.path.dirname(self.root_a))
+            old_scope = store_mod.format_root_dirs(
+                [os.path.basename(self.root_b), os.path.basename(self.root_a)]
+            )
+        finally:
+            os.chdir(cwd)
+        self.store.count()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                f"UPDATE {LEGACY_TABLE_NAME} SET root_scope = ? WHERE filename = ?",
+                (old_scope, "clip.mp4"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.assertEqual([hit.root_scope for hit in self.store.fetch_by_names(["clip.mp4"])], [old_scope])
+        self.assertEqual(self.store.count_for_roots([self.root_a]), 1)
+        self.assertEqual(self.store.clear_for_roots([self.root_a]), 1)
+        self.assertEqual(self.store.count(), 0)
+
+
+class TestSchemaShapeCheck(_StoreTestCase):
+    """열만 맞고 기본 키나 인덱스가 빠진 반쯤 변환된 표도 다시 변환하는지 검증"""
+
+    def test_legacy_table_with_columns_but_old_key_is_rebuilt(self) -> None:
+        """범위 열은 있지만 기본 키에 빠진 조회 키 표를 다시 만들어 행을 보존하는지 검증"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(store_mod.CONTENT_TABLE_SQL)
+            conn.execute(store_mod.LOCATION_TABLE_SQL)
+            conn.execute(
+                f"CREATE TABLE {LEGACY_TABLE_NAME} (filename TEXT NOT NULL, filesize_bytes INTEGER NOT NULL, "
+                "mtime_ns INTEGER NOT NULL, fingerprint TEXT NOT NULL, root_scope TEXT NOT NULL, "
+                "PRIMARY KEY (filename, filesize_bytes, mtime_ns)) WITHOUT ROWID"
+            )
+            conn.execute(f"INSERT INTO {LEGACY_TABLE_NAME} VALUES ('kept.mp4', 100, 1, 'fp', 'scope')")
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.commit()
+        finally:
+            conn.close()
+
+        self.store.count()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            pk = [row[1] for row in conn.execute(f"PRAGMA table_info({LEGACY_TABLE_NAME})") if row[5] > 0]
+            rows = conn.execute(f"SELECT filename, root_scope FROM {LEGACY_TABLE_NAME}").fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(pk, list(store_mod.LEGACY_KEY_COLUMN_NAMES))
+        self.assertEqual(rows, [("kept.mp4", "scope")])
+
+    def test_missing_legacy_index_is_recreated(self) -> None:
+        """열과 키는 맞지만 인덱스가 빠진 표는 열 때 인덱스를 다시 만드는지 검증"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(store_mod.CONTENT_TABLE_SQL)
+            conn.execute(store_mod.LEGACY_TABLE_SQL)
+            conn.execute(store_mod.LOCATION_TABLE_SQL)
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.commit()
+        finally:
+            conn.close()
+
+        self.store.count()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            indexes = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        finally:
+            conn.close()
+        self.assertIn(LEGACY_INDEX_NAME, indexes)
+        self.assertIn(LOCATION_INDEX_NAME, indexes)
+
+    def test_location_table_with_old_key_is_rebuilt(self) -> None:
+        """위치 표의 기본 키가 다르면 다시 만들어 같은 열의 행을 보존하는지 검증"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(store_mod.CONTENT_TABLE_SQL)
+            conn.execute(store_mod.LEGACY_TABLE_SQL)
+            conn.execute(
+                f"CREATE TABLE {LOCATION_TABLE_NAME} (volume_id TEXT NOT NULL, volume_path TEXT NOT NULL, "
+                "filesize_bytes INTEGER NOT NULL, mtime_ns INTEGER NOT NULL, fingerprint TEXT NOT NULL, "
+                "PRIMARY KEY (volume_id)) WITHOUT ROWID"
+            )
+            conn.execute(f"INSERT INTO {LOCATION_TABLE_NAME} VALUES ('vol:0011', 'videos/a.mp4', 100, 1, 'fp')")
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.commit()
+        finally:
+            conn.close()
+
+        self.store.count()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            pk = [row[1] for row in conn.execute(f"PRAGMA table_info({LOCATION_TABLE_NAME})") if row[5] > 0]
+            rows = conn.execute(f"SELECT volume_path FROM {LOCATION_TABLE_NAME}").fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(pk, list(store_mod.LOCATION_KEY_COLUMN_NAMES))
+        self.assertEqual(rows, [("videos/a.mp4",)])
 
 
 if __name__ == "__main__":

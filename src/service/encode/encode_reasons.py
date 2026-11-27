@@ -8,6 +8,7 @@ from src.core.encode.encode_gate import GateVerdict
 from src.core.encode.encode_state import EncodeState
 
 SOURCE_CHANGED: str = "원본 변경 또는 없음"
+SOURCE_CONTENT_CHANGED: str = "원본 내용이 바뀌어 다시 분석해야 합니다"
 NO_DISK_SPACE: str = "공간 부족"
 NO_PRIMARY_VIDEO: str = "주 영상 스트림이 없음"
 INTERLACED: str = "인터레이스 원본"

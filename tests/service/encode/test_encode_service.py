@@ -57,6 +57,7 @@ from src.service.encode.encode_reasons import (
     PART_LEFT,
     REPLACE_FORFEITED,
     SAMPLE_PREDICT_REASON,
+    SOURCE_CONTENT_CHANGED,
 )
 from src.service.encode.encode_resume import find_unrecorded_parts, prepare_resume
 from src.service.encode.encode_service import EncodeRunner
@@ -315,6 +316,7 @@ class _ServiceCase(unittest.TestCase):
         encoder: _FakeEncoder | None = None,
         clock: Any = None,
         tuner: Any = None,
+        store: Any = None,
     ) -> EncodeRunner:
         runner = EncodeRunner(
             self.history,
@@ -322,6 +324,7 @@ class _ServiceCase(unittest.TestCase):
             probe=probe if probe is not None else _FakeProbe(),
             process_factory=(encoder if encoder is not None else _FakeEncoder()).factory,
             on_event=self.events.append,
+            store=store,
             cpu_count=1,
             clock=clock if clock is not None else time.monotonic,
         )
@@ -972,6 +975,81 @@ class TestXtraFallbackAndTimerCoverage(_ServiceCase):
         self.assertIs(item.state, EncodeState.FAILED)
         self.assertIn("결과 태그 기록 실패", item.reason)
         self.assertFalse(os.path.exists(path + ".part"))
+
+
+class TestContentFingerprintGate(_ServiceCase):
+    """배치 시작 시 원본 내용 지문을 다시 재어 같은 크기, 수정 시각으로 내용이 바뀐 영상을 걸러 내는지 검증"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._stores: list[Any] = []
+
+    def tearDown(self) -> None:
+        for store in self._stores:
+            store.close()
+        super().tearDown()
+
+    def _analysis_store(self) -> Any:
+        from src.core.analysis.volume_identity import volume_location
+        from src.service.analysis_store import AnalysisStore, LocationRecord, StoredEntry, compute_fingerprint
+
+        store = AnalysisStore(os.path.join(self._tmp.name, "analysis", "video_cache.sqlite3"))
+        self._stores.append(store)
+        self._store_mod = (AnalysisStore, LocationRecord, StoredEntry, compute_fingerprint, volume_location)
+        return store
+
+    def _record(self, store: Any, path: str) -> None:
+        """주어진 원본의 지금 내용 지문을 이름 키와 위치 행으로 저장"""
+        _store_cls, location_cls, entry_cls, fingerprint_of, volume_of = self._store_mod
+        from tests._factories import make_video
+
+        stat = os.stat(path)
+        fingerprint = fingerprint_of(path, stat.st_size)
+        job = self._job(path)
+        store.apply(
+            (),
+            [entry_cls(job.filename, stat.st_size, stat.st_mtime_ns, fingerprint, make_video(filename=job.filename))],
+            job.root_dir,
+        )
+        location = volume_of(path)
+        store.record_locations(
+            [location_cls(location.volume_id, location.volume_path, stat.st_size, stat.st_mtime_ns, fingerprint)]
+        )
+
+    def test_unchanged_source_is_encoded_as_before(self) -> None:
+        """지문이 저장 값과 같으면 평소처럼 인코딩하는지 검증"""
+        path = self._source()
+        store = self._analysis_store()
+        self._record(store, path)
+
+        item = self._run_with_store(path, store)
+
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertNotEqual(item.reason, SOURCE_CONTENT_CHANGED)
+
+    def test_rewritten_source_with_same_size_and_mtime_is_excluded(self) -> None:
+        """같은 크기와 수정 시각으로 내용을 바꾼 원본은 배치에서 빠지고 알림 사유를 남기는지 검증"""
+        path = self._source()
+        store = self._analysis_store()
+        self._record(store, path)
+        original_mtime = os.stat(path).st_mtime_ns
+        with open(path, "wb") as handle:
+            handle.write(b"t" * SOURCE_BYTES)
+        os.utime(path, ns=(original_mtime, original_mtime))
+
+        item = self._run_with_store(path, store)
+
+        self.assertIs(item.state, EncodeState.SKIPPED)
+        self.assertEqual(item.reason, SOURCE_CONTENT_CHANGED)
+        self.assertEqual(store.count(), 0)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+
+    def _run_with_store(self, path: str, store: Any) -> ItemRow:
+        settings = self._settings()
+        batch_id = create_batch(self.history, settings, self.root, [self._job(path)])
+        self._runner(settings, store=store).run(batch_id)
+        return self.history.list_items(batch_id)[0]
+
 
 
 class TestOutputHistoryIntegration(_ServiceCase):

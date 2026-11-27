@@ -39,6 +39,7 @@ from src.service.analysis_store import (
     StoredEntry,
     compute_fingerprint,
     root_scope_key,
+    scope_matches,
 )
 
 logger = logging.getLogger(__name__)
@@ -444,14 +445,15 @@ def _scope_index(stored: Sequence[StoredEntry], root_dir: str) -> dict[tuple[str
     """식별 키별로 지금 작업 폴더 범위의 행을 고르고, 없으면 범위를 모르는 옛 행을 고름
 
     - 같은 이름, 크기, 수정 시각의 키가 작업 폴더마다 따로 있을 수 있어 범위가 다른 행은 다른 파일이므로 쓰지 않음
+    - 옛 표기(폴더 순서가 다르거나 상대 경로로 저장한 범위)도 폴더 단위로 비교해 함께 찾음
     """
     scope = root_scope_key(root_dir)
     index: dict[tuple[str, int, int], StoredEntry] = {}
     for entry in stored:
-        if entry.root_scope not in ("", scope):
+        if entry.root_scope and not scope_matches(entry.root_scope, scope):
             continue
         current = index.get(entry.key)
-        if current is None or current.root_scope != scope:
+        if current is None or (current.root_scope != scope and entry.root_scope == scope):
             index[entry.key] = entry
     return index
 
@@ -634,9 +636,13 @@ def _resolve_by_fingerprint(
     known = dict(known_fingerprints or {})
     if not pending:
         return {}, [], known
+    scope = root_scope_key(root_dir)
     candidates = store.fetch_by_sizes([entry.filesize_bytes for entry in pending])
     by_size: dict[int, list[StoredEntry]] = {}
     for candidate in candidates:
+        # - 훑는 범위 밖 작업 폴더의 같은 크기 행과 짝지으면 다른 파일을 이름 변경으로 기록하므로 범위 행만 씀
+        if candidate.root_scope and not scope_matches(candidate.root_scope, scope):
+            continue
         if _is_reusable(candidate, include_keyframe):
             by_size.setdefault(candidate.filesize_bytes, []).append(candidate)
 

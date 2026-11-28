@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import patch
 
 from src.core.analysis.volume_identity import VolumeLocation
+from src.core.exceptions import DomainInterruptedError
 from src.core.models import VideoProps
 from src.service import analysis_probe as probe_mod
 from src.service.analysis_store import AnalysisStore, compute_fingerprint
@@ -551,6 +552,72 @@ class TestStoredRowsScope(unittest.TestCase):
             stored.covers("C:/other", recursive=False, excluded_dirnames=("archive",))
         )
         self.assertFalse(stored.covers("C:/work", recursive=False, excluded_dirnames=()))
+
+
+class TestLookupCancellation(_ProbeTestCase):
+    """취소 표시가 있을 때 조회 단계가 파일 읽기를 멈추고 저장하지 않는지 검증"""
+
+    def _populate_and_rename(self, count: int) -> None:
+        for i in range(count):
+            self._write(f"f{i}.mp4", _CONTENT_A)
+        self._scan()
+        for i in range(count):
+            os.rename(
+                os.path.join(self.root, f"f{i}.mp4"),
+                os.path.join(self.root, f"r{i}.mp4"),
+            )
+
+    def test_cancel_during_fingerprint_lookup_stops_reading_and_writes_nothing(self) -> None:
+        """지문 계산 중 취소되면 남은 파일을 읽지 않고 오류를 내며 저장하지 않는지 검증"""
+        self._populate_and_rename(20)
+        cancelled = [False]
+        reads = [0]
+
+        def counting_fingerprint(path: str, filesize_bytes: int) -> str:
+            reads[0] += 1
+            cancelled[0] = True
+            return compute_fingerprint(path, filesize_bytes)
+
+        def no_write_after_cancel(*_args: Any, **_kwargs: Any) -> None:
+            if cancelled[0]:
+                raise AssertionError("취소 후 쓰면 안 됨")
+
+        with (
+            patch.object(probe_mod, "compute_fingerprint", side_effect=counting_fingerprint),
+            patch.object(self.store, "apply", side_effect=no_write_after_cancel),
+            patch.object(self.store, "remove_locations", side_effect=no_write_after_cancel),
+            patch.object(self.store, "record_locations", side_effect=no_write_after_cancel),
+            self.assertRaises(DomainInterruptedError),
+        ):
+            probe_mod.probe_directory_with_store(
+                self.root,
+                include_keyframe=False,
+                store=self.store,
+                is_cancelled=lambda: cancelled[0],
+            )
+        self.assertLess(reads[0], 20)
+
+    def test_cancel_flag_raised_before_fingerprint_stage_skips_reads(self) -> None:
+        """단계 사이 취소 검사로 지문 계산에 들어가지 않는지 검증"""
+        self._populate_and_rename(3)
+        with (
+            patch.object(
+                probe_mod,
+                "compute_fingerprint",
+                side_effect=AssertionError("취소된 조회는 파일을 읽으면 안 됨"),
+            ),
+            patch.object(self.store, "apply", side_effect=AssertionError("취소 후 쓰면 안 됨")),
+            patch.object(
+                self.store, "record_locations", side_effect=AssertionError("취소 후 쓰면 안 됨")
+            ),
+            self.assertRaises(DomainInterruptedError),
+        ):
+            probe_mod.probe_directory_with_store(
+                self.root,
+                include_keyframe=False,
+                store=self.store,
+                is_cancelled=lambda: True,
+            )
 
 
 class TestStoreFailureFallback(_ProbeTestCase):

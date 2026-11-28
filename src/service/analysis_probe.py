@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable, Collection, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 
 from src.core.analysis.file_manager import resolve_video_filepath, scan_video_stats
@@ -23,7 +23,13 @@ from src.core.analysis.probe_version_rules import (
 from src.core.analysis.prober import FFPROBE_EXECUTABLE_DEFAULT, CancelCheck, ProgressCallback, probe_files
 from src.core.analysis.storage_probe import concurrency_limit, default_worker_count, probe_storage
 from src.core.analysis.volume_identity import volume_location
-from src.core.messages import format_analysis_summary, format_lookup_summary, format_storage_kind
+from src.core.exceptions import DomainInterruptedError, ErrorCode
+from src.core.messages import (
+    MSG_ANALYSIS_CANCELLED,
+    format_analysis_summary,
+    format_lookup_summary,
+    format_storage_kind,
+)
 from src.core.models import VideoProps
 from src.core.probe_parser import (
     PROBE_VERSION,
@@ -127,12 +133,14 @@ def probe_directory_with_store(
         located, pending, upgraded, carried, known = _resolve_by_location(
             store, entries, locations, include_keyframe
         )
+        _raise_if_cancelled(is_cancelled)
         tier_hits.location = len(located)
         resolved.update(located)
         fingerprints.update(known)
         named, pending, name_upgraded, carried, known = _resolve_by_name(
             store, root_dir, pending, include_keyframe, _prescan_rows(prescan), carried
         )
+        _raise_if_cancelled(is_cancelled)
         tier_hits.name = len(named)
         resolved.update(named)
         fingerprints.update(known)
@@ -144,6 +152,7 @@ def probe_directory_with_store(
             include_keyframe,
             known_fingerprints=fingerprints,
             renamed_out=renamed_out,
+            is_cancelled=is_cancelled,
         )
         tier_hits.fingerprint = len(moved)
         resolved.update(moved)
@@ -620,6 +629,12 @@ def _resolve_by_name(
     return resolved, pending, upgraded, carried_values, fingerprints
 
 
+def _raise_if_cancelled(is_cancelled: CancelCheck) -> None:
+    """취소 표시가 있으면 분석 중단 오류를 냄(probe_files와 같은 오류로 호출자 호환)"""
+    if is_cancelled is not None and is_cancelled():
+        raise DomainInterruptedError(MSG_ANALYSIS_CANCELLED, code=ErrorCode.WORK_CANCELLED)
+
+
 def _resolve_by_fingerprint(
     store: AnalysisStore,
     root_dir: str,
@@ -628,6 +643,7 @@ def _resolve_by_fingerprint(
     *,
     known_fingerprints: Mapping[str, str] | None = None,
     renamed_out: dict[str, str] | None = None,
+    is_cancelled: CancelCheck = None,
 ) -> tuple[dict[str, VideoProps], list[FileEntry], dict[str, str]]:
     """이름이 바뀐 파일을 같은 크기 후보의 내용 지문으로 찾아 결과와 지문을 돌려줌
 
@@ -649,7 +665,7 @@ def _resolve_by_fingerprint(
     missing = [
         entry for entry in pending if entry.filename not in known and entry.filesize_bytes in by_size
     ]
-    fingerprints = {**known, **_fingerprints_for(root_dir, missing)}
+    fingerprints = {**known, **_fingerprints_for(root_dir, missing, is_cancelled)}
 
     resolved: dict[str, VideoProps] = {}
     moved: list[tuple[StoredEntry, FileEntry]] = []
@@ -706,7 +722,9 @@ def _stale_location_keys(root_dir: str, moved: Sequence[tuple[StoredEntry, FileE
     return stale
 
 
-def _fingerprint_or_none(root_dir: str, entry: FileEntry) -> str | None:
+def _fingerprint_or_none(root_dir: str, entry: FileEntry, is_cancelled: CancelCheck = None) -> str | None:
+    if is_cancelled is not None and is_cancelled():
+        return None
     path = resolve_source_filepath(root_dir, entry.filename)
     try:
         return compute_fingerprint(path, entry.filesize_bytes)
@@ -723,20 +741,27 @@ def _fingerprint_workers(root_dir: str) -> int:
     return workers if limit is None else min(workers, limit)
 
 
-def _fingerprints_for(root_dir: str, entries: Sequence[FileEntry]) -> dict[str, str]:
+def _fingerprints_for(
+    root_dir: str, entries: Sequence[FileEntry], is_cancelled: CancelCheck = None
+) -> dict[str, str]:
     """여러 파일의 내용 지문을 병렬로 계산하며, 읽지 못한 파일은 결과에서 제외
 
     - 파일 읽기는 GIL을 풀어 주므로 스레드 풀을 사용
+    - 취소 표시가 있으면 남은 파일을 맡기지 않고 즉시 중단 오류를 냄
     """
     if not entries:
         return {}
+    digests: dict[str, str | None] = {}
     with ThreadPoolExecutor(_fingerprint_workers(root_dir)) as pool:
-        digests = list(pool.map(lambda entry: _fingerprint_or_none(root_dir, entry), entries))
-    return {
-        entry.filename: digest
-        for entry, digest in zip(entries, digests, strict=True)
-        if digest is not None
-    }
+        futures: list[tuple[FileEntry, Future[str | None]]] = []
+        for entry in entries:
+            _raise_if_cancelled(is_cancelled)
+            future = pool.submit(_fingerprint_or_none, root_dir, entry, is_cancelled)
+            futures.append((entry, future))
+        for entry, future in futures:
+            digests[entry.filename] = future.result()
+    _raise_if_cancelled(is_cancelled)
+    return {filename: digest for filename, digest in digests.items() if digest is not None}
 
 
 def _store_fresh(

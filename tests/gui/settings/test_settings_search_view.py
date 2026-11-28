@@ -20,7 +20,7 @@ _LABELS = {0: "일반", 1: "해상도 및 분석", 2: "판별 기준", 3: "인�
 
 def _matches() -> list[SearchEntry]:
     return [
-        SearchEntry("analysis.encode.crop_black_bars", 1, "검은 여백 잘라내기", "검은 여백 잘라내기 화질 분석"),
+        SearchEntry("analysis.encode.crop_black_bars", 1, "화면 여백 잘라내기", "화면 여백 잘라내기 화질 분석"),
         SearchEntry("analysis.encode.roundtrip_vmaf_threshold", 1, "축소 후보 VMAF 기준", "축소 후보 VMAF 기준"),
     ]
 
@@ -45,7 +45,7 @@ class TestSearchResultsView(unittest.TestCase):
 
         buttons = self._buttons()
         self.assertEqual(len(buttons), 2)
-        self.assertIn("검은 여백 잘라내기", buttons[0].text())
+        self.assertIn("화면 여백 잘라내기", buttons[0].text())
         self.assertIn("해상도 및 분석", buttons[0].text())
         self.assertIn("전체 결과 2개", self._labels()[0].text())
         for button in buttons:

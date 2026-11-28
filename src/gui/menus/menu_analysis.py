@@ -99,18 +99,18 @@ def build_analysis_menu(
         status_tip="모든 영상의 활성 화면과 축소 후보를 화질 분석합니다.",
     )
     act_crop_scan_selected = ctx.create_action(
-        "선택 영상 검은 여백 감지",
+        "선택 영상 여백 감지",
         lambda: None,
         action_id="analyze.crop_selected",
         icon_name="crop",
-        status_tip="선택한 영상의 검은 여백을 빠르게 감지합니다.",
+        status_tip="선택한 영상의 화면 여백을 빠르게 감지합니다.",
     )
     act_crop_scan_all = ctx.create_action(
-        "전체 영상 검은 여백 감지",
+        "전체 영상 여백 감지",
         lambda: None,
         action_id="analyze.crop_all",
         icon_name="crop",
-        status_tip="모든 영상의 검은 여백을 빠르게 감지합니다.",
+        status_tip="모든 영상의 화면 여백을 빠르게 감지합니다.",
     )
     analyze_menu.addAction(act_analyze_default)
     analyze_menu.addAction(act_analyze_fast)

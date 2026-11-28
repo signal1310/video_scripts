@@ -48,11 +48,11 @@ _CHIP_GAP_PX: int = 8
 
 ENCODE_WINDOW_TIP: str = "인코딩 창을 엽니다."
 FRAME_ANALYSIS_STATUS_PREFIX: str = "화질 분석 진행 중..."
-CROP_SCAN_STATUS_PREFIX: str = "검은 여백 감지 진행 중..."
+CROP_SCAN_STATUS_PREFIX: str = "여백 감지 진행 중..."
 FRAME_ANALYSIS_CANCEL_TIP: str = "진행 중인 화질 분석을 중단합니다."
-CROP_SCAN_CANCEL_TIP: str = "진행 중인 검은 여백 감지를 중단합니다."
+CROP_SCAN_CANCEL_TIP: str = "진행 중인 여백 감지를 중단합니다."
 FRAME_ANALYSIS_CANCEL_NAME: str = "화질 분석 중단"
-CROP_SCAN_CANCEL_NAME: str = "검은 여백 감지 중단"
+CROP_SCAN_CANCEL_NAME: str = "여백 감지 중단"
 
 
 class EncodeFooterChip(QFrame, ThemeAwareMixin):

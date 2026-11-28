@@ -1,4 +1,4 @@
-"""화질 분석, 검은 여백 감지 대상 선정과 요청 생성 규칙 검증"""
+"""화질 분석, 여백 감지 대상 선정과 요청 생성 규칙 검증"""
 
 import os
 import tempfile
@@ -20,7 +20,7 @@ from tests._factories import make_eval, make_video
 
 
 class SkipRuleTests(unittest.TestCase):
-    """자동 화질 분석, 검은 여백 감지에서 건너뛸 영상 판정 검증"""
+    """자동 화질 분석, 여백 감지에서 건너뛸 영상 판정 검증"""
 
     def test_skip_rules_cover_exception_encoded_hdr_manual_and_interlaced(self) -> None:
         """예외 규칙, 이미 인코딩, HDR, 인터레이스, 직접 지정 영상은 자동 대상에서 빠짐"""
@@ -46,7 +46,7 @@ class SkipRuleTests(unittest.TestCase):
         self.assertTrue(skip_for_crop_scan(interlaced))
 
     def test_crop_scan_skip_rules_keep_manual_target_videos(self) -> None:
-        """검은 여백 감지는 직접 지정 영상을 건너뛰지 않고 보존 대상과 인터레이스만 제외"""
+        """여백 감지는 직접 지정 영상을 건너뛰지 않고 보존 대상과 인터레이스만 제외"""
         manual = make_eval(manual_target="720p")
         self.assertFalse(skip_for_crop_scan(manual))
         self.assertFalse(skip_for_crop_scan(make_eval(manual_target="keep")))
@@ -123,7 +123,7 @@ class TargetNoticeTextTests(unittest.TestCase):
 
     def test_notice_texts_name_each_target_kind(self) -> None:
         self.assertIn("화질 분석 대상이 없습니다", NO_FRAME_TARGETS_TEXT)
-        self.assertIn("검은 여백 감지 대상이 없습니다", NO_CROP_TARGETS_TEXT)
+        self.assertIn("여백 감지 대상이 없습니다", NO_CROP_TARGETS_TEXT)
 
 
 if __name__ == "__main__":

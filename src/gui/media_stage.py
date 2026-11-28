@@ -30,9 +30,9 @@ STAGE_BACKGROUND_LABELS: dict[str, str] = {
     PREVIEW_BACKGROUND_WHITE: "흰색",
 }
 # - 사용자 승인 문구(TERMINOLOGY.md 4.5절)는 이 한 곳에서만 관리
-STAGE_BACKGROUND_TIP: str = "영상 뒤 배경 색을 바꿉니다. 밝은 배경에서는 검은 여백이 잘 보입니다."
+STAGE_BACKGROUND_TIP: str = "영상 뒤 배경 색을 바꿉니다. 밝은 배경에서는 화면 여백이 잘 보입니다."
 STAGE_BACKGROUND_SHORTCUT_DESCRIPTION: str = "영상 뒤 배경 색을 검정, 회색, 흰색 순서로 바꿉니다."
-STAGE_FRAME_OUTLINE_TIP: str = "영상 바깥 경계에 점선을 그립니다. 검은 배경에서도 검은 여백이 어디까지인지 보입니다."
+STAGE_FRAME_OUTLINE_TIP: str = "영상 바깥 경계에 점선을 그립니다. 검은 배경에서도 화면 여백이 어디까지인지 보입니다."
 
 
 def stage_color(palette: ThemePalette, background: str) -> str:

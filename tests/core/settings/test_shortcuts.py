@@ -106,7 +106,7 @@ class CropPreviewShortcutTests(unittest.TestCase):
         self.assertEqual(spec.group_key, "preview")
         self.assertEqual(spec.label, "여백 미리 보기")
         self.assertEqual(spec.default_key, "B")
-        self.assertEqual(spec.description, "인코딩할 때 잘라낼 검은 여백을 영상 위에 표시합니다.")
+        self.assertEqual(spec.description, "인코딩할 때 잘라낼 화면 여백을 영상 위에 표시합니다.")
         self.assertEqual(DEFAULT_SHORTCUTS["preview.toggle_crop"], "B")
         owners = [action_id for action_id, key in DEFAULT_SHORTCUTS.items() if key == "B"]
         self.assertEqual(owners, ["preview.toggle_crop"])

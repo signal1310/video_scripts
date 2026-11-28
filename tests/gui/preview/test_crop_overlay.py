@@ -241,7 +241,7 @@ class CropOverlayWidgetTests(GuiTestCase):
     def test_marks_over_the_video_keep_the_dark_stage_contrast(self) -> None:
         """무대 색과 무관하게 영상 위 표시는 검정 배경 기준 잉크와 경고색을 쓰는지 검증
 
-        - 겹침 창은 영상 위젯 영역에만 놓이므로 회색, 흰색 무대에서도 검은 여백 위에 그려짐
+        - 겹침 창은 영상 위젯 영역에만 놓이므로 회색, 흰색 무대에서도 화면 여백 위에 그려짐
         """
         self.assertEqual(OVERLAY_WARN_COLOR, DARK_PALETTE.fg_maxrate_warn)
         self.assertEqual(OVERLAY_INK_COLOR, DARK_PALETTE.media_fg)
@@ -250,7 +250,7 @@ class CropOverlayWidgetTests(GuiTestCase):
         self.overlay.set_crop(rects)
         image = self.overlay.grab().toImage()
         largest = max(rects.cuts, key=lambda rect: rect.width() * rect.height())
-        # - 잘림 글자는 가장 넓은 검은 여백 가운데에 밝은 잉크로 그려짐
+        # - 잘림 글자는 가장 넓은 화면 여백 가운데에 밝은 잉크로 그려짐
         center = largest.center()
         nearby = [
             image.pixelColor(center.x() + dx, center.y() + dy).name().upper()
@@ -281,7 +281,7 @@ class CropButtonTests(GuiTestCase):
     def test_button_has_accessible_name_and_approved_tooltip(self) -> None:
         button = self.controls.crop_button
         self.assertEqual(button.accessibleName(), "여백 미리 보기")
-        self.assertEqual(button.toolTip(), "인코딩할 때 잘라낼 검은 여백을 영상 위에 표시합니다.")
+        self.assertEqual(button.toolTip(), "인코딩할 때 잘라낼 화면 여백을 영상 위에 표시합니다.")
         self.assertEqual(button.objectName(), "PreviewCropButton")
         self.assertTrue(button.isCheckable())
         self.assertFalse(button.icon().isNull())
@@ -296,7 +296,7 @@ class CropButtonTests(GuiTestCase):
         self.assertEqual(button.icon().pixmap(16, 16).toImage(), self._icon_image("crop-off"))
         button.setChecked(False)
         self.assertEqual(button.accessibleName(), "여백 미리 보기")
-        self.assertEqual(button.toolTip(), "인코딩할 때 잘라낼 검은 여백을 영상 위에 표시합니다.")
+        self.assertEqual(button.toolTip(), "인코딩할 때 잘라낼 화면 여백을 영상 위에 표시합니다.")
         self.assertEqual(button.icon().pixmap(16, 16).toImage(), self._icon_image("crop"))
 
     def test_theme_refresh_keeps_the_icon_for_the_checked_state(self) -> None:
@@ -316,7 +316,7 @@ class CropButtonTests(GuiTestCase):
         self.controls.set_shortcut_tooltips(shortcuts)
         button = self.controls.crop_button
         self.assertEqual(
-            button.toolTip(), "인코딩할 때 잘라낼 검은 여백을 영상 위에 표시합니다. [Shift+C]"
+            button.toolTip(), "인코딩할 때 잘라낼 화면 여백을 영상 위에 표시합니다. [Shift+C]"
         )
         button.setChecked(True)
         self.assertEqual(button.toolTip(), "여백 표시를 끕니다. [Shift+C]")

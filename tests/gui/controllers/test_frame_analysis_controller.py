@@ -201,7 +201,7 @@ def _result() -> FrameAnalysisResult:
 
 
 def _failed_crop_result() -> FrameAnalysisResult:
-    """스캔에 실패한 검은 여백 감지 전용 결과"""
+    """스캔에 실패한 여백 감지 전용 결과"""
     return FrameAnalysisResult(
         active_region=ActiveRegion(1920, 1080, 0, 0, False),
         metric_used="",
@@ -400,7 +400,7 @@ class WorkerBodyTests(unittest.TestCase):
 
     def test_stage_text_matches_approved_wording(self) -> None:
         """하단 세부 단계 문구가 TERMINOLOGY 6.17절 표기와 같은지 검증"""
-        self.assertEqual(frame_analysis_stage_text("scan", 3, 9), "검은 여백 확인")
+        self.assertEqual(frame_analysis_stage_text("scan", 3, 9), "여백 확인")
         self.assertEqual(frame_analysis_stage_text("ssim", 2, 9), "축소 후보 선별 (2/9)")
         self.assertEqual(frame_analysis_stage_text("vmaf", 1, 3), "VMAF 정밀 확인 (1/3)")
         self.assertEqual(frame_analysis_stage_text("unknown", 1, 3), "")
@@ -525,8 +525,8 @@ class ControllerTests(_ControllerCase):
         """감지에 실패한 영상이 있으면 완료 상태 줄에 실패 수를 함께 알리는지 검증"""
         failed = FrameAnalysisFinished({"a.mp4": _failed_crop_result()}, total=2)
         self.assertEqual(
-            completion_status_text(failed, label="검은 여백 감지"),
-            "검은 여백 감지 완료: 2개 (감지 실패 1개)",
+            completion_status_text(failed, label="여백 감지"),
+            "여백 감지 완료: 2개 (감지 실패 1개)",
         )
         both = FrameAnalysisFinished(
             {"a.mp4": _failed_crop_result(), "b.mp4": _failed_crop_result()},
@@ -534,8 +534,8 @@ class ControllerTests(_ControllerCase):
             cached_count=1,
         )
         self.assertEqual(
-            completion_status_text(both, label="검은 여백 감지"),
-            "검은 여백 감지 완료: 3개 (캐시 재사용 1개, 감지 실패 2개)",
+            completion_status_text(both, label="여백 감지"),
+            "여백 감지 완료: 3개 (캐시 재사용 1개, 감지 실패 2개)",
         )
 
     def test_crop_scan_body_finished_event_carries_failed_scans(self) -> None:
@@ -558,8 +558,8 @@ class ControllerTests(_ControllerCase):
         self.assertIsInstance(finished, FrameAnalysisFinished)
         assert isinstance(finished, FrameAnalysisFinished)
         self.assertEqual(
-            completion_status_text(finished, label="검은 여백 감지"),
-            "검은 여백 감지 완료: 1개 (감지 실패 1개)",
+            completion_status_text(finished, label="여백 감지"),
+            "여백 감지 완료: 1개 (감지 실패 1개)",
         )
 
     def test_completion_announces_the_request_and_cache_reuse(self) -> None:
@@ -667,7 +667,7 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.reevaluated, 1)
         self.assertEqual(
             self.notifications[-1],
-            "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 인코딩할 때 검은 여백을 잘라내지 않습니다.",
+            "여백 잘라내기 제외를 켰습니다. 이 영상은 인코딩할 때 화면 여백을 잘라내지 않습니다.",
         )
         controller.toggle_crop_exclusion([self.ev], False)
         self.assertEqual(self.store.load_crop_exclusions([path]), frozenset())
@@ -675,7 +675,7 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.reevaluated, 2)
         self.assertEqual(
             self.notifications[-1],
-            "검은 여백 잘라내기 제외를 껐습니다. 이 영상은 검은 여백이 감지되면 자동으로 잘라냅니다.",
+            "여백 잘라내기 제외를 껐습니다. 이 영상은 화면 여백이 감지되면 자동으로 잘라냅니다.",
         )
 
     def test_reload_cached_applies_crop_exclusions(self) -> None:
@@ -763,7 +763,7 @@ class ControllerTests(_ControllerCase):
         controller._on_stage(0, 0, "", "scan", 1, 9)
         controller._stage_buffer.flush()
         self.assertEqual(self.footer.progress, (0, 1, "a.mp4"))
-        self.assertEqual(self.footer.detail, "검은 여백 확인")
+        self.assertEqual(self.footer.detail, "여백 확인")
         controller._on_stage(0, 1, "a.mp4", "vmaf", 3, 9)
         controller._stage_buffer.flush()
         self.assertEqual(self.footer.detail, "VMAF 정밀 확인 (3/9)")
@@ -785,7 +785,7 @@ class ControllerTests(_ControllerCase):
         self.assertEqual(self.footer.detail, "축소 후보 선별 (1/9)")
 
     def test_detect_crop_selected_reports_crop_progress_and_completion(self) -> None:
-        """검은 여백 감지 단독 실행이 전용 진행 문구와 완료 문구, 활성 화면 열만 쓰는지 검증"""
+        """여백 감지 단독 실행이 전용 진행 문구와 완료 문구, 활성 화면 열만 쓰는지 검증"""
         controller = self.make_controller()
         self.view.selected = [self.ev]
         capability = FfmpegCapability(
@@ -806,7 +806,7 @@ class ControllerTests(_ControllerCase):
             FrameAnalysisFinished({"a.mp4": _result()}, total=1, crop_only=True)
         )
         self.assertFalse(controller.is_running)
-        self.assertEqual(self.notifications[-1], "검은 여백 감지 완료: 1개")
+        self.assertEqual(self.notifications[-1], "여백 감지 완료: 1개")
         self.assertEqual(self.shown_modes, [True])
         self.assertFalse(self.menu.calls[-1]["crop_running"])
         with mock.patch(
@@ -826,7 +826,7 @@ class ControllerTests(_ControllerCase):
             )
         )
         self.assertEqual(
-            self.notifications[-1], "검은 여백 감지 완료: 1개 (캐시 재사용 1개)"
+            self.notifications[-1], "여백 감지 완료: 1개 (캐시 재사용 1개)"
         )
 
     def test_crop_progress_hides_remaining_time_below_three_videos(self) -> None:
@@ -848,7 +848,7 @@ class ControllerTests(_ControllerCase):
             "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=failed
         ):
             controller.detect_crop_selected()
-        self.assertIn("검은 여백 감지를 시작할 수 없습니다", self.notifications[-1])
+        self.assertIn("여백 감지를 시작할 수 없습니다", self.notifications[-1])
 
     def test_cancel_keeps_previous_results_and_reevaluates_partial_results(self) -> None:
         """선택 영상 분석을 취소해도 기존 다른 영상 결과를 유지하고 완료분은 재평가하는지 검증"""
@@ -1017,7 +1017,7 @@ class LiveRefreshTests(_ControllerCase):
             controller._flush_timer.timeout.emit()
             worker.progress.emit(2, 2, "b.mp4", _result())
             controller._on_completed(FrameAnalysisFinished({"b.mp4": _result()}, crop_only=True, total=2))
-        prefix = "INFO:src.gui.controllers.frame_analysis_controller:검은 여백 감지 결과: "
+        prefix = "INFO:src.gui.controllers.frame_analysis_controller:여백 감지 결과: "
         self.assertEqual(len(logs.output), 2)
         self.assertTrue(all(line.startswith(prefix) for line in logs.output))
 
@@ -1202,7 +1202,7 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         )
 
     def test_analyze_all_skips_excluded_and_marks_low_resolution_crop_only(self) -> None:
-        """전체 분석은 건너뛸 영상을 빼고, 대상 해상도 미만 영상은 검은 여백만 감지로 넘김"""
+        """전체 분석은 건너뛸 영상을 빼고, 대상 해상도 미만 영상은 화면 여백만 감지로 넘김"""
         low = make_eval(video=make_video(filename="b.mp4", width=1280, height=720))
         self._write_video(self.root, "b.mp4")
         excluded = make_eval(
@@ -1254,7 +1254,7 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         )
 
     def test_detect_crop_all_keeps_manual_target_videos(self) -> None:
-        """전체 검은 여백 감지는 직접 지정 영상도 대상에 넣는지 검증"""
+        """전체 여백 감지는 직접 지정 영상도 대상에 넣는지 검증"""
         manual = make_eval(video=make_video(filename="b.mp4"), manual_target="720p")
         self._write_video(self.root, "b.mp4")
         report = make_report([self.ev, manual], root_dir=self.root)
@@ -1298,7 +1298,7 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
 
     def test_run_full_analysis_chains_crop_detection_only_when_enabled(self) -> None:
-        """정밀 분석 뒤 검은 여백 감지 연속 실행이 설정을 따르는지 검증"""
+        """정밀 분석 뒤 여백 감지 연속 실행이 설정을 따르는지 검증"""
         enabled = ClassifierConfig()
         enabled.encode.crop_black_bars = True
         controller = self.make_controller(config=enabled)

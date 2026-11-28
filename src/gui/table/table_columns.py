@@ -456,7 +456,7 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         header=COLUMN_LABELS[ColumnId.ACTIVE_FRAME].full,
         spec=ColumnSpec(19, ColumnDataType.CATEGORY),
         tooltip_factory=_static_tip(
-            "화질 분석으로 찾은 검은 여백을 뺀 활성 화면입니다. 검은 여백이 없으면 -로 표시합니다."
+            "화질 분석으로 찾은 화면 여백을 뺀 활성 화면입니다. 여백이 없으면 -로 표시합니다."
         ),
         filter_value=no_filter_value,
         align=ALIGN_CENTER,

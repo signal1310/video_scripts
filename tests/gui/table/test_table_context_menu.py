@@ -241,7 +241,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "선택 영상 재생",
                 "화질 비교...",
                 "선택 영상 화질 분석",
-                "선택 영상 검은 여백 감지",
+                "선택 영상 여백 감지",
                 "탐색기에서 위치 열기",
                 "선택 파일명 복사",
                 "선택 전체 경로 복사",
@@ -249,7 +249,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "선택 항목 예외 규칙에 추가",
                 MANUAL_TARGET_MENU_TITLE,
                 "VR 영상으로 보호",
-                "검은 여백 잘라내기 제외",
+                "여백 잘라내기 제외",
             ],
         )
         for text, action in actions.items():
@@ -270,7 +270,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "선택한 2개 영상 재생",
                 "화질 비교...",
                 "선택 영상 화질 분석",
-                "선택 영상 검은 여백 감지",
+                "선택 영상 여백 감지",
                 "탐색기에서 위치 열기",
                 "선택한 2개 파일명 복사",
                 "선택한 2개 전체 경로 복사",
@@ -279,7 +279,7 @@ class TestRowContextMenu(unittest.TestCase):
                 "선택한 3개 항목을 예외 규칙에서 제거",
                 MANUAL_TARGET_MENU_TITLE,
                 "VR 영상으로 보호",
-                "검은 여백 잘라내기 제외",
+                "여백 잘라내기 제외",
             ],
         )
         actions["선택한 3개 항목을 예외 규칙에서 제거"].trigger()
@@ -299,12 +299,12 @@ class TestRowContextMenu(unittest.TestCase):
         )
         self.host.table_model.set_crop_exclusions(["clicked.mp4"])
         actions = self._row_menu([self.clicked], to_add=[], to_remove=[])
-        self.assertTrue(actions["검은 여백 잘라내기 제외"].isChecked())
-        actions["검은 여백 잘라내기 제외"].trigger()
+        self.assertTrue(actions["여백 잘라내기 제외"].isChecked())
+        actions["여백 잘라내기 제외"].trigger()
         self.assertEqual(calls, [([self.clicked], False)])
 
         mixed = self._row_menu([self.clicked, self.other], to_add=[], to_remove=[])
-        self.assertFalse(mixed["검은 여백 잘라내기 제외"].isChecked())
+        self.assertFalse(mixed["여백 잘라내기 제외"].isChecked())
 
     def test_ffmpeg_copy_entry_is_enabled_from_selection_without_planning(self) -> None:
         """메뉴를 열 때 예정 명령을 계산하지 않고 선택 상태만으로 항목을 활성화함을 검증"""
@@ -400,7 +400,7 @@ class TestRowCompareEntry(unittest.TestCase):
 
 
 class TestRowFrameAnalysisEntries(unittest.TestCase):
-    """행 우클릭 화질 분석, 검은 여백 감지 항목이 등록한 실행 함수를 우클릭한 영상으로 부르는지"""
+    """행 우클릭 화질 분석, 여백 감지 항목이 등록한 실행 함수를 우클릭한 영상으로 부르는지"""
 
     def setUp(self) -> None:
         self.host = _Host()
@@ -415,12 +415,12 @@ class TestRowFrameAnalysisEntries(unittest.TestCase):
         )
 
     def test_entries_run_all_selected_videos_with_the_right_mode(self) -> None:
-        """두 항목 모두 선택된 영상 전체를 넘기고 감지 항목은 검은 여백만 감지로 요청"""
+        """두 항목 모두 선택된 영상 전체를 넘기고 감지 항목은 화면 여백만 감지로 요청"""
         calls: list[tuple[list[VideoEvaluation], bool]] = []
         set_row_frame_analysis_opener(lambda evals, crop_only: calls.append((evals, crop_only)))
         actions = self._actions([self.clicked, self.other])
         actions["선택 영상 화질 분석"].trigger()
-        actions["선택 영상 검은 여백 감지"].trigger()
+        actions["선택 영상 여백 감지"].trigger()
         self.assertEqual(calls, [([self.clicked, self.other], False), ([self.clicked, self.other], True)])
 
     def test_entries_do_nothing_without_a_registered_opener(self) -> None:
@@ -428,7 +428,7 @@ class TestRowFrameAnalysisEntries(unittest.TestCase):
         set_row_frame_analysis_opener(None)
         actions = self._actions([self.clicked])
         actions["선택 영상 화질 분석"].trigger()
-        actions["선택 영상 검은 여백 감지"].trigger()
+        actions["선택 영상 여백 감지"].trigger()
 
 
 class TestManualTargetSubmenu(unittest.TestCase):

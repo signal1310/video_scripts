@@ -262,9 +262,9 @@ def build_frame_threshold_card(rows: dict[str, SettingRow]) -> SettingsGroupCard
     b.percent(
         EncodeConfig,
         "active_area_no_bars_ratio",
-        "검은 여백 무시 면적 상한",
-        "검은 여백을 잘라낸 활성 화면이 원본 면적에서 차지하는 비율이 이 값 이상이면 "
-        "검은 여백이 없는 영상으로 보고 잘라내지 않습니다. 기본값은 90 %입니다.",
+        "화면 여백 무시 면적 상한",
+        "화면 여백을 잘라낸 활성 화면이 원본 면적에서 차지하는 비율이 이 값 이상이면 "
+        "여백이 없는 영상으로 보고 잘라내지 않습니다. 기본값은 90 %입니다.",
         1,
         row_key="analysis.encode.active_area_no_bars_ratio",
     )

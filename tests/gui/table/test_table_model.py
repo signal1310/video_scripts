@@ -277,7 +277,7 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         )
 
     def test_crop_off_setting_adds_the_no_crop_line_to_the_active_frame_tooltip(self) -> None:
-        """검은 여백 잘라내기 설정이 꺼져 있으면 활성 화면 툴팁이 자르지 않는다고 알리는지 검증"""
+        """화면 여백 잘라내기 설정이 꺼져 있으면 활성 화면 툴팁이 자르지 않는다고 알리는지 검증"""
         from src.core.analysis.frame_analysis import ActiveRegion
         from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
         from src.core.config import ClassifierConfig
@@ -295,11 +295,11 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         )
         self.model.set_frame_analysis_results({"a.mp4": cropped})
         index = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
-        self.assertNotIn("검은 여백 잘라내기 설정이 꺼져 있어", self.model.data(index, _TOOLTIP))
+        self.assertNotIn("화면 여백 잘라내기 설정이 꺼져 있어", self.model.data(index, _TOOLTIP))
         config = ClassifierConfig()
         config.encode.crop_black_bars = False
         self.model.set_config(config)
-        self.assertIn("검은 여백 잘라내기 설정이 꺼져 있어", self.model.data(index, _TOOLTIP))
+        self.assertIn("화면 여백 잘라내기 설정이 꺼져 있어", self.model.data(index, _TOOLTIP))
 
     def test_crop_off_setting_mutes_the_active_frame_cell(self) -> None:
         """잘라내기 설정이 꺼지면 표의 활성 화면 셀이 흐린 색으로 다시 그려지는지 검증"""
@@ -471,7 +471,7 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.assertEqual(self.model.data(active, _DISPLAY), "1836x1008")
 
     def test_keep_full_row_shows_pill_icon_filter_and_full_frame_sort(self) -> None:
-        """잘라내기 제외에 검은 띠가 있는 행이 전체 화면 유지 문구, 아이콘, 필터, 정렬을 쓰는지 검증"""
+        """잘라내기 제외에 화면 여백가 있는 행이 전체 화면 유지 문구, 아이콘, 필터, 정렬을 쓰는지 검증"""
         barred = FrameAnalysisResult(
             active_region=ActiveRegion(734, 444, 593, 138, True),
             metric_used="vmaf",
@@ -505,7 +505,7 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         )
 
     def test_keep_full_yields_to_manual_frame_vr_and_no_bars(self) -> None:
-        """사용자 지정, VR 보호, 검은 띠 없음은 전체 화면 유지 문구 대신 각자의 표기를 씀"""
+        """사용자 지정, VR 보호, 화면 여백 없음은 전체 화면 유지 문구 대신 각자의 표기를 씀"""
         barred = FrameAnalysisResult(
             active_region=ActiveRegion(734, 444, 593, 138, True),
             metric_used="vmaf",
@@ -540,14 +540,14 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         self.model.set_manual_active_frames({})
         self.model.set_frame_analysis_results({"a.mp4": vr_result, "b.mp4": self.result})
         self.assertEqual(self.model.data(index, _DISPLAY), ACTIVE_FRAME_VR_TEXT)
-        # - 검은 띠가 없는 행은 제외로 지정해도 전체 화면 유지 알약이 아니라 `-` 그대로
+        # - 화면 여백가 없는 행은 제외로 지정해도 전체 화면 유지 알약이 아니라 `-` 그대로
         self.assertEqual(
             self.model.data(self.model.index(1, VideoTableModel.COL_ACTIVE_FRAME), _DISPLAY),
             "-",
         )
 
     def test_keep_full_returns_to_muted_size_when_crop_setting_is_off(self) -> None:
-        """검은 여백 잘라내기 설정을 끄면 전체 화면 유지 대신 크기와 흐린 글자색을 씀"""
+        """화면 여백 잘라내기 설정을 끄면 전체 화면 유지 대신 크기와 흐린 글자색을 씀"""
         from src.core.config import ClassifierConfig
 
         barred = FrameAnalysisResult(

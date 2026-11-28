@@ -80,9 +80,9 @@ def make_frame_record(
 def _gray_plane(
     frame_size: tuple[int, int], box: tuple[int, int, int, int] | None, *, black: bool
 ) -> bytes:
-    """검은 화면이거나 `box` 밖을 검은 띠로 채운 회색조 평면
+    """검은 화면이거나 `box` 밖을 화면 여백로 채운 회색조 평면
 
-    - 실제 프레임과 같이 검은 띠는 평탄하고 그림과의 경계가 계단이 되게 채움
+    - 실제 프레임과 같이 화면 여백는 평탄하고 그림과의 경계가 계단이 되게 채움
     """
     width, height = frame_size
     if black:

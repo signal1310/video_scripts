@@ -60,7 +60,7 @@ def _info(active_frame: ActiveFrame | None = _DEFAULT_FRAME) -> PreviewVideoInfo
 
 
 def _overlay_info() -> PreviewVideoInfo:
-    """검은 띠가 없어 활성 화면이 비어 있는 영상"""
+    """화면 여백가 없어 활성 화면이 비어 있는 영상"""
     return _info(active_frame=None)
 
 

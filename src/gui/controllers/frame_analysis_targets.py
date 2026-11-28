@@ -23,7 +23,7 @@ NO_FRAME_TARGETS_TEXT: str = (
     "예외 규칙, 이미 인코딩, HDR, 인터레이스, 직접 지정 영상은 건너뜁니다."
 )
 NO_CROP_TARGETS_TEXT: str = (
-    "검은 여백 감지 대상이 없습니다. 예외 규칙, 이미 인코딩, HDR, 인터레이스 영상은 건너뜁니다."
+    "여백 감지 대상이 없습니다. 예외 규칙, 이미 인코딩, HDR, 인터레이스 영상은 건너뜁니다."
 )
 _SKIP_ACTIONS: frozenset[SmartAction] = frozenset(
     {SmartAction.PASS_EXCEPTION, SmartAction.PASS_ALREADY_ENCODED, SmartAction.PASS_HDR}

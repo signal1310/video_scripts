@@ -51,7 +51,7 @@ class StageColorTests(unittest.TestCase):
         self.assertEqual(stage_background_notice("bogus"), "배경 색: 검정")
         self.assertEqual(
             STAGE_BACKGROUND_TIP,
-            "영상 뒤 배경 색을 바꿉니다. 밝은 배경에서는 검은 여백이 잘 보입니다.",
+            "영상 뒤 배경 색을 바꿉니다. 밝은 배경에서는 화면 여백이 잘 보입니다.",
         )
         self.assertEqual(
             STAGE_BACKGROUND_SHORTCUT_DESCRIPTION,
@@ -59,7 +59,7 @@ class StageColorTests(unittest.TestCase):
         )
         self.assertEqual(
             STAGE_FRAME_OUTLINE_TIP,
-            "영상 바깥 경계에 점선을 그립니다. 검은 배경에서도 검은 여백이 어디까지인지 보입니다.",
+            "영상 바깥 경계에 점선을 그립니다. 검은 배경에서도 화면 여백이 어디까지인지 보입니다.",
         )
 
 

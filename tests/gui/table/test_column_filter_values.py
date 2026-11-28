@@ -51,7 +51,7 @@ def _ratio_filter_key(config: ClassifierConfig, ratio: float) -> str:
 
 
 def _barred_result() -> FrameAnalysisResult:
-    """검은 띠가 있는 활성 화면 결과. 전체 화면 유지 필터 확인에 씀"""
+    """화면 여백가 있는 활성 화면 결과. 전체 화면 유지 필터 확인에 씀"""
     return FrameAnalysisResult(
         active_region=ActiveRegion(734, 444, 593, 138, True),
         metric_used="vmaf",

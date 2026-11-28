@@ -302,7 +302,7 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertTrue(hb.split_analyze.btn_main.isEnabled())
 
     def test_header_bar_shows_the_stop_button_named_after_the_frame_run(self) -> None:
-        """화질 분석, 검은 여백 감지 중에는 중단 버튼이 그 작업 이름으로 보이고 끝나면 분석 버튼으로 돌아오는지 검증"""
+        """화질 분석, 여백 감지 중에는 중단 버튼이 그 작업 이름으로 보이고 끝나면 분석 버튼으로 돌아오는지 검증"""
         hb = HeaderBar("C:/dummy_path")
         for crop_scan, name in ((False, FRAME_ANALYSIS_CANCEL_NAME), (True, CROP_SCAN_CANCEL_NAME)):
             with self.subTest(name=name):

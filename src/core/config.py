@@ -213,7 +213,7 @@ class EncodeConfig:
     )
     crop_black_bars: bool = field(
         default=True,
-        metadata=setting_meta("화질 분석에서 감지된 검은 여백을 인코딩 시 자동으로 잘라낼지 여부"),
+        metadata=setting_meta("화질 분석에서 감지된 화면 여백을 인코딩 시 자동으로 잘라낼지 여부"),
     )
     scale_algorithm: str = field(
         default=DEFAULT_SCALE_ALGORITHM,
@@ -241,7 +241,7 @@ class EncodeConfig:
     )
     active_area_no_bars_ratio: float = field(
         default=0.90,
-        metadata=setting_meta("검은 여백 무시 면적 상한 (원본 면적 대비 활성 화면 비율)", (0.50, 0.99)),
+        metadata=setting_meta("화면 여백 무시 면적 상한 (원본 면적 대비 활성 화면 비율)", (0.50, 0.99)),
     )
 
 

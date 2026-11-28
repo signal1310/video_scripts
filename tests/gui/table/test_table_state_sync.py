@@ -55,7 +55,7 @@ def _build_proxy() -> VideoSortFilterProxyModel:
 def _frame_result(
     *, active: ActiveRegion | None = None, vr: bool = False
 ) -> FrameAnalysisResult:
-    """화질 분석 결과 표본, 기본값은 검은 띠가 없는 전체 화면"""
+    """화질 분석 결과 표본, 기본값은 화면 여백가 없는 전체 화면"""
     return FrameAnalysisResult(
         active_region=active or ActiveRegion(1920, 1080, 0, 0, False),
         metric_used="vmaf",
@@ -74,7 +74,7 @@ def _build_frame_proxy(
 ) -> VideoSortFilterProxyModel:
     """화질 분석 결과를 넣은 표 모델에 연결한 프록시 생성
 
-    - 기본값은 a.mp4 가 전체 화면, b.mp4 가 검은 띠가 있는 화면
+    - 기본값은 a.mp4 가 전체 화면, b.mp4 가 화면 여백가 있는 화면
     """
     proxy = _build_proxy()
     model = proxy.sourceModel()

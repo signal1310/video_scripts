@@ -105,10 +105,10 @@ FrameAnalysisSink = Callable[[FrameAnalysisEvent], None]
 
 FRAME_ANALYSIS_WORK_DIR: str = os.path.join(tempfile.gettempdir(), "video_scripts_frame_analysis")
 FRAME_ANALYSIS_LABEL: str = "화질 분석"
-CROP_SCAN_LABEL: str = "검은 여백 감지"
-CROP_SCAN_NO_FILES_TEXT: str = "검은 여백 감지할 영상 파일을 찾지 못했습니다."
-CROP_SCAN_FFMPEG_BLOCK_TEMPLATE: str = "FFmpeg를 쓸 수 없어 검은 여백 감지를 시작할 수 없습니다: {reason}"
-CROP_SCAN_ERROR_TEMPLATE: str = "검은 여백 감지 중 오류가 발생했습니다: {error}"
+CROP_SCAN_LABEL: str = "여백 감지"
+CROP_SCAN_NO_FILES_TEXT: str = "여백 감지할 영상 파일을 찾지 못했습니다."
+CROP_SCAN_FFMPEG_BLOCK_TEMPLATE: str = "FFmpeg를 쓸 수 없어 여백 감지를 시작할 수 없습니다: {reason}"
+CROP_SCAN_ERROR_TEMPLATE: str = "여백 감지 중 오류가 발생했습니다: {error}"
 # - 감지 전용 실행은 영상이 3개 이상일 때만 남은 시간을 표시(짧은 실행에서 오차가 큼)
 CROP_SCAN_REMAINING_MIN_TOTAL: int = 3
 # - 영상별 결과 줄을 표에 반영하는 간격. 도착하는 대로 한 줄씩 그리지 않도록 묶어서 처리
@@ -121,7 +121,7 @@ FOLLOWUP_FRAME: str = "frame"
 def frame_analysis_stage_text(stage: str, done: int, total: int) -> str:
     """세부 단계 코드를 하단 표시 문구로 변환(TERMINOLOGY 6.17절)"""
     if stage == STAGE_SCAN:
-        return "검은 여백 확인"
+        return "여백 확인"
     if stage == STAGE_SSIM:
         return f"축소 후보 선별 ({done}/{total})"
     if stage == STAGE_VMAF:
@@ -458,9 +458,9 @@ class FrameAnalysisController:
         self._apply_results(show_columns=False)
         self._host.re_evaluate(lambda: None)
         self._host.notify(
-            "VR 영상으로 보호를 켰습니다. 다음 화질 분석부터 검은 띠 감지와 잘라내기에서 보호합니다."
+            "VR 영상으로 보호를 켰습니다. 다음 화질 분석부터 여백 감지와 잘라내기에서 보호합니다."
             if protected
-            else "VR 영상으로 보호를 껐습니다. 다음 화질 분석부터 검은 띠를 다시 감지합니다."
+            else "VR 영상으로 보호를 껐습니다. 다음 화질 분석부터 여백을 다시 감지합니다."
         )
 
     def toggle_crop_exclusion(self, evals: list[VideoEvaluation], excluded: bool) -> None:
@@ -480,9 +480,9 @@ class FrameAnalysisController:
         self._apply_results(show_columns=False)
         self._host.re_evaluate(lambda: None)
         self._host.notify(
-            "검은 여백 잘라내기 제외를 켰습니다. 이 영상은 인코딩할 때 검은 여백을 잘라내지 않습니다."
+            "여백 잘라내기 제외를 켰습니다. 이 영상은 인코딩할 때 화면 여백을 잘라내지 않습니다."
             if excluded
-            else "검은 여백 잘라내기 제외를 껐습니다. 이 영상은 검은 여백이 감지되면 자동으로 잘라냅니다."
+            else "여백 잘라내기 제외를 껐습니다. 이 영상은 화면 여백이 감지되면 자동으로 잘라냅니다."
         )
 
     def set_manual_active_frame(

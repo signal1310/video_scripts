@@ -287,7 +287,7 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertFalse(result.is_vr_protected)
 
     def test_crop_only_scan_runs_no_metric_commands_and_keeps_only_crop_fields(self) -> None:
-        """검은 여백 감지 전용 실행이 1단계 스캔만 하고 축소 후보와 지표를 비우는지 검증"""
+        """여백 감지 전용 실행이 1단계 스캔만 하고 축소 후보와 지표를 비우는지 검증"""
         runner = FakeStderrRunner(boxes=[(720, 1080, 600, 0)])
         stages: list[str] = []
         result = self.analyze(

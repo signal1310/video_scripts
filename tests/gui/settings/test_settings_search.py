@@ -14,7 +14,7 @@ from src.gui.settings.settings_search import (
 def _entries() -> list[SearchEntry]:
     return [
         SearchEntry("display.size_unit", 0, "용량 표기 단위", "용량 표기 단위 표시 MB GB 자동"),
-        SearchEntry("analysis.encode.crop_black_bars", 1, "검은 여백 잘라내기", "검은 여백 잘라내기 화질 분석"),
+        SearchEntry("analysis.encode.crop_black_bars", 1, "화면 여백 잘라내기", "화면 여백 잘라내기 화질 분석"),
         SearchEntry("analysis.encode.roundtrip_vmaf_threshold", 1, "축소 후보 VMAF 기준", "축소 후보 VMAF 기준 화질 분석"),
         SearchEntry("execution.concurrent_jobs", 3, "동시 인코딩 수", "동시 인코딩 수 실행"),
     ]

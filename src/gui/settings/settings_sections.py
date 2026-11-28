@@ -216,7 +216,7 @@ def build_resolution_page(
 
     card_analysis = SettingsGroupCard(
         icon_name="analyze",
-        title="화질 분석 및 검은 여백",
+        title="화질 분석 및 화면 여백",
         help_anchor="frame-analysis",
     )
     cards.append(card_analysis)
@@ -225,8 +225,8 @@ def build_resolution_page(
         card_analysis,
         EncodeConfig,
         "crop_black_bars",
-        "검은 여백 잘라내기",
-        "상하(레터박스), 좌우(필러박스), 4면의 고정된 검은 여백을 자동으로 감지해 잘라냅니다.",
+        "화면 여백 잘라내기",
+        "상하(레터박스), 좌우(필러박스), 4면의 고정된 여백을 자동으로 감지해 잘라냅니다.",
         _ON_OFF_CHOICES,
         row_key="analysis.encode.crop_black_bars",
     )
@@ -249,7 +249,7 @@ def build_resolution_page(
         EncodeConfig,
         "frame_analysis_min_tier",
         "화질 분석 대상 해상도",
-        "이 해상도 이상인 영상만 축소 후보 측정을 합니다. 그보다 작은 영상은 검은 여백만 빠르게 확인합니다.",
+        "이 해상도 이상인 영상만 축소 후보 측정을 합니다. 그보다 작은 영상은 화면 여백만 빠르게 확인합니다.",
         _FRAME_ANALYSIS_MIN_TIER_CHOICES,
         row_key="analysis.encode.frame_analysis_min_tier",
     )

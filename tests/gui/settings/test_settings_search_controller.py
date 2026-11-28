@@ -39,17 +39,17 @@ class TestSettingsSearchController(unittest.TestCase):
         self.advanced = CollapsibleSection(title="고급 설정", is_expanded=False)
         self.advanced.show()
         self.addCleanup(self.advanced.close)
-        self.card = SettingsGroupCard(icon_name="analyze", title="화질 분석 및 검은 여백")
+        self.card = SettingsGroupCard(icon_name="analyze", title="화질 분석 및 화면 여백")
         self.card.show()
         self.addCleanup(self.card.close)
         self.advanced.add_widget(self.card)
 
         self.rows = {
-            "analysis.encode.crop_black_bars": self._row("검은 여백 잘라내기", "화질 분석 여백"),
+            "analysis.encode.crop_black_bars": self._row("화면 여백 잘라내기", "화질 분석 여백"),
             "analysis.encode.roundtrip_vmaf_threshold": self._row("축소 후보 VMAF 기준", "축소 후보 화질 분석"),
         }
         self.entries = [
-            SearchEntry("analysis.encode.crop_black_bars", 1, "검은 여백 잘라내기", "검은 여백 잘라내기 화질 분석"),
+            SearchEntry("analysis.encode.crop_black_bars", 1, "화면 여백 잘라내기", "화면 여백 잘라내기 화질 분석"),
             SearchEntry(
                 "analysis.encode.roundtrip_vmaf_threshold",
                 1,
@@ -141,7 +141,7 @@ class TestSettingsSearchController(unittest.TestCase):
         self.assertEqual(self.sidebar.btn_results.badge.text(), "1")
         buttons = self.view.findChildren(QPushButton)
         self.assertEqual(len(buttons), 1)
-        self.assertIn("검은 여백 잘라내기", buttons[0].text())
+        self.assertIn("화면 여백 잘라내기", buttons[0].text())
 
     def test_update_forced_hidden_reapplies_the_active_query(self) -> None:
         """검색 중에 강제 숨김 키가 바뀌면 현재 검색어로 배지, 결과, 행 표시를 다시 맞추는지 검증"""

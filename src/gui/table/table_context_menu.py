@@ -23,22 +23,22 @@ from src.gui.table.table_model import VideoTableModel
 _MENU_ICON_SIZE: int = 14
 _MANUAL_TARGET_ICON: str = "monitor"
 _VR_PROTECT_LABEL: str = "VR 영상으로 보호"
-_CROP_EXCLUDE_LABEL: str = "검은 여백 잘라내기 제외"
+_CROP_EXCLUDE_LABEL: str = "여백 잘라내기 제외"
 _COMPARE_LABEL: str = "화질 비교..."
 _COMPARE_ICON: str = "compare"
 _VR_PROTECT_TIP: str = (
-    "검은 여백 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
+    "여백 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."
 )
 _CROP_EXCLUDE_TIP: str = (
-    "검은 여백이 감지되어도 이 영상은 인코딩할 때 검은 여백을 잘라내지 않습니다."
+    "화면 여백이 감지되어도 이 영상은 인코딩할 때 화면 여백을 잘라내지 않습니다."
 )
 RowCompareOpener = Callable[[VideoEvaluation], None]
 # - (대상 영상 목록, 검은 여백만 감지 여부)를 받는 화질 분석 실행 함수
 RowFrameAnalysisOpener = Callable[[list[VideoEvaluation], bool], None]
 _FRAME_ANALYSIS_LABEL: str = "선택 영상 화질 분석"
 _FRAME_ANALYSIS_TIP: str = "선택한 영상의 활성 화면과 축소 후보를 화질 분석합니다."
-_CROP_SCAN_LABEL: str = "선택 영상 검은 여백 감지"
-_CROP_SCAN_TIP: str = "선택한 영상의 검은 여백을 빠르게 감지합니다."
+_CROP_SCAN_LABEL: str = "선택 영상 여백 감지"
+_CROP_SCAN_TIP: str = "선택한 영상의 화면 여백을 빠르게 감지합니다."
 _CROP_ICON: str = "crop"
 
 _row_compare_opener: RowCompareOpener | None = None

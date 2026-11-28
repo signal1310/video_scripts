@@ -1,4 +1,4 @@
-"""화질 분석 순수 함수(검은 띠 합집합, 왕복 명령, 축소 후보 판정) 검증"""
+"""화질 분석 순수 함수(화면 여백 합집합, 왕복 명령, 축소 후보 판정) 검증"""
 
 import unittest
 from dataclasses import dataclass
@@ -210,7 +210,7 @@ class TestCropUnionEdges(unittest.TestCase):
 
 
 class MarginVaryTests(unittest.TestCase):
-    """샘플 지점별 검은 여백 차이 감지와 합집합 결과의 플래그 기록 검증"""
+    """샘플 지점별 화면 여백 차이 감지와 합집합 결과의 플래그 기록 검증"""
 
     frame_width: int = 1920
     frame_height: int = 1080
@@ -562,7 +562,7 @@ class _Unmeasurable:
 
 
 class CropScanVersionTests(unittest.TestCase):
-    """검은 여백 감지 전용 버전과 캐시 유효성 기준 검증"""
+    """여백 감지 전용 버전과 캐시 유효성 기준 검증"""
 
     def test_crop_only_result_is_recognized_by_its_version(self) -> None:
         self.assertEqual(CROP_SCAN_VERSION, 236)

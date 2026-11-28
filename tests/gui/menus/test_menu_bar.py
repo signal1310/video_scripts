@@ -134,7 +134,7 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
             self.assertTrue(self.menu._analyze_mode_actions[mode].isChecked())
 
     def test_frame_analysis_actions_follow_list_selection_and_running_state(self) -> None:
-        """화질 분석과 검은 여백 감지 항목이 목록, 선택, 실행 상태에 맞춰 비활성 사유와 함께 바뀌는지 검증"""
+        """화질 분석과 여백 감지 항목이 목록, 선택, 실행 상태에 맞춰 비활성 사유와 함께 바뀌는지 검증"""
         from src.gui.menus.menu_bar import (
             FRAME_ANALYSIS_NO_LIST_TEXT,
             FRAME_ANALYSIS_NO_SELECTION_TEXT,
@@ -166,7 +166,7 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.assertFalse(self.menu.act_frame_all.isEnabled())
 
     def test_crop_scan_running_disables_all_four_actions_with_the_crop_reason(self) -> None:
-        """검은 여백 감지가 실행 중이면 네 항목 모두 감지 중 사유로 비활성화하는지 검증"""
+        """여백 감지가 실행 중이면 네 항목 모두 감지 중 사유로 비활성화하는지 검증"""
         from src.gui.menus.menu_bar import CROP_SCAN_RUNNING_TEXT
 
         self.menu.sync_frame_analysis_state(

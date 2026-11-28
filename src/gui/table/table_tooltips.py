@@ -79,7 +79,7 @@ def format_output_res_tooltip(ev: VideoEvaluation, cfg: ClassifierConfig) -> str
     tier = ev.target_tier
     frame = ev.active_frame
     crop_line = (
-        f"검은 여백 잘라내기: {ev.video.width}x{ev.video.height} -> {frame.width}x{frame.height}"
+        f"화면 여백 잘라내기: {ev.video.width}x{ev.video.height} -> {frame.width}x{frame.height}"
         if frame is not None
         else ""
     )

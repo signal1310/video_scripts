@@ -409,7 +409,7 @@ class SessionTests(_ControllerCase):
         self.assertEqual(confirmed.active_frame, ActiveFrame(1600, 1000, 260, 40))
 
     def test_crop_only_cache_keeps_the_active_frame_without_scores(self) -> None:
-        """검은 여백 감지 전용 행도 비교 창에서 활성 화면 크롭으로 쓰이고 점수는 비우는지 검증"""
+        """여백 감지 전용 행도 비교 창에서 활성 화면 크롭으로 쓰이고 점수는 비우는지 검증"""
         info = self.info(self.source)
         self.store.save(
             FrameAnalysisRecord(
@@ -450,7 +450,7 @@ class SessionTests(_ControllerCase):
         self.assertEqual(target.crop, ActiveFrame(1216, 2160, 1312, 0))
 
     def test_active_region_is_rejudged_with_the_current_no_bars_ratio(self) -> None:
-        """면적 상한을 낮춘 뒤에도 비교 창이 표처럼 검은 여백 없음으로 되돌리는지 검증"""
+        """면적 상한을 낮춘 뒤에도 비교 창이 표처럼 화면 여백 없음으로 되돌리는지 검증"""
         info = self.info(self.source)
         self.store.save(
             FrameAnalysisRecord(

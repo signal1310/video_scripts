@@ -66,11 +66,11 @@ class _FakeMedia:
 
 
 def _summary(total: int, filenames: tuple[str, ...] = ("clip.mp4",)) -> EncodeImpactSummary:
-    """검은 여백, 해상도 축소, 태그 보존 항목과 정보 없음 하나를 가진 집계"""
+    """화면 여백, 해상도 축소, 태그 보존 항목과 정보 없음 하나를 가진 집계"""
     buckets = (
         ImpactBucket(
             key=IMPACT_CROP_BARS,
-            label="검은 여백 잘라내기",
+            label="화면 여백 잘라내기",
             filenames=filenames,
             details=tuple((name, "1920x1080 -> 1920x800") for name in filenames),
         ),
@@ -125,7 +125,7 @@ class EncodeImpactTreeTests(unittest.TestCase):
         """변환 항목은 해당/전체 개수를 붙이고 영상 행의 내역은 오른쪽 칸에 두며 정보 없음은 마지막에 둠"""
         self.tree.set_summary(_summary(3), self.evaluations, self.root, "HEVC")
         self.assertEqual(self.tree.tree.topLevelItemCount(), 4)
-        self.assertEqual(self._top(0).text(NAME_COLUMN), "검은 여백 잘라내기 (1/3개)")
+        self.assertEqual(self._top(0).text(NAME_COLUMN), "화면 여백 잘라내기 (1/3개)")
         self.assertEqual(self._top(1).text(NAME_COLUMN), "해상도 축소 (1/3개)")
         self.assertEqual(self._top(2).text(NAME_COLUMN), "탐색기 태그와 별점 보존 대상 (1개)")
         self.assertEqual(self._top(3).text(NAME_COLUMN), "정보 없음 (1개)")
@@ -139,7 +139,7 @@ class EncodeImpactTreeTests(unittest.TestCase):
         self.assertTrue(child.toolTip(NAME_COLUMN).startswith("파일명: clip.mp4"))
         self.assertIn("1920x1080 -> 1920x800", child.toolTip(NAME_COLUMN))
         self.assertEqual(child.toolTip(DETAIL_COLUMN), "1920x1080 -> 1920x800")
-        self.assertIn("검은 여백", self._top(0).toolTip(NAME_COLUMN))
+        self.assertIn("화면 여백", self._top(0).toolTip(NAME_COLUMN))
         self.assertEqual(self._top(3).toolTip(NAME_COLUMN), "분석 정보가 없어 집계하지 못했습니다.")
 
     def test_groups_carry_category_badges(self) -> None:

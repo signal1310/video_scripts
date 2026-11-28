@@ -156,7 +156,7 @@ class TestEncodeImpact(unittest.TestCase):
 
 
 class TestTransformImpacts(unittest.TestCase):
-    """영상 변환 항목(검은 여백 잘라내기, 해상도 축소)의 집계와 표기 검증"""
+    """영상 변환 항목(화면 여백 잘라내기, 해상도 축소)의 집계와 표기 검증"""
 
     def test_crop_and_downscale_are_the_first_two_items_with_details(self) -> None:
         """활성 화면과 출력 크기가 있는 영상만 변환 항목에 들고, 제목은 해당/전체 개수로 씀"""
@@ -181,7 +181,7 @@ class TestTransformImpacts(unittest.TestCase):
         self.assertEqual(crop_bucket.detail_of("crop.mp4"), "1920x1080 -> 1920x800")
         self.assertEqual(crop_bucket.detail_of("scale.mp4"), "3840x2160 -> 3840x1600")
         self.assertEqual(crop_bucket.detail_of("plain.mp4"), "")
-        self.assertEqual(impact_title(crop_bucket, summary.total_count), "검은 여백 잘라내기 (2/3개)")
+        self.assertEqual(impact_title(crop_bucket, summary.total_count), "화면 여백 잘라내기 (2/3개)")
         scale_bucket = summary.buckets[1]
         self.assertEqual(scale_bucket.filenames, ("scale.mp4",))
         self.assertEqual(scale_bucket.detail_of("scale.mp4"), "3840x1600 -> 2560x1440 (1440p)")
@@ -210,7 +210,7 @@ class TestRestrictSummary(unittest.TestCase):
             buckets=(
                 ImpactBucket(
                     IMPACT_CROP_BARS,
-                    "검은 여백 잘라내기",
+                    "화면 여백 잘라내기",
                     ("a.mp4", "b.mp4"),
                     (("a.mp4", "1920x1080 -> 1920x800"), ("b.mp4", "1280x720 -> 1280x640")),
                 ),
@@ -246,7 +246,7 @@ class TestImpactLabels(unittest.TestCase):
         self.assertEqual(
             [label for _key, label in IMPACT_LABELS],
             [
-                "검은 여백 잘라내기",
+                "화면 여백 잘라내기",
                 "해상도 축소",
                 "커버 유지",
                 "탐색기 태그와 별점 보존 대상",

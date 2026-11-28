@@ -634,11 +634,11 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         values=(), example="", keywords="인코딩 이력 기록 이미 인코딩 중복 방지",
     ),
     GlossaryTerm(
-        category="quality", term="화질 분석", shorts=(), where="분석 메뉴, 표 열", desc="영상에서 검은 띠를 뺀 활성 화면을 찾고, 그 화면을 규격별로 줄였다 되돌렸을 때의 화질 차이를 재는 분석입니다. 결과는 활성 화면, 축소 후보, 측정 지표 열에 표시됩니다. 인코딩 파일은 바꾸지 않습니다.",
+        category="quality", term="화질 분석", shorts=(), where="분석 메뉴, 표 열", desc="영상에서 화면 여백을 뺀 활성 화면을 찾고, 그 화면을 규격별로 줄였다 되돌렸을 때의 화질 차이를 재는 분석입니다. 결과는 활성 화면, 축소 후보, 측정 지표 열에 표시됩니다. 인코딩 파일은 바꾸지 않습니다.",
         values=(), example="", keywords="화질 분석 frame analysis 왕복 VMAF SSIM 축소 후보"),
     GlossaryTerm(
-        category="quality", term="활성 화면", shorts=(), where="표 열, 활성 화면 툴팁", desc="검은 띠를 뺀 실제 화면 영역입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다. 검은 띠가 없으면 전체로 표시하고, VR 보호 영상은 VR 보호로 표시합니다. 미리 보기의 여백 미리 보기에서 손잡이로 직접 지정하면 그 영역을 씁니다.",
-        values=(GlossaryValue("전체", "검은 띠가 없어 전체 화면을 활성 화면으로 씁니다."), GlossaryValue("VR 보호", "검은 띠 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."), GlossaryValue("감지 실패", "검은 여백을 감지하지 못했습니다. 영상을 읽지 못한 지점이 있어 전체 화면을 그대로 씁니다. 다시 감지하면 재시도합니다."), GlossaryValue("직접 지정", "손잡이로 정한 영역입니다. 전역 잘라내기 끔과 VR 보호가 아니면 자동 감지보다 우선합니다.")), example="", keywords="활성 화면 검은 띠 cropdetect VR 보호 직접 지정 수동 크롭 감지 실패"),
+        category="quality", term="활성 화면", shorts=(), where="표 열, 활성 화면 툴팁", desc="화면 여백을 뺀 실제 화면 영역입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다. 여백이 없으면 전체로 표시하고, VR 보호 영상은 VR 보호로 표시합니다. 미리 보기의 여백 미리 보기에서 손잡이로 직접 지정하면 그 영역을 씁니다.",
+        values=(GlossaryValue("전체", "여백이 없어 전체 화면을 활성 화면으로 씁니다."), GlossaryValue("VR 보호", "여백 감지와 잘라내기에서만 보호하며 축소 후보는 정상 측정합니다."), GlossaryValue("감지 실패", "여백을 감지하지 못했습니다. 영상을 읽지 못한 지점이 있어 전체 화면을 그대로 씁니다. 다시 감지하면 재시도합니다."), GlossaryValue("직접 지정", "손잡이로 정한 영역입니다. 전역 잘라내기 끔과 VR 보호가 아니면 자동 감지보다 우선합니다.")), example="", keywords="활성 화면 검은 띠 화면 여백 cropdetect VR 보호 직접 지정 수동 크롭 감지 실패"),
     GlossaryTerm(
         category="quality", term="축소 후보", shorts=("축소 후보 해상도",), where="표 열, 축소 후보 툴팁", desc="화질 분석에서 원본을 그 규격으로 줄였다 되돌려도 화질 차이가 기준 안에 있다고 판정한 가장 낮은 해상도 규격입니다. 후보가 없으면 유지, 유효 구간이 없으면 측정 불가로 표시합니다.",
         values=(GlossaryValue("유지", "축소 기준을 넘는 규격이 없어 원래 해상도를 유지하는 편이 좋습니다."), GlossaryValue("측정 불가", "유효 구간이 없어 축소 후보를 판정하지 못했습니다.")), example="", keywords="축소 후보 downscale candidate 720p 1080p 유지 측정 불가"),
@@ -656,7 +656,7 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         values=(), example="", keywords="SSIM 구조 유사도 대체 지표 왕복"),
     GlossaryTerm(
         category="criteria", term="화질 분석 대상 해상도", shorts=(), where="설정의 해상도 및 분석 범주",
-        desc="이 해상도 이상인 영상만 축소 후보 측정을 합니다. 그보다 작은 영상은 검은 여백만 빠르게 확인합니다.",
+        desc="이 해상도 이상인 영상만 축소 후보 측정을 합니다. 그보다 작은 영상은 화면 여백만 빠르게 확인합니다.",
         values=(), example="", keywords="화질 분석 대상 해상도 frame_analysis_min_tier 전체 이상"),
     GlossaryTerm(
         category="criteria", term="화질 분석 축소 후보 자동 적용", shorts=(), where="설정의 해상도 및 분석 범주",
@@ -671,9 +671,9 @@ GLOSSARY_TERMS: tuple[GlossaryTerm, ...] = (
         desc="VMAF를 쓸 수 없을 때 대신 쓰는 구조 유사도 기준입니다. 1에 가까울수록 원본과 비슷합니다.",
         values=(), example="", keywords="축소 후보 SSIM 기준 roundtrip_ssim_threshold 왕복"),
     GlossaryTerm(
-        category="criteria", term="검은 여백 무시 면적 상한", shorts=(), where="설정의 해상도 및 분석 범주 고급",
-        desc="활성 화면이 원본 면적에서 차지하는 비율이 이 값 이상이면 검은 여백이 없는 영상으로 보고 잘라내지 않습니다.",
-        values=(), example="", keywords="검은 여백 무시 면적 상한 active_area_no_bars_ratio"),
+        category="criteria", term="화면 여백 무시 면적 상한", shorts=(), where="설정의 해상도 및 분석 범주 고급",
+        desc="활성 화면이 원본 면적에서 차지하는 비율이 이 값 이상이면 화면 여백이 없는 영상으로 보고 잘라내지 않습니다.",
+        values=(), example="", keywords="화면 여백 무시 면적 상한 검은 여백 active_area_no_bars_ratio"),
     GlossaryTerm(
         category="criteria", term="동급 코덱 과화질 여유", shorts=(), where="설정의 판별 기준 고급",
         desc="원본 코덱이 목표 코덱 이상의 압축 성능이면 세대 손실을 막으려고 과화질 판정 상한에 더하는 여유값입니다.",

@@ -107,7 +107,7 @@ _PREVIEW_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_mute", "음소거", "M", "미리 보기 영상의 음소거를 전환합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_fullscreen", "전체화면 전환", "F", "미리 보기 창을 전체화면과 이전 창 크기 사이에서 전환합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_info", "정보 표시 전환", "I", "영상 위의 정보 표시를 끔, 요약, 상세 순서로 전환합니다."),
-    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_crop", "여백 미리 보기", "B", "인코딩할 때 잘라낼 검은 여백을 영상 위에 표시합니다."),
+    ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.toggle_crop", "여백 미리 보기", "B", "인코딩할 때 잘라낼 화면 여백을 영상 위에 표시합니다."),
     ShortcutSpec(PREVIEW_SHORTCUT_GROUP, "preview.cycle_background", "배경 색 전환", "Shift+B", "영상 뒤 배경 색을 검정, 회색, 흰색 순서로 바꿉니다."),
 )
 
@@ -136,9 +136,9 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("analyze", "analyze.force_reanalyze", "강제 재분석 (캐시 무시 정밀 분석)", "Shift+F5", "기존 캐시를 무시하고 작업 폴더 전체를 다시 정밀 분석합니다."),
     ShortcutSpec("analyze", "analyze.run_fast", "빠른 분석 (고속)", "", "키프레임 측정을 생략하고 해상도, 비트레이트를 빠르게 분석합니다."),
     ShortcutSpec("analyze", "analyze.run_full", "정밀 분석 (키프레임 포함)", "", "키프레임 간격 실측을 포함한 전체 정밀 분석을 실행합니다."),
-    ShortcutSpec("analyze", "analyze.crop_selected", "선택 영상 검은 여백 감지", "", "선택한 영상의 검은 여백을 빠르게 감지합니다."),
+    ShortcutSpec("analyze", "analyze.crop_selected", "선택 영상 여백 감지", "", "선택한 영상의 화면 여백을 빠르게 감지합니다."),
     ShortcutSpec("analyze", "analyze.frame_all", "전체 영상 화질 분석", "", "모든 영상의 활성 화면과 축소 후보를 화질 분석합니다."),
-    ShortcutSpec("analyze", "analyze.crop_all", "전체 영상 검은 여백 감지", "", "모든 영상의 검은 여백을 빠르게 감지합니다."),
+    ShortcutSpec("analyze", "analyze.crop_all", "전체 영상 여백 감지", "", "모든 영상의 화면 여백을 빠르게 감지합니다."),
     ShortcutSpec("analyze", "analyze.cancel", "진행 중인 작업 중단", "Esc", "실행 중인 백그라운드 분석 작업을 중단합니다."),
     ShortcutSpec("encode", "encode.start", "인코딩 창 열기", "Ctrl+G", "인코딩 창을 엽니다. 시작 전 브리핑은 요약 탭에서 확인하고, 진행 중이면 진행 상황을 보여 줍니다."),
     ShortcutSpec("encode", "encode.open_settings", "인코딩 설정", "", "환경 설정의 인코딩 탭을 엽니다."),

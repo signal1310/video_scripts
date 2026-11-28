@@ -1502,7 +1502,7 @@ class TestQualityTargetJudgment(unittest.TestCase):
         self.assertEqual(report.evaluations[0].active_frame, crop)
 
     def test_narrower_active_frame_lowers_reference_bitrate(self) -> None:
-        """검은 띠를 뺀 활성 화면이 작으면 기준 비트레이트가 낮아져 같은 비트레이트의 비율이 올라감을 검증"""
+        """화면 여백을 뺀 활성 화면이 작으면 기준 비트레이트가 낮아져 같은 비트레이트의 비율이 올라감을 검증"""
         vid = _vid("letterbox.mp4", 1200, 60.0, width=1920, height=1080)
         cfg = ClassifierConfig()
         full = VideoEvaluator.evaluate_video(vid, cfg)

@@ -51,7 +51,7 @@ TRANSFORM_TITLE_TEMPLATE: str = "{label} ({count}/{total}개)"
 IMPACT_TITLE_TEMPLATE: str = "{label} ({count}개)"
 
 IMPACT_LABELS: tuple[tuple[str, str], ...] = (
-    (IMPACT_CROP_BARS, "검은 여백 잘라내기"),
+    (IMPACT_CROP_BARS, "화면 여백 잘라내기"),
     (IMPACT_DOWNSCALE_RESOLUTION, "해상도 축소"),
     (IMPACT_COVER_KEPT, "커버 유지"),
     (IMPACT_EXPLORER_TAGS_PRESERVED, "탐색기 태그와 별점 보존 대상"),

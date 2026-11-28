@@ -362,7 +362,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(set(service.load_active_frames(requests)), {"b.mp4"})
 
     def test_load_active_frames_skips_vr_protected_and_full_frame_rows(self) -> None:
-        """VR 보호 행과 검은 여백이 없는 행은 활성 화면으로 넘기지 않는지 검증"""
+        """VR 보호 행과 화면 여백이 없는 행은 활성 화면으로 넘기지 않는지 검증"""
         service = self.make_service(FakeStderrRunner())
         service.analyze_batch([_request("full.mp4")])
         self.assertEqual(service.load_active_frames([_request("full.mp4")]), {})
@@ -576,7 +576,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(service.load_active_frames([request]), {"a.mp4": ActiveFrame(720, 1080, 600, 0)})
 
     def test_crop_only_scan_failure_is_not_reused(self) -> None:
-        """스캔에 실패한 감지 전용 행이 검은 여백 없음으로 재사용되지 않는지 검증"""
+        """스캔에 실패한 감지 전용 행이 화면 여백 없음으로 재사용되지 않는지 검증"""
         failing = FakeStderrRunner(black_returncode=1)
         service = self.make_service(failing)
         request = _request("a.mp4")

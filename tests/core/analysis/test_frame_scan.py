@@ -60,7 +60,7 @@ def _gradient_row(width: int, mean: float, deviation: float) -> list[int]:
 
 
 class TestLumaStats(unittest.TestCase):
-    """Y 평면 검은 픽셀 비율과 검은 여백 상자 계산 검증"""
+    """Y 평면 검은 픽셀 비율과 화면 여백 상자 계산 검증"""
 
     def test_black_frame_returns_no_box(self) -> None:
         box, ratio, _edges = luma_frame_stats(bytes([16] * 64), 8, 8, 8)
@@ -128,7 +128,7 @@ class TestLumaStats(unittest.TestCase):
 
 
 class TestBarEdgeRules(unittest.TestCase):
-    """평탄도, 경계 계단, 띠 안 자막 섬 규칙으로 검은 여백을 판정하는지 검증"""
+    """평탄도, 경계 계단, 띠 안 자막 섬 규칙으로 화면 여백을 판정하는지 검증"""
 
     def test_four_side_bars_are_cropped(self) -> None:
         """4면 띠가 모두 있으면 각 면의 띠 두께만큼 상자를 줄임"""
@@ -269,7 +269,7 @@ class TestBarEdgeRules(unittest.TestCase):
         self.assertEqual((region.width, region.height, region.x, region.y), (242, 240, 38, 0))
 
     def test_union_of_full_frame_boxes_has_no_bars(self) -> None:
-        """완만한 그라데이션만 있는 표본에서는 상자가 프레임 전체라 검은 띠 없음"""
+        """완만한 그라데이션만 있는 표본에서는 상자가 프레임 전체라 화면 여백 없음"""
         frames = []
         for _ in range(2):
             rows = [[120] * 32 for _ in range(10)]
@@ -407,7 +407,7 @@ class TestEdgeDarkness(unittest.TestCase):
     """지점별 어두운 면 두께 계산과 표시 회전 전치 검증"""
 
     def test_bar_thickness_is_reported_per_side(self) -> None:
-        """어둡고 평탄한 위 4줄, 아래 6줄 검은 띠는 그 두께를 어두운 구간으로 남김"""
+        """어둡고 평탄한 위 4줄, 아래 6줄 화면 여백는 그 두께를 어두운 구간으로 남김"""
         rows = [_noisy_row(32, 23, 5) for _ in range(4)]
         rows += [[120] * 32 for _ in range(14)]
         rows += [[16] * 32 for _ in range(6)]

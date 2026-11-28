@@ -46,7 +46,7 @@ from tests._factories import make_eval, make_video
 
 # - 표 툴팁에 덧붙는 구간별 여백 차이 안내 문장(정확한 문구 확인용)
 _MARGINS_VARY_SENTENCE: str = (
-    "구간마다 검은 여백이 달라 가장 넓게 겹치는 영역만 활성 화면으로 잡았습니다. "
+    "구간마다 화면 여백이 달라 가장 넓게 겹치는 영역만 활성 화면으로 잡았습니다. "
     "미리 보기에서 직접 지정할 수 있습니다."
 )
 
@@ -136,16 +136,16 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         self.assertIn("화질 분석 전", active_frame_tooltip(None))
         self.assertIn("축소 후보는 정상 측정", active_frame_tooltip(_result(vr=True)))
         self.assertIn(
-            "검은 여백을 뺀", active_frame_tooltip(_result(active=ActiveRegion(1920, 800, 0, 140, True)))
+            "화면 여백을 뺀", active_frame_tooltip(_result(active=ActiveRegion(1920, 800, 0, 140, True)))
         )
-        self.assertIn("검은 여백이 없어", active_frame_tooltip(_result()))
+        self.assertIn("화면 여백이 없어", active_frame_tooltip(_result()))
 
     def test_crop_off_tooltip_says_the_bars_will_not_be_cropped(self) -> None:
-        """검은 여백 잘라내기를 끄면 활성 화면 크기 툴팁이 자르지 않는다고 알리는지 검증"""
+        """화면 여백 잘라내기를 끄면 활성 화면 크기 툴팁이 자르지 않는다고 알리는지 검증"""
         cropped = _result(active=ActiveRegion(1920, 800, 0, 140, True))
         tip = active_frame_tooltip(cropped, crop_enabled=False)
-        self.assertIn("검은 여백 잘라내기 설정이 꺼져 있어", tip)
-        self.assertNotIn("검은 여백 잘라내기 설정이 꺼져 있어", active_frame_tooltip(cropped))
+        self.assertIn("화면 여백 잘라내기 설정이 꺼져 있어", tip)
+        self.assertNotIn("화면 여백 잘라내기 설정이 꺼져 있어", active_frame_tooltip(cropped))
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": cropped})
         self.assertIn("잘라내기 설정이 꺼져 있어", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False))
@@ -161,13 +161,13 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         view.set_results({"a.mp4": _result(active=ActiveRegion(1920, 800, 0, 140, True))})
         view.set_crop_excluded(["a.mp4"])
         tip = view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False)
-        self.assertIn("검은 여백 잘라내기 제외됨 (원본 유지)", tip)
-        self.assertIn("검은 여백 잘라내기 설정이 꺼져 있어", tip)
+        self.assertIn("여백 잘라내기 제외됨 (원본 유지)", tip)
+        self.assertIn("화면 여백 잘라내기 설정이 꺼져 있어", tip)
         not_excluded = FrameAnalysisResults()
         not_excluded.set_results({"a.mp4": _result(active=ActiveRegion(1920, 800, 0, 140, True))})
         other_tip = not_excluded.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False)
-        self.assertNotIn("검은 여백 잘라내기 제외됨 (원본 유지)", other_tip)
-        self.assertIn("검은 여백 잘라내기 설정이 꺼져 있어", other_tip)
+        self.assertNotIn("여백 잘라내기 제외됨 (원본 유지)", other_tip)
+        self.assertIn("화면 여백 잘라내기 설정이 꺼져 있어", other_tip)
 
     def test_downscale_tooltips_include_scores_and_valid_segments(self) -> None:
         tip = downscale_candidate_tooltip(_result(candidate="1080p"))
@@ -192,7 +192,7 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
             active=ActiveRegion(1920, 1080, 0, 0, False, margins_vary=True),
         )
         self.assertIn(_MARGINS_VARY_SENTENCE, active_frame_tooltip(varying))
-        self.assertIn("검은 여백이 없어", active_frame_tooltip(varying))
+        self.assertIn("화면 여백이 없어", active_frame_tooltip(varying))
         self.assertNotIn(_MARGINS_VARY_SENTENCE, active_frame_tooltip(_result()))
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": varying})
@@ -208,7 +208,7 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         )
 
     def test_crop_only_rows_show_blank_cells_with_dedicated_tooltips(self) -> None:
-        """검은 여백 감지 전용 행이 유지 대신 빈칸과 전용 툴팁을 쓰는지 검증"""
+        """여백 감지 전용 행이 유지 대신 빈칸과 전용 툴팁을 쓰는지 검증"""
         result = _result(
             active=ActiveRegion(720, 1080, 600, 0, True),
             metric="",
@@ -222,13 +222,13 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         candidate_tip = downscale_candidate_tooltip(result)
         self.assertEqual(
             candidate_tip,
-            "검은 여백만 감지했습니다. 축소 후보를 확인하려면 화질 분석을 실행하세요.",
+            "화면 여백만 감지했습니다. 축소 후보를 확인하려면 화질 분석을 실행하세요.",
         )
         self.assertEqual(quality_metric_text(result), "")
         self.assertEqual(quality_metric_sort_value(result), (0, ""))
         self.assertEqual(
             quality_metric_tooltip(result),
-            "검은 여백만 감지했습니다. 측정 지표를 보려면 화질 분석을 실행하세요.",
+            "화면 여백만 감지했습니다. 측정 지표를 보려면 화질 분석을 실행하세요.",
         )
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": result})
@@ -237,7 +237,7 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         self.assertEqual(view.candidates([make_eval(video=make_video(filename="a.mp4"))]), {})
 
     def test_failed_crop_only_row_says_detection_failed(self) -> None:
-        """스캔에 실패한 감지 전용 행이 검은 띠 없음 대신 감지 실패를 보여 주는지 검증"""
+        """스캔에 실패한 감지 전용 행이 화면 여백 없음 대신 감지 실패를 보여 주는지 검증"""
         result = _result(
             active=ActiveRegion(1920, 1080, 0, 0, False),
             metric="",
@@ -249,10 +249,10 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         self.assertEqual(active_frame_text(result), ACTIVE_FRAME_FAILED_TEXT)
         self.assertEqual(
             active_frame_tooltip(result),
-            "검은 여백을 감지하지 못했습니다. 영상을 읽지 못한 지점이 있어 전체 화면을 그대로 씁니다. "
+            "화면 여백을 감지하지 못했습니다. 영상을 읽지 못한 지점이 있어 전체 화면을 그대로 씁니다. "
             "다시 감지하면 재시도합니다.",
         )
-        self.assertNotIn("검은 띠가 없어", active_frame_tooltip(result))
+        self.assertNotIn("화면 여백가 없어", active_frame_tooltip(result))
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": result})
         self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_FAILED_TEXT)
@@ -286,7 +286,7 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         """전체 화질 분석의 측정 불가는 감지 실패가 아니므로 활성 화면 문구를 바꾸지 않음"""
         result = _result(unmeasurable=True, candidate=None)
         self.assertEqual(active_frame_text(result), ACTIVE_FRAME_FULL_TEXT)
-        self.assertIn("검은 여백이 없어", active_frame_tooltip(result))
+        self.assertIn("화면 여백이 없어", active_frame_tooltip(result))
 
     def test_failed_crop_only_metric_tooltip_replaces_detection_notice(self) -> None:
         """감지에 실패한 감지 전용 행의 측정 지표 툴팁이 감지 성공 안내를 쓰지 않는지 검증"""
@@ -299,9 +299,9 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         )
         tip = quality_metric_tooltip(result)
         self.assertEqual(
-            tip, "검은 여백 감지에 실패해 측정 지표를 확인하지 못했습니다. 다시 감지하면 재시도합니다."
+            tip, "여백 감지에 실패해 측정 지표를 확인하지 못했습니다. 다시 감지하면 재시도합니다."
         )
-        self.assertNotIn("검은 여백만 감지했습니다", tip)
+        self.assertNotIn("화면 여백만 감지했습니다", tip)
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": result})
         self.assertEqual(view.tooltip("a.mp4", QUALITY_METRIC_COLUMN), tip)
@@ -310,8 +310,8 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         """감지에 실패한 전체 화질 분석 행도 감지 실패로 알리고 재측정을 안내하는지 검증"""
         result = _result(unmeasurable=True, candidate=None, scan_failed=True)
         self.assertEqual(active_frame_text(result), ACTIVE_FRAME_FAILED_TEXT)
-        self.assertNotIn("검은 띠가 없어", active_frame_tooltip(result))
-        self.assertIn("검은 여백을 감지하지 못했습니다", active_frame_tooltip(result))
+        self.assertNotIn("화면 여백가 없어", active_frame_tooltip(result))
+        self.assertIn("화면 여백을 감지하지 못했습니다", active_frame_tooltip(result))
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": result})
         self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_FAILED_TEXT)
@@ -340,9 +340,9 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         )
         tip = downscale_candidate_tooltip(result)
         self.assertEqual(
-            tip, "검은 여백 감지에 실패해 축소 후보를 확인하지 못했습니다. 다시 감지하면 재시도합니다."
+            tip, "여백 감지에 실패해 축소 후보를 확인하지 못했습니다. 다시 감지하면 재시도합니다."
         )
-        self.assertNotIn("검은 여백만 감지했습니다", tip)
+        self.assertNotIn("화면 여백만 감지했습니다", tip)
         succeeded = _result(
             metric="",
             candidate=None,
@@ -351,7 +351,7 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         )
         self.assertEqual(
             downscale_candidate_tooltip(succeeded),
-            "검은 여백만 감지했습니다. 축소 후보를 확인하려면 화질 분석을 실행하세요.",
+            "화면 여백만 감지했습니다. 축소 후보를 확인하려면 화질 분석을 실행하세요.",
         )
 
 
@@ -409,7 +409,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), "1600x1000")
         self.assertEqual(
             view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN),
-            "검은 여백을 뺀 활성 화면 크기입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다.",
+            "화면 여백을 뺀 활성 화면 크기입니다. 이 크기로 화질 기준값과 축소 후보를 계산합니다.",
         )
 
     def test_manual_active_frame_is_shown_with_extra_tooltip_sentence(self) -> None:
@@ -463,7 +463,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertNotIn("사용자 지정 활성 화면입니다.", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
 
     def test_crop_off_setting_mutes_black_bar_rows_but_keeps_manual_frames(self) -> None:
-        """검은 여백 잘라내기가 꺼져 있으면 검은 띠가 있는 활성 화면 셀을 흐리게 표시하는지 검증"""
+        """화면 여백 잘라내기가 꺼져 있으면 화면 여백가 있는 활성 화면 셀을 흐리게 표시하는지 검증"""
         view = FrameAnalysisResults()
         view.set_results(
             {
@@ -493,7 +493,7 @@ class FrameAnalysisResultsTests(unittest.TestCase):
         self.assertIsNone(
             foreground_color(ev_b, ACTIVE_FRAME_COLUMN, _PALETTE, frame_view=view,
                              encode_label=None, encode_state_col=99, crop_enabled=False),
-            "검은 띠가 없는 행은 흐리게 표시하지 않음",
+            "화면 여백가 없는 행은 흐리게 표시하지 않음",
         )
         view.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
         self.assertIsNone(view.foreground("a.mp4", ACTIVE_FRAME_COLUMN, _PALETTE, crop_enabled=False))
@@ -535,11 +535,11 @@ class CropReviewMarkerTests(unittest.TestCase):
         tip = crop_review_tooltip(self._flagged().active_region)
         lines = tip.split("\n")
         self.assertEqual(lines[0], CROP_REVIEW_TEXT)
-        self.assertIn("검은 여백을 찾을 때 일부 지점의 여백이 어두워 판단에서 제외했습니다.", lines[1])
+        self.assertIn("화면 여백을 찾을 때 일부 지점의 여백이 어두워 판단에서 제외했습니다.", lines[1])
         self.assertIn("활성 화면(1836x1008)", lines[1])
         self.assertEqual(
             lines[2],
-            "활성 화면을 직접 지정할 때까지 자동으로 잡은 검은 여백을 잘라내지 않고 전체 화면으로 인코딩합니다.",
+            "활성 화면을 직접 지정할 때까지 자동으로 잡은 화면 여백을 잘라내지 않고 전체 화면으로 인코딩합니다.",
         )
         self.assertEqual(
             lines[3],
@@ -628,7 +628,7 @@ class OutputResolutionDisplayTests(unittest.TestCase):
     def test_tooltip_lists_crop_step(self) -> None:
         """툴팁은 원본에서 활성 화면으로 바뀐 크기를 함께 보여 줌"""
         tip = format_output_res_tooltip(self._cropped(), ClassifierConfig())
-        self.assertIn("검은 여백 잘라내기: 1920x1080 -> 1600x1000", tip)
+        self.assertIn("화면 여백 잘라내기: 1920x1080 -> 1600x1000", tip)
         self.assertIn("해상도는 줄이지 않습니다.", tip)
 
 

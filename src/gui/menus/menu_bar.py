@@ -33,12 +33,12 @@ from src.gui.widgets.header_bar import HeaderBar
 
 ENCODE_STATE_POLL_MS: int = 200
 FRAME_ANALYSIS_RUNNING_TEXT: str = "화질 분석이 진행 중입니다."
-CROP_SCAN_RUNNING_TEXT: str = "검은 여백 감지가 진행 중입니다."
+CROP_SCAN_RUNNING_TEXT: str = "여백 감지가 진행 중입니다."
 FRAME_ANALYSIS_BUSY_TEXT: str = "분석이 끝난 뒤 시작할 수 있습니다."
 FRAME_ANALYSIS_NO_LIST_TEXT: str = "화질 분석할 영상이 없습니다."
 FRAME_ANALYSIS_NO_SELECTION_TEXT: str = "선택한 영상이 없습니다."
 FRAME_ANALYSIS_START_TIP: str = "화질 분석을 실행합니다."
-CROP_SCAN_START_TIP: str = "검은 여백을 감지합니다."
+CROP_SCAN_START_TIP: str = "화면 여백을 감지합니다."
 
 
 def _set_frame_action(action: QAction, enabled: bool, reason: str, description: str) -> None:

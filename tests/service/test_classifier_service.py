@@ -238,7 +238,7 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         )
 
     def test_crop_only_cache_informs_judgment_after_a_mode_change(self) -> None:
-        """화질 분석 방식을 바꿔도 검은 여백 감지 전용 행을 판정의 활성 화면으로 쓰는지 검증"""
+        """화질 분석 방식을 바꿔도 여백 감지 전용 행을 판정의 활성 화면으로 쓰는지 검증"""
         clip = os.path.join(self.root, "detect.mp4")
         with open(clip, "wb") as handle:
             handle.write(b"v" * 2048)

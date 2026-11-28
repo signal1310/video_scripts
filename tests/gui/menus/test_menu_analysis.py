@@ -30,7 +30,7 @@ class AnalysisMenuTests(unittest.TestCase):
         self.menu = build_analysis_menu(MenuContext(self.window), bar, callbacks)
 
     def test_crop_scan_actions_use_the_crop_icon(self) -> None:
-        """검은 여백 감지 두 항목이 film, analyze가 아닌 crop 아이콘을 쓰는지 검증"""
+        """여백 감지 두 항목이 film, analyze가 아닌 crop 아이콘을 쓰는지 검증"""
         recorded: dict[str, str] = {}
         original = MenuContext.create_action
 

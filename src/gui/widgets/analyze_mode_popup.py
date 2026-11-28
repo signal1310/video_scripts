@@ -82,7 +82,7 @@ class AnalyzeModePopup(FloatingPopupFrame):
         self._card = card
         layout.setSpacing(0)
         self.btn_fast = self._create_item("빠른 분석")
-        self.btn_full = self._create_item("정밀 분석 (키프레임 + 검은 여백)")
+        self.btn_full = self._create_item("정밀 분석 (키프레임 + 화면 여백)")
         self.btn_frame = self._create_item("화질 분석 (축소 후보 포함)")
         self.btn_fast.clicked.connect(self._on_fast_clicked)
         self.btn_full.clicked.connect(self._on_full_clicked)
@@ -288,7 +288,7 @@ class FrameMinTierControls(QWidget):
         label = frame_min_tier_label(self.tier_key())
         self.lbl_value.setText(label)
         self.lbl_summary.setText(
-            f"{label} 영상만 축소 후보를 측정합니다. 그보다 낮은 해상도는 검은 여백만 감지합니다."
+            f"{label} 영상만 축소 후보를 측정합니다. 그보다 낮은 해상도는 화면 여백만 감지합니다."
             if self.tier_key() != FRAME_ANALYSIS_MIN_TIER_ALL
             else "모든 해상도 영상의 축소 후보를 측정합니다."
         )

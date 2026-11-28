@@ -96,7 +96,7 @@ CATEGORY_TOOLTIPS: dict[str, str] = {
 }
 IMPACT_TOOLTIPS: dict[str, str] = {
     IMPACT_CROP_BARS: (
-        "검은 여백을 잘라내고 활성 화면만 남깁니다. 영상 내용은 그대로이며 남는 부분의 화면비와 해상도가 달라집니다."
+        "화면 여백을 잘라내고 활성 화면만 남깁니다. 영상 내용은 그대로이며 남는 부분의 화면비와 해상도가 달라집니다."
     ),
     IMPACT_DOWNSCALE_RESOLUTION: (
         "해상도를 낮춰 저장합니다. 같은 화질 기준값에서 용량이 줄고 화면이 작아지며, 육안 확인이 필요한 항목입니다."

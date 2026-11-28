@@ -2,9 +2,12 @@
 
 import unittest
 
+from src.core.evaluation.reanalysis_display import is_reanalysis_blurred
 from src.core.messages import LABEL_UNMEASURED_DETAIL
 from src.core.smart_action import SmartAction
 from src.gui.table.table_cell_tooltips import (
+    BLUR_EXPLANATION_LEGACY,
+    BLUR_EXPLANATION_UNMEASURED,
     action_cell_tip,
     after_size_cell_tip,
     bitrate_cell_tip,
@@ -112,11 +115,68 @@ class CellTooltipTests(unittest.TestCase):
         self.assertIn("재분석 필요", legacy_tip)
         self.assertIn("품질값이 없습니다", legacy_tip)
         self.assertNotIn("원본을 보존", legacy_tip)
-        self.assertTrue(legacy_tip.endswith("정해집니다."))
+        self.assertTrue(legacy_tip.endswith(BLUR_EXPLANATION_LEGACY))
 
-    def test_encode_state_default_tip_names_non_target_rows(self) -> None:
-        """배치 밖 행의 기본 상태 툴팁이 대상 아님을 알리는지 검증"""
-        self.assertEqual(encode_state_cell_tip(make_eval(make_video())), "인코딩 배치 대상이 아닙니다.")
+    def test_every_blurred_derived_column_explains_the_unmeasured_keyframe(self) -> None:
+        """키프레임 미측정으로 흐려진 다섯 파생 열 툴팁이 모두 흐림 사유를 담는지 검증"""
+        ev = make_eval(make_video(keyframe_interval=None))
+        self.assertTrue(is_reanalysis_blurred(ev))
+        tips = {
+            "zone": zone_cell_tip(ev),
+            "saved_size": saved_size_cell_tip(ev),
+            "saved_per_min": saved_per_min_cell_tip(ev),
+            "est_encode_time": est_encode_time_cell_tip(ev),
+            "quality_value": quality_value_cell_tip(ev),
+        }
+        for column, tip in tips.items():
+            with self.subTest(column=column):
+                self.assertIn(BLUR_EXPLANATION_UNMEASURED, tip)
+                self.assertNotIn(BLUR_EXPLANATION_LEGACY, tip)
+
+    def test_every_blurred_derived_column_explains_the_legacy_format(self) -> None:
+        """이전 형식으로 흐려진 다섯 파생 열 툴팁이 모두 다시 분석 안내를 담는지 검증"""
+        ev = make_eval(make_video(keyframe_interval=2.0), smart_action=SmartAction.LEGACY_FORMAT)
+        self.assertTrue(is_reanalysis_blurred(ev))
+        tips = (
+            zone_cell_tip(ev),
+            saved_size_cell_tip(ev),
+            saved_per_min_cell_tip(ev),
+            est_encode_time_cell_tip(ev),
+            quality_value_cell_tip(ev),
+        )
+        for tip in tips:
+            with self.subTest(tip=tip):
+                self.assertIn(BLUR_EXPLANATION_LEGACY, tip)
+                self.assertNotIn(BLUR_EXPLANATION_UNMEASURED, tip)
+
+    def test_measured_rows_do_not_show_a_blur_explanation(self) -> None:
+        """재분석 블러 대상이 아닌 행의 파생 열 툴팁에는 흐림 안내를 붙이지 않는지 검증"""
+        ev = make_eval(make_video(keyframe_interval=2.0))
+        self.assertFalse(is_reanalysis_blurred(ev))
+        tips = (
+            zone_cell_tip(ev),
+            saved_size_cell_tip(ev),
+            saved_per_min_cell_tip(ev),
+            est_encode_time_cell_tip(ev),
+            quality_value_cell_tip(ev),
+        )
+        for tip in tips:
+            with self.subTest(tip=tip):
+                self.assertNotIn(BLUR_EXPLANATION_UNMEASURED, tip)
+                self.assertNotIn(BLUR_EXPLANATION_LEGACY, tip)
+
+    def test_encode_state_default_tip_names_target_and_non_target_rows(self) -> None:
+        """배치 밖 행의 기본 상태 툴팁이 대상 여부를 알리는지 검증"""
+        self.assertEqual(
+            encode_state_cell_tip(make_eval(make_video())),
+            "이번 인코딩 대상입니다. 인코딩을 시작하면 진행 상태를 보여 줍니다.",
+        )
+        self.assertEqual(
+            encode_state_cell_tip(
+                make_eval(make_video(), smart_action=SmartAction.PASS_OPTIMAL)
+            ),
+            "인코딩 배치 대상이 아닙니다.",
+        )
 
 
 class FfmpegArgsLineTests(unittest.TestCase):

@@ -61,10 +61,38 @@ class EncodeStateColumnModelTests(unittest.TestCase):
     def _index(self, row: int) -> QModelIndex:
         return self.model.index(row, self.col)
 
-    def test_rows_show_nothing_before_a_batch_is_attached(self) -> None:
-        """배치 저장소를 연결하기 전에는 상태 셀이 비어 있는지 검증"""
-        self.assertIsNone(self.model.data(self._index(0), _DISPLAY))
-        self.assertIsInstance(self.model.data(self._index(0), _TOOLTIP), str)
+    def test_rows_show_target_before_a_batch_is_attached(self) -> None:
+        """배치 저장소를 연결하기 전에는 인코딩 대상 행이 대상 표기와 보조 글자색을 쓰고, 보존 행은 비어 있는지 검증"""
+        self.assertEqual(self.model.data(self._index(0), _DISPLAY), "대상")
+        self.assertIsNone(self.model.data(self._index(0), VideoTableModel.BADGE_ROLE))
+        self.assertIsInstance(self.model.data(self._index(0), _FOREGROUND), QColor)
+        self.assertEqual(
+            self.model.data(self._index(0), _TOOLTIP),
+            "이번 인코딩 대상입니다. 인코딩을 시작하면 진행 상태를 보여 줍니다.",
+        )
+        self.assertEqual(
+            self.model.get_filter_value_for(self.model.evaluations[0], self.col),
+            "대상",
+        )
+        self.model.set_data_source(
+            [
+                make_eval(make_video(filename="a.mp4")),
+                make_eval(make_video(filename="b.mp4"), smart_action=SmartAction.PASS_OPTIMAL),
+            ],
+            root_dir=_ROOT,
+        )
+        self.assertIsNone(self.model.data(self._index(1), _DISPLAY))
+        self.assertEqual(
+            self.model.get_filter_value_for(self.model.evaluations[1], self.col),
+            "",
+        )
+
+    def test_batch_state_takes_precedence_over_the_target_label(self) -> None:
+        """배치 저장소를 연결하면 대상 표기 대신 그 배치의 상태가 보이는지 검증"""
+        self.assertEqual(self.model.data(self._index(0), _DISPLAY), "대상")
+        self.model.set_encode_book(self.book)
+        self.assertEqual(self.model.data(self._index(0), _DISPLAY), "대기")
+        self.assertIsNone(self.model.data(self._index(1), _DISPLAY))
 
     def test_batch_target_shows_pending_label_with_muted_color_and_no_badge(self) -> None:
         """배치 대상 대기 행이 대기 표기와 보조 글자색을 쓰고 배지는 없는지 검증"""

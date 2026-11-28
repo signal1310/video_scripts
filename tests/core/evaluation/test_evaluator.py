@@ -1231,16 +1231,19 @@ class TestManualActiveFrameJudgment(unittest.TestCase):
         self.assertEqual(ev.smart_action, SmartAction.PASS_LOW_SAVED)
         self.assertFalse(ev.is_encode_target)
 
-    def test_manual_active_frame_is_ignored_when_crop_is_disabled(self) -> None:
-        """전역 잘라내기 설정이 꺼져 있으면 활성 화면 지정은 판정에 적용되지 않음"""
+    def test_manual_active_frame_applies_when_crop_is_disabled(self) -> None:
+        """전역 잘라내기 설정이 꺼져 있어도 활성 화면 지정은 직접 지정 판정으로 적용됨"""
         cfg = ClassifierConfig(encode=EncodeConfig(crop_black_bars=False))
         vid = _vid("ok.mp4", 2600, 120.0, width=1920, height=1080)
-        auto = VideoEvaluator.evaluate_all("C:/dummy", [vid], cfg).evaluations[0]
         ev = self._evaluate(vid, cfg)
-        self.assertEqual(ev.smart_action, auto.smart_action)
-        self.assertNotEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
-        self.assertIsNone(ev.active_frame)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+        self.assertTrue(ev.is_encode_target)
+        self.assertEqual(ev.active_frame, _MANUAL_FRAME)
         self.assertIsNone(ev.downscale_reason)
+        # - 전역 설정 끔은 자동 감지 검은 여백만 잘라내지 않음
+        self.assertIsNone(
+            VideoEvaluator.evaluate_all("C:/dummy", [vid], cfg).evaluations[0].active_frame
+        )
 
 
 def _frame_target_cfg(*, max_tier: str = "none", auto_apply: bool = True) -> ClassifierConfig:

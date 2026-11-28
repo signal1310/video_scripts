@@ -224,9 +224,11 @@ def _has_encoded_evidence(ctx: EvaluationContext) -> bool:
 def _has_manual_active_frame(ctx: EvaluationContext) -> bool:
     """사용자 지정 활성 화면이 잘라내기에 적용되는 상태인지 판별
 
-    - 전역 잘라내기 설정이 꺼져 있으면 사용자 지정도 적용되지 않음
+    - 영상에 지정한 사용자 지정 활성 화면은 전역 잘라내기 설정과 무관하게 적용됨
+      (전역 설정은 자동 검은 여백 잘라내기만 끔)
+    - VR 보호는 직접 지정보다 우선하므로 그 판정은 호출부가 따로 함
     """
-    return ctx.config.encode.crop_black_bars and ctx.manual_active_frame is not None
+    return ctx.manual_active_frame is not None
 
 
 def _policy_already_encoded(ctx: EvaluationContext) -> ClassificationDecision | None:

@@ -10,6 +10,7 @@ from src.core.config import ClassifierConfig, DisplayConfig
 from src.core.encode.encode_batch_book import (
     STATUS_DISCARDED,
     STATUS_DONE,
+    STATUS_ENCODE_TARGET,
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_REPLACE_PENDING,
@@ -118,6 +119,7 @@ ALIGN_CENTER: int = int(Qt.AlignmentFlag.AlignCenter)
 ALIGN_RIGHT: int = int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
 ENCODE_STATE_LABELS: tuple[str, ...] = (
+    STATUS_ENCODE_TARGET,
     STATUS_PENDING,
     STATUS_RUNNING,
     STATUS_RUNNING_PAUSED,
@@ -525,7 +527,8 @@ COL_DEFS: tuple[TableColumnDef, ...] = (
         full_header=COLUMN_LABELS[ColumnId.ENCODE_STATE].full,
         spec=ColumnSpec(25, ColumnDataType.ENUM, preset_values=ENCODE_STATE_LABELS),
         tooltip_factory=_static_tip(
-            "인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다."
+            "인코딩 배치에서 이 영상의 상태입니다. 인코딩 대상은 배치를 시작하기 전까지 대상으로 표시하고, "
+            "배치 대상이 아니면 비어 있습니다."
         ),
         # - 상태는 배치 진행에 따라 바뀌므로 정렬 값은 두지 않고, 필터 값은 표 모델이 셀 표기로 계산
         cell_tooltip=encode_state_cell_tip,

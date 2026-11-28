@@ -240,17 +240,14 @@ def active_frame_tooltip(
     - 직접 지정은 값 문구에 크기를 그대로 두고 문장 한 줄만 덧붙임
     - 감지 자체가 실패한 행은 검은 띠 없음이 아니라 실패 사유를 보여 주고 재시도를 안내
     - 구간별 여백이 달라 합집합으로만 잡힌 영상은 직접 지정 안내를 한 문장 더 붙임(직접 지정 시 생략)
-    - 검은 여백 잘라내기 설정이 꺼져 있으면 크기만 보여 주고 자르지 않는다는 줄을 덧붙임
+    - 검은 여백 잘라내기 설정이 꺼져 있어도 직접 지정 영역은 잘라내므로 그 사유를 붙이지 않음
     """
     if result is None:
         return _NO_RESULT_TIP
     if result.is_vr_protected:
         return _ACTIVE_FRAME_VR_TIP
     if manual:
-        tip = f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
-        if not crop_enabled:
-            return f"{tip}\n{_ACTIVE_FRAME_CROP_OFF_TIP}"
-        return tip
+        return f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
     if is_failed_crop_scan(result):
         return _ACTIVE_FRAME_FAILED_TIP
     if result.active_region.has_black_bars:
@@ -635,10 +632,7 @@ class FrameAnalysisResults:
         skip_reason = self._skip_reasons.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
             if result is None and manual is not None:
-                tip = f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
-                if not crop_enabled:
-                    return f"{tip}\n{_ACTIVE_FRAME_CROP_OFF_TIP}"
-                return tip
+                return f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
             if skip_reason is not None and result is None:
                 return skip_reason_tooltip(skip_reason)
             if crop_enabled and self.is_keep_full(filename) and result is not None:

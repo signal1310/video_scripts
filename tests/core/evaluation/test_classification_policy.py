@@ -173,14 +173,14 @@ class TestClassificationPolicy(unittest.TestCase):
             SmartAction.PASS_LOW_SAVED,
         )
 
-    def test_manual_active_frame_is_ignored_when_crop_disabled(self) -> None:
-        """전역 잘라내기 설정이 꺼져 있으면 직접 지정 정책과 이미 인코딩 예외가 적용되지 않음"""
+    def test_manual_active_frame_applies_even_when_crop_disabled(self) -> None:
+        """전역 잘라내기 설정이 꺼져 있어도 직접 지정 정책과 이미 인코딩 예외가 적용되는지 검증"""
         manual_frame = ActiveFrame(1920, 800, 0, 140)
         disabled = ClassifierConfig(encode=EncodeConfig(crop_black_bars=False))
         ctx = _make_context(
             manual_active_frame=manual_frame, config=disabled, target_codec_weight=1.0
         )
-        self.assertEqual(_run_policies(ctx), SmartAction.PASS_OPTIMAL)
+        self.assertEqual(_run_policies(ctx), SmartAction.ENCODE_MANUAL)
         self.assertEqual(
             _run_policies(
                 _make_context(
@@ -189,7 +189,7 @@ class TestClassificationPolicy(unittest.TestCase):
                     config=disabled,
                 )
             ),
-            SmartAction.PASS_ALREADY_ENCODED,
+            SmartAction.ENCODE_MANUAL,
         )
 
     def test_legacy_compat_intra_and_zone_policies(self) -> None:

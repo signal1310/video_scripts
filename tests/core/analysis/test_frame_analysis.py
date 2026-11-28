@@ -324,11 +324,11 @@ class TestResolveCropFrame(unittest.TestCase):
         full_region = ActiveRegion(1920, 1080, 0, 0, False)
         self.assertEqual(resolve_crop_frame(full_region, manual_frame=manual), manual)
 
-    def test_disabled_or_vr_protected_wins_over_the_manual_frame(self) -> None:
-        """설정 끔과 VR 보호는 직접 지정보다 우선함"""
+    def test_disabled_crop_keeps_the_manual_frame_but_vr_protection_wins(self) -> None:
+        """전역 잘라내기 설정이 꺼져 있어도 직접 지정은 적용되고, VR 보호만 우선함"""
         manual = ActiveFrame(1280, 720, 0, 180)
-        self.assertIsNone(
-            resolve_crop_frame(self.region, crop_enabled=False, manual_frame=manual)
+        self.assertEqual(
+            resolve_crop_frame(self.region, crop_enabled=False, manual_frame=manual), manual
         )
         self.assertIsNone(
             resolve_crop_frame(self.region, is_vr_protected=True, manual_frame=manual)

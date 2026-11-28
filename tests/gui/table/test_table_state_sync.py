@@ -10,11 +10,12 @@ from PyQt6.QtWidgets import QApplication, QHeaderView
 
 from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
-from src.core.encode.encode_batch_book import EncodeBatchBook
+from src.core.encode.encode_batch_book import STATUS_ENCODE_TARGET, EncodeBatchBook
 from src.core.encode.encode_gate import DONE_SURGE_BADGE
 from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL
 from src.core.encode.encode_state import EncodeState
 from src.core.settings.ui_state import TEXT_MODE_STARTS_WITH, ColumnFilterSnapshot
+from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.table.column_filters import ColumnFilterRule, rule_to_snapshot
 from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_FULL_TEXT, ACTIVE_FRAME_VR_TEXT
@@ -327,8 +328,19 @@ class FrameAnalysisFilterRestoreTests(unittest.TestCase):
         self.assertIn("인코딩 상태", logs.output[0])
 
     def test_current_encode_state_label_is_kept(self) -> None:
-        """현재 인코딩 상태 표기는 그대로 복원해 배치 대상이 아닌 빈 행만 남기는지 검증"""
-        proxy = _build_proxy()
+        """빈 인코딩 상태도 현재 값으로 인정해 그 값을 고른 필터가 배치 대상이 아닌 행만 남기는지 검증"""
+        model = VideoTableModel()
+        model.set_data_source(
+            [
+                make_eval(video=make_video(filename="a.mp4")),
+                make_eval(
+                    video=make_video(filename="b.mp4"), smart_action=SmartAction.PASS_OPTIMAL
+                ),
+            ],
+            root_dir="C:/work",
+        )
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
         columns = {"encode_state": ColumnFilterSnapshot(selected_values=("",))}
         with self.assertNoLogs(_LOGGER_NAME, level="INFO"):
             changes = apply_saved_filters(proxy, columns)
@@ -337,7 +349,7 @@ class FrameAnalysisFilterRestoreTests(unittest.TestCase):
         self.assertIsNotNone(rule)
         selected = rule.selected_values if rule is not None else None
         self.assertEqual(selected, frozenset({""}))
-        self.assertEqual(_visible(proxy), ["a.mp4", "b.mp4"])
+        self.assertEqual(_visible(proxy), ["b.mp4"])
 
     def test_surge_done_badge_is_a_current_encode_state_value(self) -> None:
         """급증 상한을 넘고 배치된 완료 표기도 현재 값으로 인정해 필터에서 버리지 않고 그 행만 남기는지 검증(안 A)"""
@@ -366,6 +378,26 @@ class FrameAnalysisFilterRestoreTests(unittest.TestCase):
         self.assertIsNotNone(rule)
         selected = rule.selected_values if rule is not None else None
         self.assertEqual(selected, frozenset({DONE_SURGE_BADGE}))
+        self.assertEqual(_visible(proxy), ["a.mp4"])
+
+    def test_target_label_is_a_current_encode_state_value_and_filters_target_rows(self) -> None:
+        """배치 전 대상 표기도 현재 값으로 인정해 그 값만 고른 필터가 대상 행만 남기는지 검증"""
+        model = VideoTableModel()
+        model.set_data_source(
+            [
+                make_eval(video=make_video(filename="a.mp4")),
+                make_eval(
+                    video=make_video(filename="b.mp4"), smart_action=SmartAction.PASS_OPTIMAL
+                ),
+            ],
+            root_dir="C:/work",
+        )
+        proxy = VideoSortFilterProxyModel()
+        proxy.setSourceModel(model)
+        columns = {"encode_state": ColumnFilterSnapshot(selected_values=(STATUS_ENCODE_TARGET,))}
+        with self.assertNoLogs(_LOGGER_NAME, level="INFO"):
+            changes = apply_saved_filters(proxy, columns)
+        self.assertEqual(changes, {})
         self.assertEqual(_visible(proxy), ["a.mp4"])
 
     def test_surge_done_badge_is_offered_in_the_encode_state_presets(self) -> None:

@@ -9,6 +9,7 @@ from src.core.config import ClassifierConfig
 from src.core.encode.encode_batch_book import (
     STATUS_DISCARDED,
     STATUS_DONE,
+    STATUS_ENCODE_TARGET,
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_REPLACE_PENDING,
@@ -219,7 +220,7 @@ def encode_state_icon_name(label: str | None) -> str | None:
 
 
 def encode_state_foreground(label: str | None, p: ThemePalette) -> str | None:
-    """대기 상태 표기의 보조 글자색. 배지가 있는 표기는 None"""
-    return p.text_muted if label == STATUS_PENDING else None
+    """대기와 배치 전 대상 표기의 보조 글자색. 배지가 있는 표기는 None"""
+    return p.text_muted if label in (STATUS_PENDING, STATUS_ENCODE_TARGET) else None
 
 

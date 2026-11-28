@@ -54,7 +54,7 @@ _ACTIVE_FRAME_VALUE_SET: frozenset[str] = frozenset(
         ACTIVE_FRAME_MARGINS_VARY_TEXT,
     }
 )
-# - 인코딩 상태 열의 표시 값: 상태 문구, 급증 완료 주의 배지, 이전 폐기 문구, 배치 대상이 아닐 때의 빈 값
+# - 인코딩 상태 열의 표시 값: 상태 문구, 급증 완료 주의 배지, 이전 폐기 문구, 배치 전 대상, 배치 대상이 아닐 때의 빈 값
 _ENCODE_STATE_VALUE_SET: frozenset[str] = frozenset(
     {"", *ENCODE_STATE_LABELS, DONE_SURGE_BADGE, PREVIOUS_DISCARD_LABEL}
 )

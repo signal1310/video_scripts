@@ -287,17 +287,18 @@ def resolve_crop_frame(
 ) -> ActiveFrame | None:
     """잘라내기 확정 조건을 모두 만족하면 활성 화면, 아니면 None(전체 프레임 유지)
 
-    - 설정 끔과 VR 보호는 직접 지정보다 우선해 잘라내지 않음
-    - 직접 지정은 자동 감지 결과와 영상별 제외를 덮어씀(제외는 "자르지 않음", 직접 지정은 확정 크롭)
+    - VR 보호는 직접 지정보다 우선해 잘라내지 않음
+    - 직접 지정은 자동 감지 결과와 영상별 제외를 덮어쓰며, 전역 잘라내기 설정 끔과도 무관하게 적용함
+      (설정 끔은 자동 검은 여백 잘라내기만 멈춤)
     - 직접 지정은 `normalize_manual_active_frame`을 거친 값이며 전체 프레임과 같은 지정은 저장 전에 None이 됨
     """
-    if not crop_enabled or is_vr_protected:
+    if is_vr_protected:
         return None
     if manual_frame is not None:
         if not region.has_black_bars and manual_frame == region.to_active_frame():
             return None
         return manual_frame
-    if excluded or not region.has_black_bars:
+    if not crop_enabled or excluded or not region.has_black_bars:
         return None
     return region.to_active_frame()
 

@@ -9,6 +9,7 @@ from PyQt6.QtGui import QColor, QFont, QIcon
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.encode.encode_batch_book import (
+    STATUS_ENCODE_TARGET,
     STATUS_RUNNING,
     STATUS_RUNNING_PAUSED,
     EncodeBatchBook,
@@ -669,9 +670,10 @@ class VideoTableModel(QAbstractTableModel):
             self.dataChanged.emit(self.index(0, 0), self.index(last_row, self.columnCount() - 1))
 
     def _encode_label(self, ev: VideoEvaluation) -> str | None:
-        """영상의 인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 그 밖은 None
+        """영상의 인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 배치 전 인코딩 대상이면 대상, 그 밖은 None
 
         - 급증 상한을 넘고 배치된 완료 항목은 주의 배지 글자로 바꿔 씀(안 A)
+        - 대상 표기는 배치를 시작하기 전에만 쓰며, 배치가 붙으면 그 배치의 상태가 우선함
         """
         filename = ev.video.filename
         if filename in self._encode_label_cache:
@@ -680,6 +682,8 @@ class VideoTableModel(QAbstractTableModel):
         label = self._encode_book.label_of(path) if self._encode_book is not None else None
         if label is None:
             label = PREVIOUS_DISCARD_LABEL if path in self._previous_discards else None
+        if label is None and self._encode_book is None and ev.smart_action.is_encode:
+            label = STATUS_ENCODE_TARGET
         self._encode_label_cache[filename] = label
         return label
 

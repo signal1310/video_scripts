@@ -7,7 +7,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
-from src.core.encode.encode_batch_book import STATUS_PENDING, STATUS_REPLACE_PENDING
+from src.core.encode.encode_batch_book import (
+    STATUS_ENCODE_TARGET,
+    STATUS_PENDING,
+    STATUS_REPLACE_PENDING,
+)
 from src.core.messages import (
     COLUMN_LABELS,
     ColumnId,
@@ -53,11 +57,12 @@ class EncodeStateColumnTests(unittest.TestCase):
         self.assertEqual(col_def.menu_title, COLUMN_LABELS[ColumnId.ENCODE_STATE].full)
 
     def test_filter_choices_are_the_approved_status_labels(self) -> None:
-        """열 필터 선택지가 승인된 상태 표기 목록이고 일시중지 표기를 포함하는지 검증"""
+        """열 필터 선택지가 승인된 상태 표기 목록이고 배치 전 대상과 일시중지 표기를 포함하는지 검증"""
         spec = VideoTableModel.get_column_spec(VideoTableModel.COL_ENCODE_STATE)
         self.assertIs(spec.data_type, ColumnDataType.ENUM)
         self.assertEqual(spec.preset_values, ENCODE_STATE_LABELS)
-        self.assertEqual(ENCODE_STATE_LABELS[0], STATUS_PENDING)
+        self.assertEqual(ENCODE_STATE_LABELS[0], STATUS_ENCODE_TARGET)
+        self.assertEqual(ENCODE_STATE_LABELS[1], STATUS_PENDING)
         self.assertEqual(ENCODE_STATE_LABELS[-1], STATUS_REPLACE_PENDING)
         self.assertIn("진행 중 (일시중지)", ENCODE_STATE_LABELS)
 
@@ -83,7 +88,11 @@ class EncodeStateColumnTests(unittest.TestCase):
     def test_tooltip_describes_the_column_in_polite_korean(self) -> None:
         """머리글 툴팁이 승인된 문장이고 존댓말로 끝나는지 검증"""
         tip = COL_DEF_MAP[VideoTableModel.COL_ENCODE_STATE].tooltip_factory(VideoTableModel().config)
-        self.assertEqual(tip, "인코딩 배치에서 이 영상의 상태입니다. 배치 대상이 아니면 비어 있습니다.")
+        self.assertEqual(
+            tip,
+            "인코딩 배치에서 이 영상의 상태입니다. 인코딩 대상은 배치를 시작하기 전까지 대상으로 표시하고, "
+            "배치 대상이 아니면 비어 있습니다.",
+        )
 
     def test_header_keeps_the_full_state_name(self) -> None:
         """좁은 폭에서도 인코딩 상태 이름을 줄이지 않고 그대로 보이는지 검증"""

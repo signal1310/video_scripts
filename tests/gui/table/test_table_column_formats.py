@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication
 from src.core.encode.encode_batch_book import (
     STATUS_DISCARDED,
     STATUS_DONE,
+    STATUS_ENCODE_TARGET,
     STATUS_FAILED,
     STATUS_PENDING,
     STATUS_REPLACE_PENDING,
@@ -88,11 +89,20 @@ class EncodeStateBadgeTests(unittest.TestCase):
         self.assertEqual(encode_state_badge(DONE_SURGE_BADGE, p), p.badge_pending)
         self.assertIsNone(encode_state_icon_name(DONE_SURGE_BADGE))
 
-    def test_pending_label_uses_the_muted_text_color_and_others_do_not(self) -> None:
-        """대기만 보조 글자색을 쓰고 배지가 있는 표기는 글자색을 따로 정하지 않는지 검증"""
+    def test_pending_and_target_labels_use_the_muted_text_color_and_others_do_not(self) -> None:
+        """대기와 배치 전 대상만 보조 글자색을 쓰고 배지가 있는 표기는 글자색을 따로 정하지 않는지 검증"""
         self.assertEqual(encode_state_foreground(STATUS_PENDING, DARK_PALETTE), DARK_PALETTE.text_muted)
+        self.assertEqual(
+            encode_state_foreground(STATUS_ENCODE_TARGET, DARK_PALETTE),
+            DARK_PALETTE.text_muted,
+        )
         self.assertIsNone(encode_state_foreground(STATUS_DONE, DARK_PALETTE))
         self.assertIsNone(encode_state_foreground(None, DARK_PALETTE))
+
+    def test_target_label_has_no_badge(self) -> None:
+        """배치를 시작하기 전 대상 표기는 알약 배지 없이 조용한 글자로만 보이는지 검증"""
+        self.assertIsNone(encode_state_badge(STATUS_ENCODE_TARGET, DARK_PALETTE))
+        self.assertIsNone(encode_state_icon_name(STATUS_ENCODE_TARGET))
 
 
 class ActionAndReasonToneTests(unittest.TestCase):

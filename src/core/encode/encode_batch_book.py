@@ -19,6 +19,8 @@ STATUS_DISCARDED: str = "결과 폐기"
 STATUS_FAILED: str = "실패"
 STATUS_SKIPPED: str = "건너뜀"
 STATUS_REPLACE_PENDING: str = "교체 대기"
+# - 배치를 시작하기 전 인코딩 대상 행의 표시. 배치 상태가 생기면 그 표기가 우선함
+STATUS_ENCODE_TARGET: str = "대상"
 
 STATUS_BY_STATE: dict[EncodeState, str] = {
     EncodeState.PENDING: STATUS_PENDING,

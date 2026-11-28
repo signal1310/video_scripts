@@ -318,7 +318,7 @@ class VideoEvaluator:
 
         manual_targets는 파일명 -> 규격 키 또는 축소 안 함 값의 직접 지정 맵이며, 없는 파일은 자동 판정
         active_frames는 파일명 -> 활성 화면 맵이며, 없는 파일은 전체 프레임으로 판정
-        manual_active_frames는 파일명 -> 사용자 지정 활성 화면 맵이며, 잘라내기 설정이 켜져 있으면 직접 지정 판정에 씀
+        manual_active_frames는 파일명 -> 사용자 지정 활성 화면 맵이며, 전역 잘라내기 설정과 무관하게 직접 지정 판정에 씀
         frame_targets는 파일명 -> 화질 분석 축소 후보 규격 키 맵이며, 설정이 켜져 있을 때만 반영됨
         """
         rules = tuple(exception_rules or [])
@@ -326,12 +326,8 @@ class VideoEvaluator:
         evaluations: list[VideoEvaluation] = []
         for vid in videos:
             is_excluded = any(rule(vid) for rule in rules) if rules else False
-            # - 전역 잘라내기 설정이 꺼져 있으면 사용자 지정 활성 화면은 판정에 적용하지 않음
-            manual = (
-                manual_active_frames.get(vid.filename)
-                if manual_active_frames and config.encode.crop_black_bars
-                else None
-            )
+            # - 사용자 지정 활성 화면은 전역 잘라내기 설정과 무관하게 적용함(설정 끔은 자동 잘라내기만 끔)
+            manual = manual_active_frames.get(vid.filename) if manual_active_frames else None
             active = active_frames.get(vid.filename) if active_frames else None
             if active is None:
                 # - 사용자 지정 활성 화면만 넘겨도 같은 영역이 판정 입력이 되게 함

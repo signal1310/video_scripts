@@ -1,5 +1,6 @@
 """표 셀별 영상 맞춤 툴팁 문구 모듈, 파일 이름 셀의 종합 상세 툴팁은 table_tooltips가 담당"""
 
+from src.core.evaluation.reanalysis_display import is_reanalysis_blurred
 from src.core.formatting import format_duration_hms
 from src.core.messages import LABEL_UNMEASURED_DETAIL
 from src.core.models import VideoEvaluation
@@ -12,6 +13,13 @@ ENCODE_DESIGNATION_REASON_TIP: str = "인코딩하도록 직접 지정한 영상
 
 _REFERENCE_NOTE: str = " (원본 보존 행, 인코딩 가정 참고값)"
 _NOT_TARGET_TIP: str = "인코딩 배치 대상이 아닙니다."
+# - 재분석 블러 대상 파생 열의 잠정 수치 사유. 블러로 가린 이유를 툴팁에서 풀어 알림
+BLUR_EXPLANATION_UNMEASURED: str = (
+    "빠른 분석(키프레임 미측정) 기준의 잠정 수치라 흐리게 표시했습니다. 정밀 분석을 하면 확정됩니다."
+)
+BLUR_EXPLANATION_LEGACY: str = (
+    "이전 형식 분석 결과의 잠정 수치라 흐리게 표시했습니다. 다시 분석하면 확정됩니다."
+)
 # - 인코딩 대상이 아니라 예정 명령이 없는 행의 인자 열 툴팁
 FFMPEG_ARGS_NO_COMMAND_TIP: str = "인코딩 배치 대상이 아니므로 예정 명령이 없습니다."
 _KEPT_NO_QUALITY_TIP: str = "원본을 보존하는 영상이라 계획한 품질값이 없습니다."
@@ -23,6 +31,18 @@ _REANALYSIS_NO_QUALITY_TIP: str = (
 def _reference_note(ev: VideoEvaluation) -> str:
     """원본 보존 행의 예상 값에 붙이는 참고값 안내"""
     return "" if ev.is_encode_target else _REFERENCE_NOTE
+
+
+def _blur_note(ev: VideoEvaluation) -> str:
+    """재분석 블러 대상 파생 열 툴팁 끝에 붙이는 사유 줄
+
+    - 이전 형식 행은 형식 변경을, 그 밖의 미측정 행은 빠른 분석 잠정 수치를 사유로 씀
+    """
+    if not is_reanalysis_blurred(ev):
+        return ""
+    if ev.smart_action is SmartAction.LEGACY_FORMAT:
+        return f"\n{BLUR_EXPLANATION_LEGACY}"
+    return f"\n{BLUR_EXPLANATION_UNMEASURED}"
 
 
 def width_cell_tip(ev: VideoEvaluation) -> str:
@@ -78,7 +98,7 @@ def target_ratio_cell_tip(ev: VideoEvaluation) -> str:
 
 def zone_cell_tip(ev: VideoEvaluation) -> str:
     """화질 등급 셀 툴팁"""
-    return f"{ev.quality_zone.value}, BR 비율 {ev.bitrate_ratio:.3f}배"
+    return f"{ev.quality_zone.value}, BR 비율 {ev.bitrate_ratio:.3f}배{_blur_note(ev)}"
 
 
 def keyframe_cell_tip(ev: VideoEvaluation) -> str:
@@ -102,17 +122,17 @@ def after_size_cell_tip(ev: VideoEvaluation) -> str:
 
 def saved_size_cell_tip(ev: VideoEvaluation) -> str:
     """인코딩 후 예상 절약 셀 툴팁"""
-    return f"예상 절약 {ev.preview_delta_mb:+.2f} MB{_reference_note(ev)}"
+    return f"예상 절약 {ev.preview_delta_mb:+.2f} MB{_reference_note(ev)}{_blur_note(ev)}"
 
 
 def saved_per_min_cell_tip(ev: VideoEvaluation) -> str:
     """분당 절약 셀 툴팁"""
-    return f"재생 1분당 예상 절약 {ev.preview_mb_per_min:+.2f} MB{_reference_note(ev)}"
+    return f"재생 1분당 예상 절약 {ev.preview_mb_per_min:+.2f} MB{_reference_note(ev)}{_blur_note(ev)}"
 
 
 def est_encode_time_cell_tip(ev: VideoEvaluation) -> str:
     """예상 시간 셀 툴팁"""
-    return f"예상 인코딩 시간 약 {format_duration_hms(ev.estimated_encode_sec)}"
+    return f"예상 인코딩 시간 약 {format_duration_hms(ev.estimated_encode_sec)}{_blur_note(ev)}"
 
 
 def action_cell_tip(ev: VideoEvaluation) -> str:
@@ -124,16 +144,19 @@ def quality_value_cell_tip(ev: VideoEvaluation) -> str:
     """품질값 셀 툴팁, 계획한 품질값과 실제 인코딩 값이 달라질 수 있음을 안내
 
     - 계획 값이 없는 사유는 원본 보존과 재분석 필요로 갈리므로 판정을 보고 문구를 고름
+    - 재분석 블러 대상 행은 흐리게 보인 이유를 마지막 줄에 덧붙임
     """
     cq = ev.planned_cq
     if cq is None:
         if ev.smart_action is SmartAction.LEGACY_FORMAT:
-            return _REANALYSIS_NO_QUALITY_TIP
-        return _KEPT_NO_QUALITY_TIP
-    return (
-        f"평가가 계획한 품질값 {format_cq_value(cq)}입니다. 낮을수록 고화질입니다. "
-        "품질값 정밀 결정이나 자동 조정을 켜면 실제 인코딩 값은 이 값에서 달라질 수 있습니다."
-    )
+            return f"{_REANALYSIS_NO_QUALITY_TIP}{_blur_note(ev)}"
+        tip = _KEPT_NO_QUALITY_TIP
+    else:
+        tip = (
+            f"평가가 계획한 품질값 {format_cq_value(cq)}입니다. 낮을수록 고화질입니다. "
+            "품질값 정밀 결정이나 자동 조정을 켜면 실제 인코딩 값은 이 값에서 달라질 수 있습니다."
+        )
+    return f"{tip}{_blur_note(ev)}"
 
 
 def reason_cell_tip(ev: VideoEvaluation) -> str:
@@ -148,8 +171,13 @@ def out_bitrate_cell_tip(ev: VideoEvaluation) -> str:
     return f"인코딩 후 예상 비트레이트 {ev.target_optimal_kbps:,} kbps"
 
 
-def encode_state_cell_tip(_ev: VideoEvaluation) -> str:
-    """인코딩 상태 셀의 기본 툴팁, 배치 상태가 있으면 표 모델이 그 툴팁을 우선함"""
+def encode_state_cell_tip(ev: VideoEvaluation) -> str:
+    """인코딩 상태 셀의 기본 툴팁, 배치 상태가 있으면 표 모델이 그 툴팁을 우선함
+
+    - 배치 전 인코딩 대상 행은 대상임을 알리고, 대상이 아니면 대상 아님을 알림
+    """
+    if ev.smart_action.is_encode:
+        return "이번 인코딩 대상입니다. 인코딩을 시작하면 진행 상태를 보여 줍니다."
     return _NOT_TARGET_TIP
 
 

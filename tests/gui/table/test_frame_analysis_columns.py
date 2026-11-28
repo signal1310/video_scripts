@@ -280,8 +280,24 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         )
         self.assertIn("화면 여백이 없어", active_frame_tooltip(_result()))
 
+    def test_manual_frame_tooltip_keeps_the_manual_reason_when_crop_is_off(self) -> None:
+        """잘라내기 설정이 꺼져 있어도 직접 지정 행은 잘라낸다는 안내만 보이고 설정 끔 사유는 붙이지 않는지 검증"""
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": _result(active=ActiveRegion(1920, 800, 0, 140, True))})
+        view.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
+        manual_off = view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False)
+        self.assertIn("사용자 지정 활성 화면입니다.", manual_off)
+        self.assertNotIn("잘라내기 설정이 꺼져 있어", manual_off)
+        manual_no_result = FrameAnalysisResults()
+        manual_no_result.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
+        no_result_off = manual_no_result.tooltip(
+            "a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False
+        )
+        self.assertIn("사용자 지정 활성 화면입니다.", no_result_off)
+        self.assertNotIn("잘라내기 설정이 꺼져 있어", no_result_off)
+
     def test_crop_off_tooltip_says_the_bars_will_not_be_cropped(self) -> None:
-        """화면 여백 잘라내기를 끄면 활성 화면 크기 툴팁이 자르지 않는다고 알리는지 검증"""
+        """화면 여백 잘라내기를 끄면 자동 감지 활성 화면 툴팁이 자르지 않는다고 알리는지 검증"""
         cropped = _result(active=ActiveRegion(1920, 800, 0, 140, True))
         tip = active_frame_tooltip(cropped, crop_enabled=False)
         self.assertIn("화면 여백 잘라내기 설정이 꺼져 있어", tip)
@@ -290,10 +306,6 @@ class FrameAnalysisTooltipTests(unittest.TestCase):
         view.set_results({"a.mp4": cropped})
         self.assertIn("잘라내기 설정이 꺼져 있어", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False))
         self.assertNotIn("잘라내기 설정이 꺼져 있어", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
-        view.set_manual_frames({"a.mp4": ActiveFrame(1600, 1000, 260, 40)})
-        manual_off = view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN, crop_enabled=False)
-        self.assertIn("사용자 지정 활성 화면입니다.", manual_off)
-        self.assertIn("잘라내기 설정이 꺼져 있어", manual_off)
 
     def test_crop_off_excluded_row_keeps_the_exclusion_reason(self) -> None:
         """잘라내기 설정이 꺼져 있어도 영상별 제외 사유를 함께 보여 주는지 검증"""

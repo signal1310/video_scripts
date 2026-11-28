@@ -543,7 +543,7 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(self.store.count_manual_active_frames(), 0)
 
     def test_manual_active_frame_overrides_automatic_and_exclusion(self) -> None:
-        """사용자 지정 활성 화면이 자동 감지 결과와 제외를 덮어쓰고 설정 끔, VR 보호는 못 넘는지 검증"""
+        """사용자 지정 활성 화면이 자동 감지 결과, 제외, 전역 잘라내기 설정 끔을 덮어쓰고 VR 보호는 못 넘는지 검증"""
         service = self.make_service(FakeStderrRunner(boxes=[(1600, 1000, 260, 40)]))
         requests = [_request("a.mp4")]
         service.analyze_batch(requests)
@@ -552,7 +552,9 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(service.load_active_frames(requests), {"a.mp4": manual})
         self.store.set_crop_exclusion("a.mp4", True)
         self.assertEqual(service.load_active_frames(requests), {"a.mp4": manual})
-        self.assertEqual(service.load_active_frames(requests, crop_enabled=False), {})
+        self.assertEqual(
+            service.load_active_frames(requests, crop_enabled=False), {"a.mp4": manual}
+        )
 
     def test_manual_active_frame_is_ignored_for_vr_protected_video(self) -> None:
         """VR 보호 영상은 직접 지정이 있어도 활성 화면을 넘기지 않는지 검증"""

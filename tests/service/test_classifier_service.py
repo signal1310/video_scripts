@@ -541,18 +541,67 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         self.assertTrue(ev.manual_active_frame_applied)
         self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
 
-    def test_manual_active_frame_is_ignored_when_crop_setting_is_off(self) -> None:
-        """전역 잘라내기 설정이 꺼져 있으면 사용자 지정 활성 화면을 판정에 넘기지 않음"""
+    def test_manual_active_frame_applies_when_crop_setting_is_off(self) -> None:
+        """전역 잘라내기 설정이 꺼져 있어도 사용자 지정 활성 화면을 판정에 넘기는지 검증"""
         clip = os.path.join(self.root, "no_crop.mp4")
         with open(clip, "wb") as handle:
             handle.write(b"v" * 2048)
         stat = os.stat(clip)
+        manual = ActiveFrame(1280, 720, 0, 180)
         frame_store = FrameAnalysisStore(self.db_path)
         try:
             frame_store.set_vr_override(source_path=clip, filename="no_crop.mp4", manual_vr=False)
             frame_store.save(
                 FrameAnalysisRecord(
                     filename="no_crop.mp4",
+                    filesize_bytes=stat.st_size,
+                    mtime_ns=stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(clip, stat.st_size),
+                    active_width=1920,
+                    active_height=1080,
+                    active_x=0,
+                    active_y=0,
+                    has_black_bars=False,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+            frame_store.set_manual_active_frame(
+                clip, manual, frame_width=1920, frame_height=1080
+            )
+        finally:
+            frame_store.close()
+
+        self.config.encode.crop_black_bars = False
+        vid = make_video(
+            filename="no_crop.mp4", width=1920, height=1080, vid_kbps=10000, vid_size_MB=200.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        ev = self._service().evaluate_all().evaluations[0]
+        self.assertEqual(ev.active_frame, manual)
+        self.assertTrue(ev.manual_active_frame_applied)
+        self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+
+    def test_manual_active_frame_yields_to_vr_protection_when_crop_setting_is_off(self) -> None:
+        """전역 잘라내기 설정이 꺼져 있어도 VR 보호는 사용자 지정 활성 화면보다 우선하는지 검증"""
+        clip = os.path.join(self.root, "vr_manual.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        stat = os.stat(clip)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.set_vr_override(source_path=clip, filename="vr_manual.mp4", manual_vr=True)
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="vr_manual.mp4",
                     filesize_bytes=stat.st_size,
                     mtime_ns=stat.st_mtime_ns,
                     fingerprint=compute_fingerprint(clip, stat.st_size),
@@ -581,13 +630,12 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
 
         self.config.encode.crop_black_bars = False
         vid = make_video(
-            filename="no_crop.mp4", width=1920, height=1080, vid_kbps=10000, vid_size_MB=200.0
+            filename="vr_manual.mp4", width=1920, height=1080, vid_kbps=10000, vid_size_MB=200.0
         )
         self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
         ev = self._service().evaluate_all().evaluations[0]
         self.assertIsNone(ev.active_frame)
         self.assertFalse(ev.manual_active_frame_applied)
-        self.assertIsNot(ev.smart_action, SmartAction.ENCODE_MANUAL)
 
     def test_crop_review_hold_applies_only_to_original_replacement(self) -> None:
         """어두운 근거로 지점을 무시한 자동 크롭은 원본 교체에서 보류되고 별도 출력에서는 유지되는지 검증"""

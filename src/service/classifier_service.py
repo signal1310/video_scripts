@@ -118,7 +118,7 @@ def _resolve_frame_cache_for(
     - 화질 분석 행이 없어도 저장된 사용자 지정 활성 화면은 직접 지정 판정에 넘김
     - 현재 파일 크기와 수정 시각이 같은 행만 써서 바뀐 파일의 낡은 측정을 쓰지 않음
     - 잘라내기를 쓰지 않는 영상(설정 끔, VR 보호, 검은 여백 없음)은 축소 후보도 반영하지 않음
-    - 사용자 지정 활성 화면은 자동 감지 결과와 영상별 제외를 덮어씀
+    - 사용자 지정 활성 화면은 자동 감지 결과와 영상별 제외, 전역 잘라내기 설정 끔을 덮어씀(VR 보호만 우선)
     - 어두운 근거로 지점을 무시한 영상은 사용자가 확인할 때까지 영상별 제외와 같은 경로로 자동 크롭을 보류
     - 활성 화면 면적이 현재 무시 상한을 넘으면 전체 프레임으로 되돌려 판정
     """
@@ -237,7 +237,8 @@ def _resolve_frame_cache_for(
             manual_frame = manual.get(path)
             if manual_frame is None or name in manual_frames:
                 continue
-            if not crop_enabled or expected_vr.get(name, False):
+            # - 전역 잘라내기 설정이 꺼져 있어도 사용자 지정은 적용하며, VR 보호만 우선함
+            if expected_vr.get(name, False):
                 continue
             frames[name] = manual_frame
             manual_frames[name] = manual_frame

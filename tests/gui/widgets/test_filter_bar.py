@@ -75,6 +75,17 @@ def _button_center_color(button: QPushButton) -> QColor:
     return image.pixelColor(image.width() // 2, 6)
 
 
+def _chip_row_colors(bar: QWidget, button: QPushButton) -> set[str]:
+    """부모 위에 그린 칩의 세로 가운데 줄 색 집합. 칩 배경과 테두리, 글자색을 함께 읽음"""
+    image = bar.grab().toImage()
+    origin = button.mapTo(bar, QPoint(0, 0))
+    y = origin.y() + button.height() // 2
+    return {
+        image.pixelColor(x, y).name().lower()
+        for x in range(origin.x(), origin.x() + button.width())
+    }
+
+
 class TestFilterBarCollapse(GuiTestCase):
     """필터 바의 폭에 따른 단계별 접힘, 접근성 이름, 툴팁, 잘림 여부를 검증"""
 
@@ -335,7 +346,7 @@ class TestFilterBarCollapse(GuiTestCase):
                 self.assertEqual(button.focusPolicy(), Qt.FocusPolicy.TabFocus)
 
     def test_chip_border_and_fill_survive_the_flat_button_rule(self) -> None:
-        """여백 확인 칩은 평면 버튼 규칙보다 구체적인 선택자로 경고색 배경과 테두리를 유지하는지 검증"""
+        """여백 확인 칩이 미선택 시 투명 배경과 경고색 테두리, 선택 시 경고색 배경을 유지하는지 검증"""
         from src.gui.styles.stylesheet import build_stylesheet
 
         for palette in (LIGHT_PALETTE, DARK_PALETTE):
@@ -345,16 +356,17 @@ class TestFilterBarCollapse(GuiTestCase):
             bar.show()
             bar.resize(WIDE_WIDTH_PX, 44)
             _APP.processEvents()
-            image = bar.btn_review_filter.grab().toImage()
-            filled = {
-                image.pixelColor(x, image.height() // 2).name()
-                for x in range(image.width())
-            }
+            unfilled = _chip_row_colors(bar, bar.btn_review_filter)
+            self.assertIn(palette.badge_pending[1].lower(), unfilled)
+            self.assertNotIn(palette.badge_pending[0].lower(), unfilled)
+            bar.btn_review_filter.setChecked(True)
+            _APP.processEvents()
+            filled = _chip_row_colors(bar, bar.btn_review_filter)
             self.assertIn(palette.badge_pending[0].lower(), filled)
             self.assertIn(palette.badge_pending[1].lower(), filled)
 
     def test_vary_chip_border_and_fill_use_the_taupe_tokens(self) -> None:
-        """구간별 여백 차이 칩이 갈색 팔레트 토큰으로 테두리와 배경을 유지하는지 검증"""
+        """구간별 여백 차이 칩이 미선택 시 투명 배경, 선택 시 갈색 팔레트 토큰 배경과 테두리를 쓰는지 검증"""
         from src.gui.styles.stylesheet import build_stylesheet
 
         for palette in (LIGHT_PALETTE, DARK_PALETTE):
@@ -364,11 +376,12 @@ class TestFilterBarCollapse(GuiTestCase):
             bar.show()
             bar.resize(WIDE_WIDTH_PX, 44)
             _APP.processEvents()
-            image = bar.btn_vary_filter.grab().toImage()
-            filled = {
-                image.pixelColor(x, image.height() // 2).name()
-                for x in range(image.width())
-            }
+            unfilled = _chip_row_colors(bar, bar.btn_vary_filter)
+            self.assertIn(palette.badge_vary[1].lower(), unfilled)
+            self.assertNotIn(palette.badge_vary[0].lower(), unfilled)
+            bar.btn_vary_filter.setChecked(True)
+            _APP.processEvents()
+            filled = _chip_row_colors(bar, bar.btn_vary_filter)
             self.assertIn(palette.badge_vary[0].lower(), filled)
             self.assertIn(palette.badge_vary[1].lower(), filled)
 

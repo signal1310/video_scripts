@@ -79,7 +79,7 @@ SVG_TEMPLATES: dict[str, str] = {
     "minimize-2": '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" x2="21" y1="10" y2="3"/><line x1="3" x2="10" y1="21" y2="14"/>',
     "move-horizontal": '<polyline points="18 8 22 12 18 16"/><polyline points="6 8 2 12 6 16"/><line x1="2" x2="22" y1="12" y2="12"/>',
     # - 열 너비 맞춤: 양옆 세로 막대가 열 경계, 가운데 양방향 화살표가 너비 맞춤을 뜻함
-    "fit-columns-width": '<path d="M3.5 4v16"/><path d="M20.5 4v16"/><path d="M9.8 8.6L6.4 12l3.4 3.4"/><path d="M14.2 8.6L17.6 12l-3.4 3.4"/><path d="M6.4 12h11.2"/>',
+    "fit-columns-width": '<path d="M2.5 2v20"/><path d="M21.5 2v20"/><path d="M9.4 7.6L5 12l4.4 4.4"/><path d="M14.6 7.6L19 12l-4.4 4.4"/><path d="M5 12h14"/>',
 }
 
 

@@ -332,7 +332,7 @@ QFrame#FilterBar QPushButton#ClearAllFiltersButton:hover {{
     color: {p.text_primary};
 }}
 QFrame#FilterBar QPushButton#ReviewFilterChip {{
-    background-color: {p.badge_pending[0]};
+    background-color: transparent;
     color: {p.badge_pending[1]};
     border: 1px solid {p.badge_pending[1]};
     border-radius: 12px;
@@ -347,10 +347,10 @@ QFrame#FilterBar QPushButton#ReviewFilterChip:hover {{
 QFrame#FilterBar QPushButton#ReviewFilterChip:checked {{
     background-color: {p.badge_pending[0]};
     color: {p.badge_pending[1]};
-    border: 2px solid {p.badge_pending[1]};
+    border: 1px solid {p.badge_pending[1]};
 }}
 QFrame#FilterBar QPushButton#VaryFilterChip {{
-    background-color: {p.badge_vary[0]};
+    background-color: transparent;
     color: {p.badge_vary[1]};
     border: 1px solid {p.badge_vary[1]};
     border-radius: 12px;
@@ -365,7 +365,7 @@ QFrame#FilterBar QPushButton#VaryFilterChip:hover {{
 QFrame#FilterBar QPushButton#VaryFilterChip:checked {{
     background-color: {p.badge_vary[0]};
     color: {p.badge_vary[1]};
-    border: 2px solid {p.badge_vary[2]};
+    border: 1px solid {p.badge_vary[2]};
 }}
 QWidget#RowGroupMenuRow {{
     background-color: transparent;

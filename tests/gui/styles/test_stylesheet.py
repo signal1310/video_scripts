@@ -45,6 +45,31 @@ class TestStylesheet(GuiTestCase):
         set_state_property(edit, "invalid", False)
         self.assertEqual(edit.property("invalid"), "false")
 
+    def test_filter_chips_are_transparent_until_checked(self) -> None:
+        """검토, 구간 필터 칩이 미선택 시 투명 배경과 1px 테두리, 선택 시 색 배경을 쓰는지 검증"""
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            qss = build_widgets_qss(palette)
+            cases = (
+                ("ReviewFilterChip", palette.badge_pending[0], palette.badge_pending[1]),
+                ("VaryFilterChip", palette.badge_vary[0], palette.badge_vary[2]),
+            )
+            for object_name, checked_bg, checked_border in cases:
+                selector = f"QFrame#FilterBar QPushButton#{object_name}"
+                base = self._qss_block(qss, selector)
+                self.assertIn("background-color: transparent;", base)
+                self.assertIn("border: 1px solid", base)
+                checked = self._qss_block(qss, f"{selector}:checked")
+                self.assertIn(f"background-color: {checked_bg};", checked)
+                self.assertIn(f"border: 1px solid {checked_border};", checked)
+                self.assertNotIn("2px", checked)
+
+    @staticmethod
+    def _qss_block(qss: str, selector: str) -> str:
+        """지정 선택자의 QSS 선언 블록 본문을 반환"""
+        match = re.search(re.escape(selector) + r" \{(.*?)\}", qss, re.S)
+        assert match is not None
+        return match.group(1)
+
     def test_object_names_are_not_split_across_qss_fragments(self) -> None:
         """동일한 objectName 선택자가 둘 이상의 QSS 조각 모듈에 중복 배치되지 않음을 검증"""
         fragments = {

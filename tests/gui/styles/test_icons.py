@@ -21,7 +21,7 @@ from src.gui.styles.icons import (
     set_active_palette,
     set_button_icon,
 )
-from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
+from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -53,12 +53,31 @@ class SvgTests(unittest.TestCase):
     def test_fit_columns_width_icon_is_registered_and_renders(self) -> None:
         """열 너비 맞춤 아이콘이 양옆 막대와 양방향 화살표로 등록되고 두 테마에서 그려지는지 검증"""
         template = module.SVG_TEMPLATES["fit-columns-width"]
-        for path in ("M3.5 4v16", "M20.5 4v16", "M6.4 12h11.2"):
+        for path in ("M2.5 2v20", "M21.5 2v20", "M5 12h14"):
             self.assertIn(f'<path d="{path}"/>', template)
         for palette in (LIGHT_PALETTE, DARK_PALETTE):
             icon = get_icon("fit-columns-width", palette=palette, size=14)
             self.assertFalse(icon.isNull())
             self.assertFalse(icon.pixmap(14, 14).toImage().isNull())
+
+    def test_fit_columns_width_icon_matches_sibling_icon_bounds(self) -> None:
+        """열 너비 맞춤 아이콘이 같은 크기 필터바 아이콘들의 그려진 범위만큼 넓게 채우는지 검증"""
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            fit = self._ink_bounds(palette, "fit-columns-width")
+            for sibling in ("ban", "minimize-2"):
+                bounds = self._ink_bounds(palette, sibling)
+                self.assertGreaterEqual(fit[2] - fit[0], bounds[2] - bounds[0])
+                self.assertGreaterEqual(fit[3] - fit[1], bounds[3] - bounds[1])
+            self.assertGreaterEqual(fit[2] - fit[0], 12)
+
+    @staticmethod
+    def _ink_bounds(palette: ThemePalette, name: str) -> tuple[int, int, int, int]:
+        """지정 아이콘을 14px로 그렸을 때 불투명 픽셀의 (좌, 상, 우, 하) 범위를 반환"""
+        image = get_icon(name, palette=palette, size=14).pixmap(14, 14).toImage()
+        xs = [x for x in range(image.width()) for y in range(image.height()) if image.pixelColor(x, y).alpha() > 30]
+        ys = [y for x in range(image.width()) for y in range(image.height()) if image.pixelColor(x, y).alpha() > 30]
+        assert xs and ys
+        return min(xs), min(ys), max(xs), max(ys)
 
     def test_pencil_icon_is_registered_and_renders(self) -> None:
         """연필 아이콘이 등록되고 두 테마 색으로 그려지는지 검증"""

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from src.core.analysis.file_fingerprint import compute_fingerprint
 from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL
@@ -59,22 +59,33 @@ def build_requests(
     evaluations: Sequence[VideoEvaluation],
     root_dir: str,
     overrides: frozenset[str],
+    *,
+    cached: Sequence[FrameAnalysisRequest] = (),
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> list[FrameAnalysisRequest]:
     """평가 결과와 원본 파일 정보로 화질 분석 요청 목록 생성, 없는 파일은 건너뜀
 
     - 내용 지문은 여기서 파일을 읽어 채우고, 읽지 못하면 비워 두어 실행 서비스가 다시 시도하게 함
+    - cached에 같은 파일(이름, 크기, 수정 시각)의 요청이 있으면 읽지 않고 그 지문을 씀
+    - is_cancelled가 참이 되면 남은 파일을 읽지 않고 지금까지 만든 목록을 돌려줌
     """
+    known = {request.key: request.fingerprint for request in cached if request.fingerprint}
     requests: list[FrameAnalysisRequest] = []
     for ev in evaluations:
+        if is_cancelled is not None and is_cancelled():
+            break
         path = resolve_source_filepath(root_dir, ev.video.filename)
         try:
             stat = os.stat(path)
         except OSError:
             continue
-        try:
-            fingerprint = compute_fingerprint(path, stat.st_size)
-        except OSError:
-            fingerprint = ""
+        key = (ev.video.filename, stat.st_size, stat.st_mtime_ns)
+        fingerprint = known.get(key)
+        if fingerprint is None:
+            try:
+                fingerprint = compute_fingerprint(path, stat.st_size)
+            except OSError:
+                fingerprint = ""
         layout = parse_stream_summary_layout(ev.video.stream_summary)
         requests.append(
             FrameAnalysisRequest(

@@ -7,7 +7,7 @@ import time
 import unittest
 from collections.abc import Callable, Iterable
 from dataclasses import replace
-from typing import cast
+from typing import ClassVar, cast
 from unittest import mock
 
 from PyQt6.QtWidgets import QApplication, QWidget
@@ -33,6 +33,9 @@ from src.gui.controllers.frame_analysis_controller import (
     run_frame_analysis_body,
 )
 from src.gui.controllers.frame_analysis_targets import build_requests
+from src.gui.controllers.frame_cache_loader import (
+    run_frame_cache_load,
+)
 from src.gui.controllers.frame_progress_buffer import frame_analysis_stage_text
 from src.gui.frame_analysis_skip import SkipKind, skip_reason_for_frame_analysis
 from src.gui.menus.menu_bar import MainMenuController
@@ -299,6 +302,82 @@ class _FakeWorker:
         self.cancelled += 1
 
 
+class _SyncCacheWorker:
+    """캐시 적재를 시작하는 자리에서 바로 끝내는 워커 대역(컨트롤러 테스트를 결정적으로 유지)"""
+
+    instances: ClassVar[list["_SyncCacheWorker"]] = []
+
+    def __init__(
+        self,
+        store: FrameAnalysisStore,
+        evaluations: Iterable[VideoEvaluation],
+        root_dir: str,
+        config: ClassifierConfig,
+        token: int,
+    ) -> None:
+        self.completed = _Signal()
+        self.cancelled = 0
+        self.store = store
+        self.evaluations = list(evaluations)
+        self.root_dir = root_dir
+        self.config = config
+        self.token = token
+        self.snapshot = run_frame_cache_load(
+            store, self.evaluations, root_dir, config, threading.Event()
+        )
+        _SyncCacheWorker.instances.append(self)
+
+    def start(self) -> None:
+        self.completed.emit(self.token, self.snapshot)
+
+    def isFinished(self) -> bool:
+        return True
+
+    def wait(self) -> None:
+        return
+
+    def cancel(self) -> None:
+        self.cancelled += 1
+
+
+class _DeferredCacheWorker(_SyncCacheWorker):
+    """적재를 끝내지 않고 기다리다가 테스트가 finish를 부르면 결과를 보내는 워커 대역"""
+
+    def __init__(
+        self,
+        store: FrameAnalysisStore,
+        evaluations: Iterable[VideoEvaluation],
+        root_dir: str,
+        config: ClassifierConfig,
+        token: int,
+    ) -> None:
+        # - 시작 시점에는 읽지 않아 화면 스레드 경로가 파일을 읽지 않는지 확인할 수 있게 함
+        self.completed = _Signal()
+        self.cancelled = 0
+        self.store = store
+        self.evaluations = list(evaluations)
+        self.root_dir = root_dir
+        self.config = config
+        self.token = token
+        self.snapshot = None
+        self.finished = False
+        _SyncCacheWorker.instances.append(self)
+
+    def start(self) -> None:
+        return
+
+    def finish(self) -> None:
+        """적재를 마치고 결과를 보냄"""
+        self.finished = True
+        self.snapshot = run_frame_cache_load(
+            self.store, self.evaluations, self.root_dir, self.config, threading.Event()
+        )
+        self.completed.emit(self.token, self.snapshot)
+
+    def isFinished(self) -> bool:
+        return self.finished
+
+
 class _ControllerCase(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -319,6 +398,13 @@ class _ControllerCase(unittest.TestCase):
         self.notifications: list[str] = []
         self.reevaluated = 0
         self.started: list[tuple[bool, bool]] = []
+        # - 캐시 적재를 테스트 안에서 바로 끝내 결정적으로 검증(실제 스레드 경로는 frame_cache_loader 테스트가 확인)
+        sync_worker = mock.patch(
+            "src.gui.controllers.frame_cache_loader.FrameCacheLoadWorker", _SyncCacheWorker
+        )
+        sync_worker.start()
+        self.addCleanup(sync_worker.stop)
+        _SyncCacheWorker.instances = []
 
     def _write_video(self, directory: str, filename: str) -> str:
         path = os.path.join(directory, filename)
@@ -600,6 +686,75 @@ class ControllerTests(_ControllerCase):
         controller = self.make_controller()
         controller.reload_cached()
         self.assertEqual(self.view.table_model.manual_vr, frozenset({"a.mp4"}))
+
+    def test_fingerprinting_stays_on_the_loader_thread(self) -> None:
+        """복원 뒤 표를 다시 채울 때 파일 지문을 화면 스레드에서 계산하지 않는지 검증"""
+        controller = self.make_controller()
+        with mock.patch(
+            "src.gui.controllers.frame_cache_loader.FrameCacheLoadWorker", _DeferredCacheWorker
+        ), mock.patch(
+            "src.gui.controllers.frame_analysis_targets.compute_fingerprint"
+        ) as fingerprint:
+            controller.reload_cached()
+            fingerprint.assert_not_called()
+            self.assertEqual(controller._requests, [])
+        worker = cast("_DeferredCacheWorker", _SyncCacheWorker.instances[-1])
+        worker.finish()
+        self.assertEqual([request.filename for request in controller._requests], ["a.mp4"])
+
+    def test_analysis_started_during_a_load_waits_and_reuses_its_requests(self) -> None:
+        """캐시 적재 중 시작한 분석은 적재가 끝난 뒤 같은 요청으로 시작해 지문을 두 번 읽지 않음"""
+        controller = self.make_controller()
+        capability = FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
+        )
+        with mock.patch(
+            "src.gui.controllers.frame_cache_loader.FrameCacheLoadWorker", _DeferredCacheWorker
+        ):
+            controller.reload_cached()
+            controller.analyze_all()
+            self.assertIsNone(controller._worker)
+            self.assertIsNotNone(controller._pending_start)
+            worker = cast("_DeferredCacheWorker", _SyncCacheWorker.instances[-1])
+            with mock.patch(
+                "src.gui.controllers.frame_analysis_targets.compute_fingerprint",
+                side_effect=compute_fingerprint,
+            ) as fingerprint, mock.patch(
+                "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+                return_value=capability,
+            ), mock.patch(
+                "src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker
+            ):
+                worker.finish()
+            # - 적재가 파일마다 한 번만 읽고, 시작은 그 요청을 그대로 재사용
+            self.assertEqual(fingerprint.call_count, 1)
+        self.assertIsNotNone(controller._worker)
+        self.assertIsNone(controller._pending_start)
+        self.assertEqual(
+            [(request.filename, request.fingerprint) for request in controller._requests],
+            [("a.mp4", compute_fingerprint(os.path.join(self.root, "a.mp4"), 5))],
+        )
+
+    def test_stale_load_result_is_dropped_when_a_second_load_starts(self) -> None:
+        """적재가 끝나기 전에 다시 적재하면 앞선 결과는 표에 반영되지 않음"""
+        self.store.save(self._flagged_record())
+        controller = self.make_controller()
+        with mock.patch(
+            "src.gui.controllers.frame_cache_loader.FrameCacheLoadWorker", _DeferredCacheWorker
+        ):
+            controller.reload_cached()
+            first = cast("_DeferredCacheWorker", _SyncCacheWorker.instances[-1])
+            controller.reload_cached()
+            second = cast("_DeferredCacheWorker", _SyncCacheWorker.instances[-1])
+            self.assertIsNot(first, second)
+            self.assertEqual(first.cancelled, 1)
+            first.finish()
+            self.assertEqual(controller._results, {})
+            self.assertEqual(self.view.table_model.results, {})
+            second.finish()
+        self.assertEqual(set(controller._results), {"a.mp4"})
+        self.assertEqual(set(self.view.table_model.results), {"a.mp4"})
+        self.assertEqual(self.filter_bar.review_count, 1)
 
     def _flagged_record(self) -> FrameAnalysisRecord:
         """지금 a.mp4 파일의 식별 값에 맞춘 여백 확인 필요 캐시 행"""

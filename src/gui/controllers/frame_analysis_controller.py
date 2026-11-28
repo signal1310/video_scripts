@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import os
-import tempfile
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -19,7 +17,7 @@ from typing import Protocol
 from PyQt6.QtCore import QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
-from src.core.analysis.frame_analysis import count_failed_crop_scans, frame_thresholds_from_config
+from src.core.analysis.frame_analysis import frame_thresholds_from_config
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.analysis.reanalysis_notice import count_keyframe_missing
 from src.core.config import ClassifierConfig
@@ -28,6 +26,15 @@ from src.core.eta import ProgressEstimator, format_estimate_label, format_remain
 from src.core.messages import MSG_WORK_CANCELLED
 from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.workspace_paths import resolve_source_filepath
+from src.gui.controllers.frame_analysis_events import (
+    FRAME_ANALYSIS_LABEL,
+    FrameAnalysisEvent,
+    FrameAnalysisFinished,
+    FrameAnalysisProgress,
+    FrameAnalysisSink,
+    FrameAnalysisStageProgress,
+    completion_status_text,
+)
 from src.gui.controllers.frame_analysis_targets import (
     NO_CROP_TARGETS_TEXT,
     NO_FRAME_TARGETS_TEXT,
@@ -35,6 +42,16 @@ from src.gui.controllers.frame_analysis_targets import (
     is_below_frame_min_tier,
 )
 from src.gui.controllers.frame_analysis_targets import frame_estimate_text as targets_frame_estimate_text
+from src.gui.controllers.frame_cache_loader import (
+    FRAME_ANALYSIS_WORK_DIR,
+    FrameCacheLoader,
+    FrameCacheSnapshot,
+    frame_cache_service,
+    load_crop_exclusion_names,
+    load_manual_frame_names,
+    load_manual_vr_names,
+    source_paths,
+)
 from src.gui.controllers.frame_progress_buffer import (
     FrameProgressBuffer,
     StageProgress,
@@ -43,10 +60,8 @@ from src.gui.controllers.frame_progress_buffer import (
 from src.gui.controllers.manual_target_controller import ManualTargetController
 from src.gui.frame_analysis_skip import (
     MANUAL_HDR_SKIP_NOTICE,
-    SKIPPED_NOTE_TEMPLATE,
     SkipKind,
     select_run_targets,
-    skip_counts_text,
     skip_reason_for_crop_scan,
     skip_reason_for_frame_analysis,
 )
@@ -74,46 +89,6 @@ from src.service.session import ClassifierSession
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass(frozen=True, slots=True)
-class FrameAnalysisProgress:
-    """화질 분석 진행 한 건의 완료 수, 전체 수, 파일 이름과 완료된 영상의 결과"""
-
-    completed: int
-    total: int
-    filename: str
-    result: FrameAnalysisResult | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class FrameAnalysisStageProgress:
-    """현재 영상의 세부 단계 이름과 단계 안 진행 수"""
-
-    completed: int
-    total: int
-    filename: str
-    stage: str
-    stage_done: int
-    stage_total: int
-
-
-@dataclass(frozen=True, slots=True)
-class FrameAnalysisFinished:
-    """화질 분석 실행 종료: 캐시 결과, 취소 여부, 오류 문구, 요청 수, 캐시 재사용 수, 감지 전용 여부"""
-
-    results: dict[str, FrameAnalysisResult]
-    cancelled: bool = False
-    error: str = ""
-    total: int = 0
-    cached_count: int = 0
-    crop_only: bool = False
-
-
-FrameAnalysisEvent = FrameAnalysisProgress | FrameAnalysisStageProgress | FrameAnalysisFinished
-FrameAnalysisSink = Callable[[FrameAnalysisEvent], None]
-
-FRAME_ANALYSIS_WORK_DIR: str = os.path.join(tempfile.gettempdir(), "video_scripts_frame_analysis")
-FRAME_ANALYSIS_LABEL: str = "화질 분석"
 CROP_SCAN_LABEL: str = "여백 감지"
 CROP_SCAN_NO_FILES_TEXT: str = "여백 감지할 영상 파일을 찾지 못했습니다."
 CROP_SCAN_FFMPEG_BLOCK_TEMPLATE: str = "FFmpeg를 쓸 수 없어 여백 감지를 시작할 수 없습니다: {reason}"
@@ -125,23 +100,6 @@ FRAME_ANALYSIS_FLUSH_MS: int = 300
 # - 정밀 분석 완료 뒤 이어서 실행할 후속 단계 이름
 FOLLOWUP_CROP: str = "crop"
 FOLLOWUP_FRAME: str = "frame"
-
-
-def completion_status_text(
-    finished: FrameAnalysisFinished,
-    *,
-    label: str = FRAME_ANALYSIS_LABEL,
-    skip_counts: Mapping[SkipKind, int] | None = None,
-) -> str:
-    """화질 분석 또는 검은 여백 감지 완료 상태 줄. 캐시 재사용, 감지 실패, 건너뜀 수를 있으면 함께 알림"""
-    notes = [f"캐시 재사용 {finished.cached_count}개"] if finished.cached_count > 0 else []
-    if (failed := count_failed_crop_scans(finished.results.values())) > 0:
-        notes.append(f"감지 실패 {failed}개")
-    if skip_counts:
-        total = sum(skip_counts.values())
-        notes.append(SKIPPED_NOTE_TEMPLATE.format(count=total, reasons=skip_counts_text(skip_counts)))
-    detail = f" ({', '.join(notes)})" if notes else ""
-    return f"{label} 완료: {finished.total}개{detail}" if finished.total > 0 else ""
 
 
 def run_frame_analysis_body(
@@ -303,6 +261,13 @@ class FrameAnalysisController:
         self._flush_timer.timeout.connect(self._flush_frame_results)
         # - 단계 이벤트는 영상 하나에 여러 번 오므로 마지막 값만 묶어 두었다가 같은 주기로 반영
         self._stage_buffer = FrameProgressBuffer(self._apply_stage_progress, FRAME_ANALYSIS_FLUSH_MS)
+        # - 캐시 적재는 워커 스레드가 맡고, 적재를 기다리던 분석 시작은 (대상, 감지 전용, 강제)로 보관
+        self._cache = FrameCacheLoader(store)
+        self._pending_start: tuple[list[VideoEvaluation], bool, bool] | None = None
+        # - 적재한 리포트 전체 요청의 작업 폴더. 다른 폴더의 요청을 실행 시작에 재사용하지 않으려고 기억
+        self._report_root: str = ""
+        # - 마지막으로 계산한 여백 확인 필요 표시. 결과를 적용할 때마다 다시 조회하지 않도록 보관
+        self._review_flagged: frozenset[str] = frozenset()
         host.table_view.selection_changed.connect(lambda _count: self.refresh_actions())
         host.table_view.table_model.modelReset.connect(self.reload_cached)
         self.refresh_actions()
@@ -315,37 +280,79 @@ class FrameAnalysisController:
     def reload_cached(self) -> None:
         """현재 작업 폴더의 캐시 결과와 수동 VR 보호를 표에 다시 반영
 
+        - 파일 지문과 SQLite 조회는 워커 스레드가 맡고 화면 스레드는 결과 적용만 함
         - 폴더가 바뀌거나 표가 비워지면 이전 폴더의 진행 중 분석을 취소해 결과가 새 표에 섞이지 않게 함
+        - 적재 중에 시작하려던 분석은 적재가 끝난 뒤 같은 요청으로 이어서 시작
         """
         report = self._host.report_provider()
         if self.is_running and (report is None or report.root_dir != self._start_root):
             self.cancel()
         if report is None:
-            self._requests = []
-            self._report_requests = []
-            self._results = {}
-            self._host.table_view.table_model.set_manual_vr_overrides(())
-            self._host.table_view.table_model.set_crop_exclusions(())
-            self._host.table_view.table_model.set_manual_active_frames({})
-            self._host.table_view.table_model.set_review_flagged(())
-            self._host.filter_bar.set_review_flagged_count(0)
+            self._cache.cancel()
+            self._pending_start = None
+            self._clear_cached_state()
         else:
-            overrides = self._load_overrides(report.evaluations, report.root_dir)
-            self._report_requests = build_requests(
-                report.evaluations, report.root_dir, overrides
+            # - 진행 중인 적재가 있으면 그 폴더, 없으면 마지막으로 적용한 폴더를 기준으로 봄
+            active_root = (
+                self._cache.root_dir if self._cache.pending else self._report_root
             )
-            self._requests = list(self._report_requests)
-            service = self._load_service()
-            self._results = service.load_results(self._requests)
-            self._apply_manual_vr(overrides)
-            self._apply_crop_exclusions(
-                self._load_crop_exclusions(report.evaluations, report.root_dir)
-            )
-            self._apply_manual_frames(
-                self._load_manual_frames(report.evaluations, report.root_dir)
+            if active_root and active_root != report.root_dir:
+                # - 폴더가 바뀌면 이전 폴더의 캐시 결과와 지정을 먼저 지워 새 행에 섞이지 않게 함
+                self._cache.cancel()
+                self._pending_start = None
+                self._clear_cached_state()
+            self._cache.start(
+                report.evaluations,
+                report.root_dir,
+                self._host.config_provider(),
+                self._apply_snapshot,
             )
         self._apply_results(show_columns=False)
         self.refresh_actions()
+
+    def _clear_cached_state(self) -> None:
+        """표에 반영했던 캐시 결과와 영상별 지정을 지움"""
+        self._requests = []
+        self._report_requests = []
+        self._report_root = ""
+        self._results = {}
+        self._review_flagged = frozenset()
+        self._host.table_view.table_model.set_manual_vr_overrides(())
+        self._host.table_view.table_model.set_crop_exclusions(())
+        self._host.table_view.table_model.set_manual_active_frames({})
+        self._host.table_view.table_model.set_review_flagged(())
+        self._host.filter_bar.set_review_flagged_count(0)
+
+    def _apply_snapshot(self, snapshot: FrameCacheSnapshot | None) -> None:
+        """워커 스레드가 읽은 캐시 결과와 영상별 지정을 표에 반영. 적재 실패면 기다리던 시작만 잇게 함"""
+        report = self._host.report_provider()
+        if snapshot is None:
+            self._resume_pending_start()
+            return
+        if report is None or report.root_dir != snapshot.root_dir:
+            return
+        self._report_requests = snapshot.requests
+        self._report_root = snapshot.root_dir
+        self._requests = list(snapshot.requests)
+        self._results = snapshot.results
+        self._review_flagged = snapshot.review_flagged
+        self._host.table_view.table_model.set_manual_vr_overrides(snapshot.manual_vr)
+        self._host.table_view.table_model.set_crop_exclusions(snapshot.crop_excluded)
+        self._host.table_view.table_model.set_manual_active_frames(snapshot.manual_frames)
+        self._apply_results(show_columns=False)
+        self.refresh_actions()
+        self._resume_pending_start()
+
+    def _resume_pending_start(self) -> None:
+        """적재를 기다리던 분석을 이미 읽은 요청으로 이어서 시작"""
+        pending = self._pending_start
+        self._pending_start = None
+        if pending is None or self.is_running or self._host.is_busy():
+            return
+        if self._host.report_provider() is None:
+            return
+        evals, crop_only, force = pending
+        self._begin(evals, crop_only=crop_only, force=force, requests=list(self._requests))
 
     def analyze_selected(self) -> None:
         """선택한 영상의 화질 분석 시작
@@ -461,8 +468,10 @@ class FrameAnalysisController:
                 manual_vr=protected,
             )
             self._results.pop(ev.video.filename, None)
-        overrides = self._load_overrides(report.evaluations, report.root_dir)
-        self._apply_manual_vr(overrides)
+        self._host.table_view.table_model.set_manual_vr_overrides(
+            load_manual_vr_names(self._store, report.evaluations, report.root_dir)
+        )
+        self._refresh_review_flags()
         self._apply_results(show_columns=False)
         self._host.re_evaluate(lambda: None)
         self._host.notify(
@@ -482,9 +491,10 @@ class FrameAnalysisController:
         for ev in evals:
             path = resolve_source_filepath(report.root_dir, ev.video.filename)
             self._store.set_crop_exclusion(path, excluded)
-        self._apply_crop_exclusions(
-            self._load_crop_exclusions(report.evaluations, report.root_dir)
+        self._host.table_view.table_model.set_crop_exclusions(
+            load_crop_exclusion_names(self._store, report.evaluations, report.root_dir)
         )
+        self._refresh_review_flags()
         self._apply_results(show_columns=False)
         self._host.re_evaluate(lambda: None)
         self._host.notify(
@@ -515,9 +525,10 @@ class FrameAnalysisController:
                 frame_width=ev.video.width,
                 frame_height=ev.video.height,
             )
-        self._apply_manual_frames(
-            self._load_manual_frames(report.evaluations, report.root_dir)
+        self._host.table_view.table_model.set_manual_active_frames(
+            load_manual_frame_names(self._store, report.evaluations, report.root_dir)
         )
+        self._refresh_review_flags()
         self._apply_results(show_columns=False)
         self._host.re_evaluate(lambda: None)
         self._host.notify(
@@ -540,6 +551,8 @@ class FrameAnalysisController:
         if worker is not None:
             worker.cancel()
             worker.wait()
+        # - 캐시 적재 스레드도 저장소를 쓰므로 연결을 닫기 전에 끝까지 기다림
+        self._cache.shutdown()
         self._flush_timer.stop()
         self._stage_buffer.drop()
         self._pending_results = {}
@@ -550,6 +563,24 @@ class FrameAnalysisController:
     ) -> None:
         if self.is_running or self._host.is_busy() or not evals:
             return
+        report = self._host.report_provider()
+        if report is None:
+            return
+        if self._cache.pending and self._cache.root_dir == report.root_dir:
+            # - 캐시 적재가 끝나면 그 요청을 재사용해 시작하므로 파일 지문을 두 번 읽지 않음
+            self._pending_start = (list(evals), crop_only, force)
+            return
+        self._begin(evals, crop_only=crop_only, force=force)
+
+    def _begin(
+        self,
+        evals: Sequence[VideoEvaluation],
+        *,
+        crop_only: bool,
+        force: bool = False,
+        requests: Sequence[FrameAnalysisRequest] | None = None,
+    ) -> None:
+        """대상 판정을 마치고 워커를 시작. requests를 주면 그 목록으로 대상을 좁힘"""
         report = self._host.report_provider()
         if report is None:
             return
@@ -575,9 +606,8 @@ class FrameAnalysisController:
             )
         )
         self._start_root = report.root_dir
-        overrides = self._load_overrides(targets, report.root_dir)
-        requests = build_requests(targets, report.root_dir, overrides)
-        if not requests:
+        self._requests = self._target_requests(targets, report.root_dir, requests)
+        if not self._requests:
             self._host.notify(
                 CROP_SCAN_NO_FILES_TEXT
                 if crop_only
@@ -592,7 +622,7 @@ class FrameAnalysisController:
                 else f"FFmpeg를 쓸 수 없어 화질 분석을 시작할 수 없습니다: {capability.reason}"
             )
             return
-        self._requests = requests
+        requests = self._requests
         self._crop_scan = crop_only
         cancel_event = threading.Event()
         service = FrameAnalysisService(
@@ -630,6 +660,17 @@ class FrameAnalysisController:
         )
         self.refresh_actions()
         worker.start()
+
+    def _target_requests(
+        self,
+        targets: Sequence[VideoEvaluation],
+        root_dir: str,
+        loaded: Sequence[FrameAnalysisRequest] | None,
+    ) -> list[FrameAnalysisRequest]:
+        """실행 대상의 요청 목록. 같은 폴더를 미리 적재했으면 그 요청의 지문을 재사용"""
+        overrides = self._store.load_vr_overrides(source_paths(targets, root_dir))
+        cached = list(loaded) if loaded is not None and root_dir == self._report_root else []
+        return build_requests(targets, root_dir, overrides, cached=cached)
 
     def _on_progress(
         self, completed: int, total: int, filename: str, result: FrameAnalysisResult | None = None
@@ -743,6 +784,8 @@ class FrameAnalysisController:
             merged = dict(self._results)
             merged.update(finished.results)
             self._results = merged
+            # - 새로 측정한 영상이 여백 확인 대상일 수 있으므로 표시를 다시 계산한 뒤 반영
+            self._refresh_review_flags()
             self._apply_results(crop_only=crop_only)
             if finished.cancelled:
                 self._host.notify(MSG_WORK_CANCELLED)
@@ -758,71 +801,6 @@ class FrameAnalysisController:
                 if status:
                     self._host.notify(status)
         self.refresh_actions()
-
-    def _load_service(self) -> FrameAnalysisService:
-        config = self._host.config_provider()
-        return FrameAnalysisService(
-            self._store,
-            work_dir=FRAME_ANALYSIS_WORK_DIR,
-            has_vmaf=True,
-            mode=config.encode.frame_analysis_mode,
-            scale_algorithm=config.encode.scale_algorithm,
-            thresholds=frame_thresholds_from_config(config),
-        )
-
-    def _load_overrides(
-        self, evals: Sequence[VideoEvaluation], root_dir: str
-    ) -> frozenset[str]:
-        paths = [resolve_source_filepath(root_dir, ev.video.filename) for ev in evals]
-        return self._store.load_vr_overrides(paths)
-
-    def _apply_manual_vr(self, overrides: frozenset[str]) -> None:
-        report = self._host.report_provider()
-        if report is None:
-            self._host.table_view.table_model.set_manual_vr_overrides(())
-            return
-        names = frozenset(
-            ev.video.filename
-            for ev in report.evaluations
-            if resolve_source_filepath(report.root_dir, ev.video.filename) in overrides
-        )
-        self._host.table_view.table_model.set_manual_vr_overrides(names)
-
-    def _load_crop_exclusions(
-        self, evals: Sequence[VideoEvaluation], root_dir: str
-    ) -> frozenset[str]:
-        paths = [resolve_source_filepath(root_dir, ev.video.filename) for ev in evals]
-        return self._store.load_crop_exclusions(paths)
-
-    def _apply_crop_exclusions(self, exclusions: frozenset[str]) -> None:
-        """잘라내기 제외 저장 경로를 표 파일명 집합으로 바꿔 우클릭 체크 상태를 맞춤"""
-        report = self._host.report_provider()
-        if report is None:
-            self._host.table_view.table_model.set_crop_exclusions(())
-            return
-        names = frozenset(
-            ev.video.filename
-            for ev in report.evaluations
-            if resolve_source_filepath(report.root_dir, ev.video.filename) in exclusions
-        )
-        self._host.table_view.table_model.set_crop_exclusions(names)
-
-    def _load_manual_frames(
-        self, evals: Sequence[VideoEvaluation], root_dir: str
-    ) -> dict[str, ActiveFrame]:
-        """사용자 지정 활성 화면을 지금 프레임 크기와 함께 조회해 파일명 기준 맵으로 바꿈"""
-        pairs = [(resolve_source_filepath(root_dir, ev.video.filename), ev.video) for ev in evals]
-        frames = self._store.load_manual_active_frames(
-            {path: (video.width, video.height) for path, video in pairs}
-        )
-        return {video.filename: frames[path] for path, video in pairs if path in frames}
-
-    def _apply_manual_frames(self, frames: dict[str, ActiveFrame]) -> None:
-        """사용자 지정 활성 화면을 표에 반영해 활성 화면 열 문구와 툴팁을 맞춤"""
-        if self._host.report_provider() is None:
-            self._host.table_view.table_model.set_manual_active_frames({})
-            return
-        self._host.table_view.table_model.set_manual_active_frames(frames)
 
     def _acknowledge_review(self, path: str, filename: str) -> None:
         """사용자가 고른 활성 화면을 확인 표시로 저장
@@ -842,21 +820,27 @@ class FrameAnalysisController:
             self._store.set_crop_review_acknowledged(path, result.active_region)
 
     def _apply_review_flags(self) -> None:
-        """여백 확인 필요 표시 집합과 필터 칩 개수를 지금 캐시와 설정으로 다시 계산
+        """여백 확인 필요 표시 집합과 필터 칩 개수를 마지막으로 계산한 값으로 반영"""
+        self._host.table_view.table_model.set_review_flagged(self._review_flagged)
+        self._host.filter_bar.set_review_flagged_count(len(self._review_flagged))
 
-        - 실행 대상이 일부만 분석돼도 표의 나머지 영상 표시가 사라지지 않도록 현재 리포트 전체를 기준으로 셈
+    def _refresh_review_flags(self) -> None:
+        """여백 확인 필요 표시를 지금 캐시와 설정으로 다시 계산
+
+        - 적재한 요청의 내용 지문을 그대로 써 캐시 조회만 하고 파일을 다시 읽지 않음
+        - 실행 대상이 일부만 분석돼도 표의 나머지 영상 표시가 사라지지 않도록 적재한 리포트 전체를 기준으로 셈
         """
         report = self._host.report_provider()
-        if report is None or not self._report_requests:
-            flagged: frozenset[str] = frozenset()
+        config = self._host.config_provider()
+        if report is None or not self._report_requests or report.root_dir != self._report_root:
+            self._review_flagged = frozenset()
         else:
-            statuses = self._load_service().crop_review_statuses(
+            statuses = frame_cache_service(self._store, config).crop_review_statuses(
                 self._report_requests,
-                crop_enabled=self._host.config_provider().encode.crop_black_bars,
+                crop_enabled=config.encode.crop_black_bars,
             )
-            flagged = frozenset(statuses)
-        self._host.table_view.table_model.set_review_flagged(flagged)
-        self._host.filter_bar.set_review_flagged_count(len(flagged))
+            self._review_flagged = frozenset(statuses)
+        self._apply_review_flags()
 
     def _apply_results(self, *, show_columns: bool = True, crop_only: bool = False) -> None:
         self._host.table_view.table_model.set_frame_analysis_results(self._results)

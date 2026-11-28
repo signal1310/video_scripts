@@ -102,6 +102,24 @@ class RequestBuildingTests(unittest.TestCase):
             build_requests([ev], self.root, frozenset()),
         )
 
+    def test_build_requests_reuses_cached_fingerprints_without_reading_files(self) -> None:
+        """같은 파일(이름, 크기, 수정 시각)의 요청이 있으면 지문을 다시 읽지 않음"""
+        ev = make_eval(video=make_video(filename="a.mp4"))
+        cached = build_requests([ev], self.root, frozenset())
+        with patch(
+            "src.gui.controllers.frame_analysis_targets.compute_fingerprint",
+            side_effect=AssertionError("지문을 다시 읽음"),
+        ):
+            reused = build_requests([ev], self.root, frozenset(), cached=cached)
+        self.assertEqual(reused, cached)
+
+    def test_build_requests_stops_when_cancelled(self) -> None:
+        """취소가 참이 되면 남은 파일을 읽지 않고 지금까지 만든 목록만 돌려줌"""
+        ev = make_eval(video=make_video(filename="a.mp4"))
+        self.assertEqual(
+            build_requests([ev], self.root, frozenset(), is_cancelled=lambda: True), []
+        )
+
     def test_build_requests_skips_missing_files(self) -> None:
         missing = make_eval(video=make_video(filename="missing.mp4"))
         self.assertEqual(build_requests([missing], self.root, frozenset()), [])

@@ -37,7 +37,7 @@
 - 결정이 필요한 항목은 번호를 붙이고 추천안을 맨 앞에, 대안은 한 줄로 씀. 이미 물었는데 답이 없던 결정은 그 사실을 밝히고 다시 묻고, 사용자는 "추천대로"나 "번호 + 대안"으로 답함
 - 문서(계획서, `TODO.md`, `TERMINOLOGY.md`, `ARCHITECTURE.md`) 커밋은 사용자가 "커밋"이라고 할 때만 함. 완료 기록, 다음 단계 계획, 용어 등록, 규칙 소폭 수정은 소단계마다 나누지 않고 큰 단계 전환 시점 1커밋으로 모음. 수정 후 "커밋이라고 답해 주세요"로 확인. "추천대로, 커밋"은 대기 결정을 추천안으로 기록하고 커밋하라는 뜻이고, "추천대로"만 오면 기록만 하고 커밋은 묻음
 - 커밋 전 `git status`로 구현 에이전트의 미커밋 변경을 확인하고 내 파일만 `git add`함. 구현 메시지를 보내기 전에 내 문서 수정을 먼저 커밋해야 구현 에이전트의 docs 커밋에 섞이지 않음
-- 문서만 바꾼 커밋은 `scripts/verify_hygiene.py`와 `tests.tools.test_metadata_sync`, pre-commit 훅으로 갈음(`AGENTS.md` 7절). 커밋 메시지 끝의 Co-Authored-By는 그 시점 최신 지시를 그대로 씀
+- 문서만 바꾼 커밋은 `scripts/verify_hygiene.py`와 `tests.tools.test_metadata_sync`, pre-commit 훅으로 갈음(`AGENTS.md` 7절). 어떠한 커밋에도 `Co-Authored-By` 트레일러를 달지 않음
 - 큰 리팩터링: 여러 모듈에 걸치면 후보, 순서, 보류 조건, 커밋 단위를 먼저 사용자와 합의한 뒤 일괄 수행함. 합의와 달라진 점은 최종 보고 첫머리에 이유와 함께 적음. 동결 파일이 있으면 분할 후 `scripts/verify_module_size.py`로 바로 확인
 - 운영 모드 `자동`에서의 진행과 사람 확인 항목(`add_human_check`) 기록은 7.6절을 따름. 사용자가 확인 항목의 `응답:` 줄로 수정을 지시하면 후속 작업으로 처리하며, 구현 에이전트는 사람 확인 항목을 만들지 않음
 - 사용자는 실제 앱을 실행해 스크린샷으로 피드백함. GUI 결과에는 "실제 화면에서 확인할 것"을 라이트와 다크로 나눠 적고, 스크린샷의 값 오류(예: 평균 속도 127배)도 함께 확인함. 취향 지적은 실제 팔레트 토큰으로 시안 여러 개를 라이트와 다크로 비교하게 하고 추천안은 하나만 냄
@@ -64,7 +64,7 @@
 - 호출 전: 검토 담당의 코드 수정은 커밋하거나 정리한 뒤 호출함(dirty 상태면 브리지가 차단). `**/*.md` 미커밋 수정은 막지 않음(`config.json`의 `mainDirtyAllowGlobs`)
 - 브리프: 영어로 쓰고, 사용자 노출 문구, 용어, 식별자, 경로는 원문 그대로 인용함. 워커가 쓰는 주석, 독스트링, 커밋 메시지는 `AGENTS.md` 4절에 따라 한국어로 씀. PID로만 종료하는 규칙과 감사 기록 규칙은 브리지가 붙이므로 쓰지 않음(브리지 `AGENTS.md` 1.2절)
 - 격리: 구현은 `isolation="worktree"`로 `impl/<run_id>` 브랜치에서 시작함. 수정(`mode="fix"`)과 실화면 피드백 보완은 `continue_run_id`로 같은 브랜치에서 이어 함(`inplace`는 1회성 소폭 수정만)
-- 병합: `merge_implementer_branch(strategy="squash", commit_message=...)`로 1작업 1커밋. 이 도구는 `Co-Authored-By` 줄을 넣지 않으므로 병합 뒤 `git commit --amend`로 추가함. `TODO.md`는 병합에서 뺌. 병합 충돌은 검토 담당이 직접 해결함. 트레일러의 모델 이름은 병합을 실행하는 에이전트의 현재 지시를 따름
+- 병합: `merge_implementer_branch(strategy="squash", commit_message=...)`로 1작업 1커밋. `TODO.md`는 병합에서 뺌. 병합 충돌은 검토 담당이 직접 해결함. 어떠한 커밋에도 `Co-Authored-By` 트레일러를 달지 않음
 - 병합 뒤 정리: 감사 `final_report`와 작업 트리의 `.cline_handoff.md`에 남은 지적은 브리지 큐 항목이나 `TODO.md` 후보로 옮김(읽는 시점과 작업 트리 정리 순서는 브리지 `AGENTS.md` 1.3절). 워커나 감사가 남긴 미추적 산출물(`out.txt` 등)은 커밋하지 않음
 - 허용 경로(`allowed_paths`): 구현 워커는 영역 글롭(예: `src/gui/settings/**`)으로 넉넉히 두어 인접 테스트와 문서 수정을 막지 않음. 감사 지적을 고치는 수정 워커는 지적이 가리키는 파일만 넣어 범위가 번지지 않게 함. 브리지 `allowOverlappingPaths`가 켜져 있어 겹침으로 시작이 막히지 않음
 - 로그: 브리프와 응답은 run마다 `conversation.md`에 실시간으로 쌓이고, 사람은 `tasks.md`의 run 링크로 봄. 검토 담당은 브리지 `AGENTS.md` 1.1절 순서로 필요한 것만 읽음

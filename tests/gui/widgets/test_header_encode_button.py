@@ -156,6 +156,92 @@ class HeaderEncodeButtonTests(GuiTestCase):
         self.button.set_status(_status(CHIP_STATE_PAUSED, 30))
         self.assertEqual(self.button._fill_color(), DARK_PALETTE.row_paused_bg)
 
+    def test_ready_state_uses_the_card_highlight_tokens_in_both_themes(self) -> None:
+        """활성, 유휴, 대상 있음일 때 버튼과 배지가 카드 강조 토큰과 고대비 글자색을 쓰는지 검증"""
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            self.button.apply_theme(palette)
+            self.button.setEnabled(True)
+            self.button.set_target_count(449)
+            self.button.set_status(_status(CHIP_STATE_IDLE))
+            self.assertEqual(
+                self._state_colors(),
+                (
+                    palette.card_highlight_bg,
+                    palette.card_highlight_val,
+                    palette.card_highlight_border,
+                ),
+            )
+            background, foreground = self.button._badge_colors()
+            self.assertEqual(background, palette.card_highlight_val)
+            expected_foreground = palette.bg_base if palette.is_dark else palette.text_on_accent
+            self.assertEqual(foreground, expected_foreground)
+            self.assertNotEqual(foreground, background)
+
+    def test_ready_state_icon_is_drawn_with_the_highlight_token(self) -> None:
+        """준비 완료 상태의 인코딩 전용 아이콘이 강조 글자 토큰으로 그려지는지 검증"""
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            self.button.apply_theme(palette)
+            self.button.setEnabled(True)
+            self.button.set_target_count(3)
+            self.button.set_status(_status(CHIP_STATE_IDLE))
+            image = self.button.icon_label.pixmap().toImage()
+            colors = {
+                image.pixelColor(x, y).name().lower()
+                for x in range(image.width())
+                for y in range(image.height())
+                if image.pixelColor(x, y).alpha() > 200
+            }
+            self.assertIn(palette.card_highlight_val.lower(), colors)
+
+    def test_ready_highlight_yields_to_running_paused_and_disabled_states(self) -> None:
+        """대상이 있어도 실행, 일시중지, 비활성 상태에서는 강조 배색 대신 상태 토큰을 쓰는지 검증"""
+        palette = DARK_PALETTE
+        self.button.apply_theme(palette)
+        self.button.set_target_count(5)
+        self.button.set_status(_status(CHIP_STATE_RUNNING, 20))
+        self.assertEqual(
+            self._state_colors(),
+            (palette.bg_elevated, palette.badge_encode_running[1], palette.badge_encode_running[2]),
+        )
+        self.assertEqual(self.button._badge_colors(), (palette.bg_elevated, palette.text_muted))
+
+        self.button.set_status(_status(CHIP_STATE_PAUSED, 20))
+        self.assertEqual(
+            self._state_colors(),
+            (palette.bg_elevated, palette.row_paused_accent, palette.row_paused_accent),
+        )
+
+        self.button.set_status(_status(CHIP_STATE_IDLE))
+        self.button.setEnabled(False)
+        self.assertEqual(
+            self._state_colors(),
+            (palette.bg_elevated, palette.text_muted, palette.border_subtle),
+        )
+        self.assertEqual(self.button._badge_colors(), (palette.bg_elevated, palette.text_muted))
+
+    def test_idle_without_targets_keeps_the_neutral_button_colors(self) -> None:
+        """대상이 0인 유휴 상태에서는 강조 배색 없이 기존 중립 버튼 배색을 유지하는지 검증"""
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            self.button.apply_theme(palette)
+            self.button.setEnabled(True)
+            self.button.set_target_count(0)
+            self.button.set_status(_status(CHIP_STATE_IDLE))
+            self.assertEqual(
+                self._state_colors(),
+                (palette.btn_bg, palette.text_primary, palette.btn_border),
+            )
+            self.assertEqual(self.button._badge_colors(), (palette.bg_elevated, palette.text_muted))
+
+    def test_ready_state_keeps_the_highlight_background_while_hovered(self) -> None:
+        """준비 완료 상태는 호버에서도 강조 바탕을 유지하고 호버 배경으로 바뀌지 않는지 검증"""
+        self.button.apply_theme(DARK_PALETTE)
+        self.button.setEnabled(True)
+        self.button.set_target_count(2)
+        self.button.set_status(_status(CHIP_STATE_IDLE))
+        self.button.enterEvent(None)
+        self.addCleanup(self.button.leaveEvent, None)
+        self.assertEqual(self.button._base_background(), DARK_PALETTE.card_highlight_bg)
+
     def test_size_hint_covers_the_child_labels(self) -> None:
         """크기 힌트가 아이콘과 문구, 배지를 담은 레이아웃 크기이고 높이가 헤더 버튼과 같은지 검증"""
         self.button.set_status(_status(CHIP_STATE_IDLE))

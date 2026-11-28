@@ -20,6 +20,7 @@ IDLE_LABEL: str = "인코딩"
 RUNNING_LABEL_TEMPLATE: str = "인코딩 {percent}%"
 PAUSED_LABEL_TEMPLATE: str = "일시중지 {percent}%"
 HEADER_ENCODE_ACCESSIBLE_NAME: str = "인코딩 창 열기"
+ENCODE_ICON_NAME: str = "encode-clapper"
 ARROW_ICON_NAME: str = "chevron-right"
 ARROW_SIZE_PX: int = 20
 ARROW_OBJECT_NAME: str = "HeaderEncodeArrow"
@@ -163,10 +164,24 @@ class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
         super().leaveEvent(a0)
         self.update()
 
+    def _is_ready(self) -> bool:
+        """인코딩 창을 열 대상이 있으면서 바로 실행할 수 있는 유휴 상태인지
+
+        - 준비 완료만 강조 배색을 쓰고 나머지 상태는 기존 상태 토큰을 유지
+        """
+        return (
+            self.isEnabled()
+            and self._status.state == CHIP_STATE_IDLE
+            and self._target_count > 0
+        )
+
     def _base_background(self) -> str:
-        """상태 배경 토큰. 호버 중이며 누를 수 있으면 공용 호버 배경을 씀"""
+        """상태 배경 토큰. 호버 중이며 누를 수 있으면 공용 호버 배경을 씀
+
+        - 준비 완료 강조는 상태를 알리는 색이므로 호버에도 중립 배경으로 바꾸지 않음
+        """
         background = self._colors()[0]
-        if self._hovered and self.isEnabled():
+        if self._hovered and self.isEnabled() and not self._is_ready():
             return self._palette.btn_hover
         return background
 
@@ -174,6 +189,7 @@ class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
         """상태별 (바탕, 글자, 테두리) 토큰. 비활성은 흐린 공용 배색
 
         - 진행 중과 일시중지의 바탕은 중립 트랙이고, 채워진 부분만 진행 배색으로 칠해 채움 폭이 보이게 함
+        - 대상이 있는 유휴 상태는 카드 강조 토큰으로 실행 가능함을 드러냄
         """
         palette = self._palette
         if not self.isEnabled():
@@ -183,7 +199,24 @@ class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
             return palette.bg_elevated, foreground, border
         if self._status.state == CHIP_STATE_PAUSED:
             return palette.bg_elevated, palette.row_paused_accent, palette.row_paused_accent
+        if self._is_ready():
+            return (
+                palette.card_highlight_bg,
+                palette.card_highlight_val,
+                palette.card_highlight_border,
+            )
         return palette.btn_bg, palette.text_primary, palette.btn_border
+
+    def _badge_colors(self) -> tuple[str, str]:
+        """대상 수 배지의 (바탕, 글자) 토큰. 준비 완료에서는 강조색 바탕에 고대비 글자
+
+        - 강조색은 라이트에서 어두운 초록, 다크에서 밝은 초록이므로 글자도 테마별 극값을 씀
+        """
+        palette = self._palette
+        if self._is_ready():
+            foreground = palette.bg_base if palette.is_dark else palette.text_on_accent
+            return palette.card_highlight_val, foreground
+        return palette.bg_elevated, palette.text_muted
 
     def _fill_color(self) -> str:
         """진행 채움 색. 일시중지는 경고 배경, 그 외 진행은 진행 배지 배경 토큰"""
@@ -197,21 +230,22 @@ class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
         self.text_label.set_full_text(self.label_text)
         self.text_label.set_color(foreground)
         self.icon_label.setPixmap(
-            get_icon("refresh-cw", color=foreground, size=_ICON_SIZE_PX, pad_right=0).pixmap(
+            get_icon(ENCODE_ICON_NAME, color=foreground, size=_ICON_SIZE_PX, pad_right=0).pixmap(
                 _ICON_SIZE_PX, _ICON_SIZE_PX
             )
         )
         show_badge = self._status.state == CHIP_STATE_IDLE and self._target_count > 0
         self.badge.setEnabled(self.isEnabled())
         self.badge.set_count(self._target_count)
-        self.badge.set_colors(self._palette.bg_elevated, self._palette.text_muted)
+        background, badge_foreground = self._badge_colors()
+        self.badge.set_colors(background, badge_foreground)
         self.badge.setVisible(show_badge)
         self.updateGeometry()
         self.update()
 
 
 class EncodeTargetCountBadge(QWidget):
-    """인코딩 대상 수를 중립 배색 알약으로 그리는 배지"""
+    """인코딩 대상 수를 알약으로 그리는 배지"""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)

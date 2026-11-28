@@ -87,6 +87,32 @@ class SvgTests(unittest.TestCase):
             icon = get_icon("margins-vary", color=palette.fg_vary_icon, size=12, palette=palette)
             self.assertFalse(icon.pixmap(12, 12).toImage().isNull())
 
+    def test_encode_clapper_icon_is_registered_and_renders_in_both_themes(self) -> None:
+        """인코딩 전용 클래퍼보드 아이콘이 채운 재생 삼각형과 함께 등록되고 두 테마에서 그려지는지 검증"""
+        template = module.SVG_TEMPLATES["encode-clapper"]
+        self.assertIn('<polygon points="9.6 12.1 16.0 15.5 9.6 18.9" fill="currentColor" stroke="none"/>', template)
+        self.assertIn('d="M4 10v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9H4z"', template)
+        self.assertEqual(template.count("<line"), 2)
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            icon = get_icon("encode-clapper", color=palette.card_highlight_val, size=14, palette=palette)
+            image = icon.pixmap(14, 14).toImage()
+            self.assertFalse(image.isNull())
+            colors = {
+                image.pixelColor(x, y).name().lower()
+                for x in range(image.width())
+                for y in range(image.height())
+                if image.pixelColor(x, y).alpha() > 200
+            }
+            self.assertIn(palette.card_highlight_val.lower(), colors)
+
+    def test_encode_clapper_fills_the_play_triangle_with_the_icon_color(self) -> None:
+        """재생 삼각형이 선이 아니라 채움으로, 다른 테마 색에서는 다른 픽셀을 남기는지 검증"""
+        light = get_icon("encode-clapper", color=LIGHT_PALETTE.card_highlight_val, size=24)
+        dark = get_icon("encode-clapper", color=DARK_PALETTE.card_highlight_val, size=24)
+        self.assertNotEqual(
+            light.pixmap(24, 24).toImage(), dark.pixmap(24, 24).toImage()
+        )
+
     def test_stacked_icon_doubles_the_width_and_keeps_the_first_color(self) -> None:
         """두 아이콘을 나란히 담은 아이콘이 두 배 폭이고 왼쪽에 첫 아이콘 색을 남기는지 검증"""
         specs = [

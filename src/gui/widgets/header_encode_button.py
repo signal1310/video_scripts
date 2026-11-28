@@ -1,7 +1,7 @@
 """헤더 인코딩 버튼: 상태 배색, 진행 채움, 대상 수 배지를 직접 그리는 버튼 모듈"""
 
 from PyQt6.QtCore import QEvent, QRectF, QSize, Qt
-from PyQt6.QtGui import QColor, QEnterEvent, QFontMetrics, QPainter, QPaintEvent, QPen
+from PyQt6.QtGui import QColor, QEnterEvent, QFont, QFontMetrics, QPainter, QPaintEvent, QPen
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from src.core.encode.encode_batch_book import (
@@ -10,7 +10,7 @@ from src.core.encode.encode_batch_book import (
     CHIP_STATE_RUNNING,
     EncodeChipStatus,
 )
-from src.gui.constants import TOOLBAR_ICON_BTN_SIZE
+from src.gui.constants import TOOLBAR_ICON_BTN_SIZE, TOOLBAR_ICON_SIZE_PX
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
@@ -24,7 +24,10 @@ ENCODE_ICON_NAME: str = "encode-clapper"
 ARROW_ICON_NAME: str = "chevron-right"
 ARROW_SIZE_PX: int = 20
 ARROW_OBJECT_NAME: str = "HeaderEncodeArrow"
-_ICON_SIZE_PX: int = 14
+# - 헤더의 다른 아이콘 버튼과 같은 크기를 써서 한 줄에서 아이콘 무게를 맞춤
+_ICON_SIZE_PX: int = TOOLBAR_ICON_SIZE_PX
+# - 문구와 대상 수 배지의 글자 굵기. 다른 화면의 강조 글자(QSS font-weight: 600)와 같음
+_TEXT_WEIGHT: QFont.Weight = QFont.Weight.DemiBold
 _PADDING_X_PX: int = 12
 _PADDING_Y_PX: int = 6
 _BORDER_RADIUS_PX: float = 7.0
@@ -67,6 +70,12 @@ class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
         # - 대상 수 배지가 숨을 때 글자 줄 높이가 낮아져 버튼 높이가 흔들리지 않도록 같은 높이를 둠
         self.text_label.setMinimumHeight(_BADGE_HEIGHT_PX)
         self.badge = EncodeTargetCountBadge(self)
+        # - 버튼의 자식 라벨은 QSS가 버튼에 건 굵기를 물려받지 않으므로 문구와 배지에 직접 지정
+        # - 배지 폭을 배지 글꼴로 계산하므로 수를 넣기 전에 굵기를 정함
+        text_font = QFont(self.font())
+        text_font.setWeight(_TEXT_WEIGHT)
+        self.text_label.setFont(text_font)
+        self.badge.setFont(text_font)
         for child in (self.icon_label, self.text_label, self.badge):
             # - 자식이 마우스를 받지 않아야 버튼 호버와 클릭이 그대로 동작
             child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)

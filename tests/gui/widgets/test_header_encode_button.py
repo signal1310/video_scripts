@@ -6,7 +6,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.encode.encode_batch_book import (
@@ -16,7 +16,7 @@ from src.core.encode.encode_batch_book import (
     CHIP_STATE_RUNNING,
     EncodeChipStatus,
 )
-from src.gui.constants import TOOLBAR_ICON_BTN_SIZE
+from src.gui.constants import TOOLBAR_ICON_BTN_SIZE, TOOLBAR_ICON_SIZE_PX
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE, ThemePalette
 from src.gui.widgets.header_encode_button import (
     ARROW_ICON_NAME,
@@ -278,6 +278,27 @@ class HeaderEncodeButtonTests(GuiTestCase):
         self.assertEqual(hint.height(), TOOLBAR_ICON_BTN_SIZE)
         self.assertEqual(self.button.minimumSizeHint().height(), hint.height())
         self.assertLess(self.button.minimumSizeHint().width(), hint.width())
+
+    def test_icon_size_matches_the_other_header_icon_buttons(self) -> None:
+        """인코딩 아이콘이 헤더의 다른 아이콘 버튼과 같은 16px로 그려지는지 검증"""
+        expected = QSize(TOOLBAR_ICON_SIZE_PX, TOOLBAR_ICON_SIZE_PX)
+        self.assertEqual(self.button.icon_label.size(), expected)
+        self.assertEqual(self.button.icon_label.pixmap().size(), expected)
+
+    def test_label_and_badge_use_the_bold_weight(self) -> None:
+        """상태 문구와 대상 수 배지가 굵은 글꼴을 쓰고 배지 폭이 그 글꼴로 계산되는지 검증"""
+        self.assertEqual(TOOLBAR_ICON_SIZE_PX, 16)
+        for label in (self.button.text_label, self.button.badge):
+            self.assertEqual(label.font().weight(), QFont.Weight.DemiBold)
+        self.assertEqual(QFont.Weight.DemiBold, 600)
+
+        self.button.set_target_count(5805)
+        metrics = self.button.badge.fontMetrics()
+        self.assertGreater(self.button.badge.width(), metrics.horizontalAdvance("5805"))
+
+        self.button.set_status(_status(CHIP_STATE_RUNNING, 42))
+        self.assertEqual(self.button.text_label.font().weight(), QFont.Weight.DemiBold)
+        self.assertEqual(self.button.badge.font().weight(), QFont.Weight.DemiBold)
 
     def test_height_does_not_change_when_the_badge_hides(self) -> None:
         """대상 수 배지가 숨는 상태로 바뀌어도 버튼 높이가 흔들리지 않는지 검증"""

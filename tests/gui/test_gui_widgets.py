@@ -51,6 +51,7 @@ from src.gui.widgets.footer_bar import (
     FooterBar,
 )
 from src.gui.widgets.header_bar import TOP_AREA_COLLAPSE_ICON, HeaderBar, SplitAnalyzeButton
+from src.gui.widgets.row_group_menu import row_group_action_row
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase
 
@@ -1264,7 +1265,9 @@ class TestGUIWidgetsModule(GuiTestCase):
         bar._row_group_actions["column:4"].trigger()
         self.assertEqual(selected, ["column:4"])
         bar.set_row_group("column:4", label="코덱", count=3)
-        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱 (3)")
+        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱")
+        self.assertEqual(bar._row_group_badge.count, 3)
+        self.assertFalse(bar._row_group_badge.isHidden())
         self.assertTrue(bar._row_group_actions["column:4"].isChecked())
         self.assertTrue(_row_group_command(bar, "모든 그룹 접기").isEnabled())
         _row_group_command(bar, "모든 그룹 펼치기").trigger()
@@ -1274,24 +1277,32 @@ class TestGUIWidgetsModule(GuiTestCase):
 
         bar.set_row_group("", label="", count=0)
         self.assertEqual(bar.btn_row_group.text(), "그룹: 없음")
+        self.assertTrue(bar._row_group_badge.isHidden())
         bar.apply_theme(DARK_PALETTE)
         self.assertFalse(bar.btn_row_group.icon().isNull())
 
     def test_row_group_counts_show_numbers_only_when_non_zero(self) -> None:
-        """묶기 메뉴 항목이 `이름 숫자` 형식이고 0인 항목은 숫자를 빼는지 검증"""
+        """묶기 메뉴 항목 이름은 그대로 두고 0보다 큰 그룹 수만 오른쪽 알약으로 보이는지 검증"""
         bar = FilterTuningBar()
         self.addCleanup(bar.close)
         bar.set_row_group_options([("folder", "폴더"), ("column:4", "코덱")])
         bar.set_row_group_counts({"folder": 2, "column:4": 0})
-        self.assertEqual(bar._row_group_actions["folder"].text(), "폴더 2")
+        self.assertEqual(bar._row_group_actions["folder"].text(), "폴더")
         self.assertEqual(bar._row_group_actions["column:4"].text(), "코덱")
         self.assertEqual(bar._row_group_actions[""].text(), "없음")
-        # - 메뉴를 새로 만들지 않고 글자만 바꾸므로 기준 객체가 그대로 남음
+        folder_row = row_group_action_row(bar._row_group_actions["folder"])
+        codec_row = row_group_action_row(bar._row_group_actions["column:4"])
+        assert folder_row is not None and codec_row is not None
+        # - 0인 항목은 알약 자체를 숨겨 이름만 남김
+        self.assertFalse(folder_row.badge.isHidden())
+        self.assertEqual(folder_row.badge.count, 2)
+        self.assertTrue(codec_row.badge.isHidden())
+        # - 메뉴를 새로 만들지 않고 알약 값만 바꾸므로 기준 객체가 그대로 남음
         first = bar._row_group_actions["folder"]
         bar.set_row_group_counts({"folder": 5})
         self.assertIs(bar._row_group_actions["folder"], first)
-        self.assertEqual(first.text(), "폴더 5")
-        self.assertEqual(bar._row_group_actions["column:4"].text(), "코덱")
+        self.assertEqual(folder_row.badge.count, 5)
+        self.assertTrue(codec_row.badge.isHidden())
 
     def test_row_group_menu_opening_emits_once_per_open(self) -> None:
         """메뉴를 열 때마다 조율자에게 그룹 수 계산을 요청하는지 검증"""
@@ -1323,7 +1334,8 @@ class TestGUIWidgetsModule(GuiTestCase):
         target.trigger()
 
         self.assertTrue(target.isChecked())
-        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱 (2)")
+        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱")
+        self.assertEqual(bar._row_group_badge.count, 2)
         self.assertEqual([act.text() for act in bar._row_group_menu.actions()], order)
         self.assertFalse(bar._row_group_actions["folder"].isChecked())
         # - 알림 처리가 끝난 뒤에는 메뉴를 실제로 다시 만들 수 있어야 함

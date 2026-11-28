@@ -4,10 +4,12 @@ import unittest
 
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets.filter_bar_chips import (
+    BADGE_RADIUS_PX,
     CHIP_REVIEW,
     CHIP_SPECS,
     CHIP_VARY,
     count_badge_style,
+    muted_count_badge_style,
 )
 
 
@@ -32,6 +34,18 @@ class ChipSpecTests(unittest.TestCase):
         for css in (review, vary, clear):
             self.assertIn("QLabel#FilterBarCountBadge {", css)
             self.assertIn("font-weight: 700;", css)
+
+    def test_muted_badge_style_uses_the_elevated_background_tokens(self) -> None:
+        """묶기 메뉴와 버튼의 알약이 값 강조색 대신 조용한 팔레트 토큰을 쓰는지 검증"""
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            css = muted_count_badge_style(palette)
+            self.assertIn(palette.bg_elevated, css)
+            self.assertIn(palette.text_secondary, css)
+            self.assertIn("QLabel#FilterBarCountBadge {", css)
+            self.assertIn(f"border-radius: {BADGE_RADIUS_PX}px;", css)
+            # - 값 강조색은 쓰지 않아 칩 배지와 구분됨
+            self.assertNotIn(palette.accent_blue, css)
+            self.assertNotIn(palette.text_on_accent, css)
 
 
 if __name__ == "__main__":

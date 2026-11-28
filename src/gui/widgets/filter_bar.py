@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QWidget,
+    QWidgetAction,
 )
 
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, format_tooltip_with_shortcut
@@ -47,6 +48,17 @@ from src.gui.widgets.filter_bar_chips import (
     VARY_CHIP_TOOLTIP,
     FilterBarCountBadge,
     count_badge_style,
+    muted_count_badge_style,
+)
+from src.gui.widgets.row_group_menu import (
+    ROW_GROUP_BADGE_GAP_PX,
+    ROW_GROUP_TEXT_GAP_PX,
+    RowGroupMenuRow,
+    apply_row_group_button_badge,
+    apply_row_group_menu_theme,
+    build_row_group_menu,
+    place_row_group_button_badge,
+    set_highlighted_action,
 )
 
 __all__ = ["FilterTuningBar"]
@@ -251,8 +263,13 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._row_group_menu.setToolTipsVisible(True)
         self._row_group_actions: dict[str, QAction] = {}
         self._row_group_menu.aboutToShow.connect(self._on_row_group_menu_opening)
+        self._row_group_menu.hovered.connect(self._on_row_group_menu_hovered)
+        self._row_group_menu.aboutToHide.connect(self._on_row_group_menu_closed)
         self.btn_row_group.setMenu(self._row_group_menu)
         set_button_icon(self.btn_row_group, "folder-tree", palette=get_active_palette(), size=14, pad_right=6)
+        # - 그룹 수는 글자 대신 캐럿 앞 알약으로 보여 주고, 알약 몫만큼 오른쪽 여백을 비움
+        self._row_group_badge = FilterBarCountBadge(self.btn_row_group)
+        self._row_group_badge_pad: int = 0
 
         self.btn_auto_fit = create_icon_button(
             self,
@@ -319,6 +336,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._refresh_exception_button()
         for chip in (self.btn_clear_col_filters, self.btn_review_filter, self.btn_vary_filter):
             chip.installEventFilter(self)
+        self.btn_row_group.installEventFilter(self)
         self.btn_edit_exceptions.installEventFilter(self)
         # - 마우스 클릭과 가로 스크롤이 버튼에 포커스 테두리를 남기지 않도록 탭 이동만 허용
         for button in self.findChildren(QPushButton):
@@ -356,6 +374,8 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
                 self._place_badge(self.btn_vary_filter, self._vary_filter_badge)
             elif a0 is self.btn_edit_exceptions:
                 self._place_exception_badge()
+            elif a0 is self.btn_row_group:
+                place_row_group_button_badge(self.btn_row_group, self._row_group_badge)
         return super().eventFilter(a0, a1)
 
     def minimumSizeHint(self) -> QSize:
@@ -516,6 +536,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             chips_collapsed,
         )
         self._sync_icon_padding()
+        self._update_row_group_badge()
         self._refresh_collapsed_tooltips()
 
     def _sync_icon_padding(self) -> None:
@@ -696,35 +717,57 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._rebuild_row_group_actions()
 
     def set_row_group_counts(self, counts: dict[str, int]) -> None:
-        """행 묶기 메뉴 항목별 그룹 수를 기억하고, 항목이 이미 있으면 글자만 고침
+        """행 묶기 메뉴 항목별 그룹 수를 기억하고, 항목이 이미 있으면 오른쪽 알약만 고침
 
-        - 0인 항목은 숫자를 붙이지 않아 아직 그룹이 없다는 사실을 이름만으로 보여 줌
+        - 0인 항목은 알약을 숨겨 아직 그룹이 없다는 사실을 이름만으로 보여 줌
         """
         self._row_group_counts = dict(counts)
-        labels = dict(self._row_group_options)
         for key, act in self._row_group_actions.items():
             if not key:
                 continue
-            label = labels.get(key, "")
-            if not label:
-                continue
-            count = self._row_group_counts.get(key, 0)
-            act.setText(f"{label} {count}" if count else label)
+            row = act.defaultWidget() if isinstance(act, QWidgetAction) else None
+            if isinstance(row, RowGroupMenuRow):
+                row.set_count(self._row_group_counts.get(key, 0))
 
     def set_row_group(self, group_by: str, *, label: str, count: int) -> None:
-        """지금 적용 중인 묶기 키를 버튼 글자와 메뉴 체크에 시그널 없이 반영
+        """지금 적용 중인 묶기 키를 버튼 글자, 알약 배지, 메뉴 체크에 시그널 없이 반영
 
         - 메뉴 항목은 지우지 않고 체크 상태만 바꿔 실행 중인 triggered 처리 중 동작이 사라지지 않게 함
+        - 그룹 수는 글자가 아니라 캐럿 앞 알약으로 보여 주어 드롭다운 항목과 같은 모양을 씀
         """
         self._group_by = group_by
         self._group_label = label if group_by else GROUP_NONE_LABEL
         self._group_count = count if group_by else 0
         if group_by:
-            self._set_button_label(self.btn_row_group, f"{GROUP_BUTTON_PREFIX}{label} ({count})")
+            self._set_button_label(self.btn_row_group, f"{GROUP_BUTTON_PREFIX}{label}")
         else:
             self._set_button_label(self.btn_row_group, f"{GROUP_BUTTON_PREFIX}{GROUP_NONE_LABEL}")
+        self._update_row_group_badge()
         self._sync_row_group_state()
         self._evaluate_collapse()
+
+    def _update_row_group_badge(self) -> None:
+        """그룹 버튼 알약에 그룹 수를 넣고, 알약 몫만큼 오른쪽 여백을 확보
+
+        - 접힘 판단 때마다 불리므로 알약 폭과 개수가 그대로면 스타일시트를 다시 쓰지 않음
+        """
+        badge = self._row_group_badge
+        same_count = badge.count == self._group_count
+        pad = badge.width() + ROW_GROUP_BADGE_GAP_PX + ROW_GROUP_TEXT_GAP_PX if self._group_count else 0
+        if same_count and pad == self._row_group_badge_pad:
+            place_row_group_button_badge(self.btn_row_group, badge)
+            return
+        self._row_group_badge_pad = apply_row_group_button_badge(
+            self.btn_row_group, badge, self._group_count
+        )
+
+    def _on_row_group_menu_hovered(self, action: QAction | None) -> None:
+        """메뉴에서 가리키는 항목의 행만 선택 배경으로 칠함(마우스와 키보드 이동 공통)"""
+        set_highlighted_action(self._row_group_menu, action)
+
+    def _on_row_group_menu_closed(self) -> None:
+        """메뉴를 닫으면 강조 배경을 지워 다음에 열 때 남지 않게 함"""
+        set_highlighted_action(self._row_group_menu, None)
 
     def _sync_row_group_state(self) -> None:
         """지금 묶기 키에 맞춰 메뉴 체크와 그룹 전체 명령 활성 상태만 바꿈"""
@@ -743,7 +786,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     def _rebuild_row_group_actions(self) -> None:
         """없음, 폴더, 범주형 열과 펼치기, 접기 항목으로 메뉴를 다시 채움
 
-        - 계획: 항목 이름 뒤에 마지막으로 계산한 그룹 수를 붙이고, 0이면 숫자를 생략
+        - 항목마다 마지막으로 계산한 그룹 수를 오른쪽 알약으로 붙이고 0이면 알약을 숨김
         - 메뉴를 여는 중에는 지우지 않고 체크만 바꿔 실행 중인 동작이 사라지지 않게 함
         """
         menu = self._row_group_menu
@@ -751,33 +794,21 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         if menu.isVisible() or self._row_group_emitting:
             return
         menu.clear()
-        self._row_group_actions = {}
-        persistent = QActionGroup(menu)
-        persistent.setExclusive(True)
-        entries = [("", GROUP_NONE_LABEL), *self._row_group_options]
-        for key, label in entries:
-            count = self._row_group_counts.get(key, 0) if key else 0
-            text = f"{label} {count}" if count else label
-            act = QAction(text, menu)
-            act.setCheckable(True)
-            act.setChecked(key == self._group_by)
-            act.triggered.connect(lambda _checked=False, k=key: self._on_row_group_action(k))
-            persistent.addAction(act)
-            menu.addAction(act)
-            self._row_group_actions[key] = act
-        menu.addSeparator()
-        expand = QAction("모든 그룹 펼치기", menu)
-        expand.setEnabled(bool(self._group_by))
-        expand.triggered.connect(lambda _checked=False: self.expand_all_groups_requested.emit())
-        menu.addAction(expand)
-        collapse = QAction("모든 그룹 접기", menu)
-        collapse.setEnabled(bool(self._group_by))
-        collapse.triggered.connect(lambda _checked=False: self.collapse_all_groups_requested.emit())
-        menu.addAction(collapse)
+        built = build_row_group_menu(
+            menu,
+            options=self._row_group_options,
+            counts=self._row_group_counts,
+            group_by=self._group_by,
+            palette=self._palette,
+            on_select=self._on_row_group_action,
+            on_expand=self.expand_all_groups_requested.emit,
+            on_collapse=self.collapse_all_groups_requested.emit,
+        )
         # - 메뉴를 여는 중 체크 상태가 바뀌어도 선택 시그널이 나가지 않도록 그룹을 따로 보관
-        self._row_group_action_group = persistent
-        self._expand_groups_action = expand
-        self._collapse_groups_action = collapse
+        self._row_group_actions = built.options
+        self._row_group_action_group = built.exclusive
+        self._expand_groups_action = built.expand
+        self._collapse_groups_action = built.collapse
 
     def _on_row_group_action(self, group_by: str) -> None:
         """메뉴에서 고른 묶기 키를 알림, 알림 처리 중에는 메뉴를 다시 만들지 않음"""
@@ -953,6 +984,12 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             pad_right=self._exception_icon_pad,
         )
         self._style_count_badges(palette)
+        self._restyle_row_group_menu(palette)
+
+    def _restyle_row_group_menu(self, palette: ThemePalette) -> None:
+        """그룹 버튼 알약과 드롭다운 항목 행을 새 팔레트 색으로 다시 칠함"""
+        self._row_group_badge.setStyleSheet(muted_count_badge_style(palette))
+        apply_row_group_menu_theme(self._row_group_menu, palette)
 
     def _style_count_badges(self, palette: ThemePalette) -> None:
         """개수 배지를 현재 테마 팔레트 색으로 다시 칠함"""

@@ -32,6 +32,7 @@ from src.gui.widgets.filter_bar import (
     FilterTuningBar,
 )
 from src.gui.widgets.filter_bar_chips import CHIP_REVIEW, CHIP_VARY, count_badge_style
+from src.gui.widgets.row_group_menu import row_group_action_row
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
@@ -97,7 +98,10 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertEqual(bar.btn_review_filter.text(), f"{REVIEW_CHIP_LABEL} 3")
         self.assertEqual(bar.btn_vary_filter.text(), f"{VARY_CHIP_LABEL} 1")
         self.assertEqual(bar.btn_column_preset.text(), "열: 기본")
-        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱 (12)")
+        # - 그룹 수는 글자가 아니라 알약 배지로만 보임
+        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱")
+        self.assertTrue(bar._row_group_badge.isVisible())
+        self.assertEqual(bar._row_group_badge.count, 12)
         self.assertFalse(bar._clear_col_filters_badge.isVisible())
         self.assertFalse(bar._review_filter_badge.isVisible())
         self.assertFalse(bar._vary_filter_badge.isVisible())
@@ -160,7 +164,7 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertEqual(bar.btn_review_filter.accessibleName(), REVIEW_CHIP_LABEL)
         self.assertEqual(bar.btn_vary_filter.accessibleName(), VARY_CHIP_LABEL)
         self.assertEqual(bar.btn_column_preset.accessibleName(), "열: 기본")
-        self.assertEqual(bar.btn_row_group.accessibleName(), "그룹: 코덱 (12)")
+        self.assertEqual(bar.btn_row_group.accessibleName(), "그룹: 코덱")
         for name, _step in COLLAPSE_STEPS:
             self.assertTrue(getattr(bar, name).toolTip(), name)
         for name in ICON_ONLY_BUTTONS:
@@ -263,7 +267,7 @@ class TestFilterBarCollapse(GuiTestCase):
         _APP.processEvents()
         self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_FULL)
         self.assertEqual(bar.btn_column_preset.text(), "열: 기본")
-        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱 (12)")
+        self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱")
         self.assertEqual(bar.btn_compact.text(), "")
 
     def test_labels_follow_later_state_changes(self) -> None:
@@ -283,7 +287,8 @@ class TestFilterBarCollapse(GuiTestCase):
         bar.resize(WIDE_WIDTH_PX, 44)
         _APP.processEvents()
         self.assertEqual(bar.btn_column_preset.text(), "열: 화질, 해상도")
-        self.assertEqual(bar.btn_row_group.text(), "그룹: 폴더 (4)")
+        self.assertEqual(bar.btn_row_group.text(), "그룹: 폴더")
+        self.assertEqual(bar._row_group_badge.count, 4)
         self.assertEqual(bar.btn_edit_exceptions.text(), "")
         self.assertEqual(bar._exception_badge.count, 3)
 
@@ -514,7 +519,42 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertLessEqual(badge.x() + badge.width(), bar.btn_edit_exceptions.width())
         self.assertFalse(bar.eventFilter(bar.search_edit, event))
 
-    def test_apply_theme_recolors_icons_and_badges(self) -> None:
+    def test_group_button_badge_sits_left_of_the_caret(self) -> None:
+        """그룹 버튼이 글자에 개수를 섞지 않고 캐럿 앞 알약으로 그룹 수를 보이는지 검증"""
+        bar = self._shown_bar()
+        button = bar.btn_row_group
+        badge = bar._row_group_badge
+        self.assertEqual(button.text(), "그룹: 코덱")
+        self.assertTrue(badge.isVisible())
+        self.assertEqual(badge.count, 12)
+        # - 알약 자리만큼 오른쪽 여백을 비워 캐럿과 겹치지 않게 함
+        self.assertGreater(bar._row_group_badge_pad, 0)
+        self.assertIn(f"padding-right: {bar._row_group_badge_pad}px;", button.styleSheet())
+        self.assertLessEqual(badge.x() + badge.width(), button.width())
+        self.assertGreaterEqual(badge.x(), 0)
+        self.assertEqual(badge.y(), (button.height() - badge.height()) // 2)
+
+        bar.set_row_group("", label="", count=0)
+        _APP.processEvents()
+        self.assertEqual(button.text(), "그룹: 없음")
+        self.assertFalse(badge.isVisible())
+        self.assertEqual(bar._row_group_badge_pad, 0)
+        self.assertEqual(button.styleSheet(), "")
+
+    def test_group_badge_and_rows_use_palette_tokens_on_theme_change(self) -> None:
+        """테마를 바꾸면 그룹 알약과 드롭다운 행 이름, 배지 색이 새 팔레트 토큰을 따르는지 검증"""
+        bar = self._shown_bar()
+        bar.set_row_group_options([("folder", "폴더")])
+        bar.set_row_group_counts({"folder": 2})
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            bar.apply_theme(palette)
+            self.assertIn(palette.bg_elevated, bar._row_group_badge.styleSheet())
+            self.assertIn(palette.text_secondary, bar._row_group_badge.styleSheet())
+            row = row_group_action_row(bar._row_group_actions["folder"])
+            assert row is not None
+            self.assertIn(palette.bg_elevated, row.badge.styleSheet())
+            self.assertIn(palette.text_secondary, row.badge.styleSheet())
+
         """테마를 바꾸면 접힌 상태를 유지한 채 아이콘과 배지 색이 새 팔레트를 따르는지 검증"""
         bar = self._shown_bar()
         self._at_level(bar, COLLAPSE_LEVEL_CHIPS)

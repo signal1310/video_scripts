@@ -367,4 +367,19 @@ QFrame#FilterBar QPushButton#VaryFilterChip:checked {{
     color: {p.badge_vary[1]};
     border: 2px solid {p.badge_vary[2]};
 }}
+QWidget#RowGroupMenuRow {{
+    background-color: transparent;
+    border-radius: 4px;
+}}
+QWidget#RowGroupMenuRow[highlighted="true"] {{
+    background-color: {p.bg_selected};
+}}
+QLabel#RowGroupMenuName {{
+    background-color: transparent;
+    color: {p.text_primary};
+    font-size: 9pt;
+}}
+QWidget#RowGroupMenuRow:disabled QLabel#RowGroupMenuName {{
+    color: {p.text_muted};
+}}
 """

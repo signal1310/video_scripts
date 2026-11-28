@@ -60,6 +60,15 @@ def count_badge_style(palette: ThemePalette, tone: str) -> str:
     )
 
 
+def muted_count_badge_style(palette: ThemePalette) -> str:
+    """값을 세는 muted 알약 배지의 배경, 글자색. 버튼과 메뉴 행 배경 위에서 개수만 조용히 드러냄"""
+    return (
+        f"QLabel#FilterBarCountBadge {{ background-color: {palette.bg_elevated};"
+        f" color: {palette.text_secondary}; border-radius: {BADGE_RADIUS_PX}px;"
+        f" padding: 0px {COUNT_BADGE_PADDING_X_PX}px; font-size: 8pt; font-weight: 700; }}"
+    )
+
+
 class FilterBarCountBadge(QLabel):
     """접힌 칩 버튼 오른쪽 위에 개수를 겹쳐 보여 주는 작은 배지"""
 
@@ -89,6 +98,7 @@ class FilterBarCountBadge(QLabel):
 
 
 __all__ = [
+    "BADGE_RADIUS_PX",
     "CHIP_SPECS",
     "COUNT_BADGE_HEIGHT_PX",
     "COUNT_BADGE_OFFSET_PX",
@@ -98,4 +108,5 @@ __all__ = [
     "VARY_CHIP_TOOLTIP",
     "FilterBarCountBadge",
     "count_badge_style",
+    "muted_count_badge_style",
 ]

@@ -102,13 +102,13 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.tier_scores[-1].vmaf, 99.0)
         self.assertEqual(result.valid_segment_count, 1)
         self.assertEqual(result.total_segment_count, _SEGMENT_COUNT)
-        self.assertEqual(result.analysis_version, 352)
+        self.assertEqual(result.analysis_version, 455)
         self.assertEqual(runner.count_commands("pgm"), _SEGMENT_COUNT)
 
     def test_fast_mode_uses_half_second_segments_and_fast_seek(self) -> None:
         runner = FakeStderrRunner()
         result = self.analyze(runner, mode="fast")
-        self.assertEqual(result.analysis_version, 351)
+        self.assertEqual(result.analysis_version, 454)
         self.assertIn("-noaccurate_seek", runner.commands[0])
         metric = next(args for args in runner.commands if "-filter_complex" in args)
         self.assertEqual(metric[metric.index("-t") + 1], "0.500")
@@ -116,7 +116,7 @@ class TestAnalyzeFrames(_RunnerTestCase):
     def test_precise_mode_uses_two_second_segments_and_accurate_seek(self) -> None:
         runner = FakeStderrRunner()
         result = self.analyze(runner, mode="precise")
-        self.assertEqual(result.analysis_version, 353)
+        self.assertEqual(result.analysis_version, 456)
         self.assertNotIn("-noaccurate_seek", runner.commands[0])
         metric = next(args for args in runner.commands if "-filter_complex" in args)
         self.assertEqual(metric[metric.index("-t") + 1], "2.000")

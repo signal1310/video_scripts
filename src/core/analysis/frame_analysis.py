@@ -96,19 +96,19 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
         mode=FRAME_ANALYSIS_MODE_FAST,
         segment_duration_sec=0.5,
         fast_keyframe_seek=True,
-        analysis_version=351,
+        analysis_version=454,
     ),
     FRAME_ANALYSIS_MODE_BALANCED: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_BALANCED,
         segment_duration_sec=1.0,
         fast_keyframe_seek=True,
-        analysis_version=352,
+        analysis_version=455,
     ),
     FRAME_ANALYSIS_MODE_PRECISE: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_PRECISE,
         segment_duration_sec=2.0,
         fast_keyframe_seek=False,
-        analysis_version=353,
+        analysis_version=456,
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
@@ -116,10 +116,10 @@ FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis
 SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
 # - 스캔 규칙이나 실패 판정이 바뀌면 올려 이전 규칙으로 저장한 감지 전용 행을 다시 잼
-# - `analysis_version_for_mode`는 방식 버전(351-353)에 보간 방식 오프셋(-20~80)을 더해 331-433 사이 10 간격의
+# - `analysis_version_for_mode`는 방식 버전(454-456)에 보간 방식 오프셋(-20~80)을 더해 434-536 사이 10 간격의
 #   세 연속 번호를 만든다. 방식 버전을 올릴 때는 새 최솟값(기준값 - 20)이 이전에 배포한 기준값 + 80보다 커야
-#   캐시 행이 다른 측정 조건으로 재사용되지 않으며, 새 전용 버전도 그 집합에 들지 않는 번호(현재 236)인지 확인
-CROP_SCAN_VERSION: int = 236
+#   캐시 행이 다른 측정 조건으로 재사용되지 않으며, 새 전용 버전도 그 집합에 들지 않는 번호(현재 336)인지 확인
+CROP_SCAN_VERSION: int = 336
 METRIC_CROP_ONLY: str = ""
 
 

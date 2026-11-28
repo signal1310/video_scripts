@@ -82,15 +82,15 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(EDGE_SNAP_RATIO, 0.02)
         self.assertEqual(EDGE_SNAP_MIN_PX, 8)
         self.assertEqual(MANUAL_FRAME_MIN_SIZE_PX, 32)
-        self.assertEqual(FRAME_ANALYSIS_VERSION, 352)
-        self.assertEqual(analysis_version_for_mode("fast"), 351)
-        self.assertEqual(analysis_version_for_mode("balanced"), 352)
-        self.assertEqual(analysis_version_for_mode("precise"), 353)
-        self.assertEqual(analysis_version_for_mode("fast", "lanczos"), 421)
-        self.assertEqual(analysis_version_for_mode("precise", "spline"), 433)
+        self.assertEqual(FRAME_ANALYSIS_VERSION, 455)
+        self.assertEqual(analysis_version_for_mode("fast"), 454)
+        self.assertEqual(analysis_version_for_mode("balanced"), 455)
+        self.assertEqual(analysis_version_for_mode("precise"), 456)
+        self.assertEqual(analysis_version_for_mode("fast", "lanczos"), 524)
+        self.assertEqual(analysis_version_for_mode("precise", "spline"), 536)
         self.assertNotIn(CROP_SCAN_VERSION, _all_mode_versions())
-        self.assertNotIn(236, _all_mode_versions())
-        self.assertEqual(analysis_version_for_mode("unknown"), 352)
+        self.assertNotIn(336, _all_mode_versions())
+        self.assertEqual(analysis_version_for_mode("unknown"), 455)
         self.assertEqual(SSIM_CONFIRMED_PASS_SCORE, 0.998)
         self.assertEqual(SSIM_CONFIRMED_FAIL_SCORE, 0.995)
         self.assertEqual(VMAF_CONFIRMED_PASS_SCORE, 99.5)
@@ -565,16 +565,16 @@ class CropScanVersionTests(unittest.TestCase):
     """여백 감지 전용 버전과 캐시 유효성 기준 검증"""
 
     def test_crop_only_result_is_recognized_by_its_version(self) -> None:
-        self.assertEqual(CROP_SCAN_VERSION, 236)
+        self.assertEqual(CROP_SCAN_VERSION, 336)
         self.assertEqual(METRIC_CROP_ONLY, "")
         self.assertTrue(is_crop_only_result(_Versioned(CROP_SCAN_VERSION)))
         self.assertFalse(is_crop_only_result(_Versioned(FRAME_ANALYSIS_VERSION)))
 
     def test_crop_version_stays_usable_across_quality_modes(self) -> None:
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 351))
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 353))
-        self.assertTrue(is_usable_analysis_version(352, 352))
-        self.assertFalse(is_usable_analysis_version(233, 352))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 454))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 456))
+        self.assertTrue(is_usable_analysis_version(455, 455))
+        self.assertFalse(is_usable_analysis_version(233, 455))
 
     def test_failed_crop_scan_reads_the_stored_flag_for_every_version(self) -> None:
         """감지 실패 판정이 저장한 플래그를 먼저 보고, 플래그가 없는 감지 전용 행은 측정 불가로 판정"""

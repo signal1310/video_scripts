@@ -54,6 +54,9 @@ FLAT_RAMP_STEP_MIN: float = 3.0
 RESIDUAL_MARGIN_MAX_LINES: int = 3
 RESIDUAL_MARGIN_MEAN_LIMIT: float = 32.0
 RESIDUAL_MARGIN_STEP_MIN: float = 2.0
+# - 띠와 그림 사이 반화소 재표본 혼합 줄에서 그림이 차지하는 휘도 몫의 허용 범위(12.21절 실측)
+RESIDUAL_BLEND_PICTURE_SHARE_MIN: float = 0.5
+RESIDUAL_BLEND_PICTURE_SHARE_MAX: float = 0.7
 # - 띠 안에 박힌 자막처럼 얇은 비-띠 구간을 건너뛰는 최대 두께(축 길이 비율, 최소 줄 수)
 TEXT_ISLAND_RATIO: float = 0.05
 TEXT_ISLAND_MIN_LINES: int = 2
@@ -309,6 +312,37 @@ def _residual_margin_end(
     return end
 
 
+def _blend_edge_end(
+    end: int,
+    axis_length: int,
+    probe: LineProbe,
+    line_index: Callable[[int], int],
+) -> int:
+    """띠 경계의 반화소 혼합 줄을 띠에 붙인 끝
+
+    - 확대, 축소 재표본 경계에는 띠 줄과 그림 줄이 섞인 한 줄이 남음. 그림 몫이 절반을 넘으면
+      그 줄이 누출 휘도 때문에 검은 줄로 보이므로 띠에 붙여 잘라냄
+    - 그림 몫이 절반 미만이면 실제 띠 끝이라 그대로 두고, 거의 그림인 줄은 그림이라 두지 않음
+    - 띠 쪽 이웃이 평탄한 띠 줄일 때만 인정해, 열린 매트처럼 여백 끝이 흐린 경계는 건드리지 않음
+    """
+    if end <= 0 or end + 1 >= axis_length:
+        return end
+    if not _is_bar_line(probe(line_index(end - 1))):
+        return end
+    bar_mean = probe(line_index(end - 1))[0]
+    edge_mean = probe(line_index(end))[0]
+    picture_mean = probe(line_index(end + 1))[0]
+    span = picture_mean - bar_mean
+    if span <= 0:
+        return end
+    share = (edge_mean - bar_mean) / span
+    if share < RESIDUAL_BLEND_PICTURE_SHARE_MIN or share > RESIDUAL_BLEND_PICTURE_SHARE_MAX:
+        return end
+    if edge_mean - bar_mean < BLACK_EDGE_STEP_MIN or picture_mean - edge_mean < BLACK_EDGE_STEP_MIN:
+        return end
+    return end + 1
+
+
 def _text_island_end(
     start: int,
     axis_length: int,
@@ -357,7 +391,7 @@ def _bar_scan(
     - 띠는 어둡고 평탄한 줄이며, 그림 첫 줄과의 평균 차가 계단 기준 이상일 때만 인정(완만한 그라데이션 배제)
     - 계단이 약해도 편차가 0에 가까운 긴 평탄 구간이면 띠로 보고 경사까지 붙여 경계를 정함
     - 띠 안의 얇은 비-띠 구간은 자막으로 보고 지나쳐 띠 경계를 더 안쪽으로 옮김
-    - 경계 뒤 남은 얇은 잔여 여백 줄도 함께 자름
+    - 경계 뒤 남은 얇은 잔여 여백 줄과 반화소 혼합 줄도 함께 자름
     - 두 번째 값은 띠 판정과 같은 평탄 조건으로 잰 어두운 구간 두께라, 띠로 인정되지 않은 어두운 그림 구간은
       들어가지 않음. 합집합이 다수 두께를 채택할 때 그 지점이 더하는 구간에 그림이 있는지 판정하는 근거가 되며,
       띠 판정이 이미 계산한 구간을 그대로 내보내 화소를 다시 훑지 않음
@@ -376,12 +410,14 @@ def _bar_scan(
         bar_count = flat_end
     else:
         bar_count = dark_run
-    offset = _residual_margin_end(bar_count, axis_length, probe, line_index)
+    offset = _blend_edge_end(bar_count, axis_length, probe, line_index)
+    offset = _residual_margin_end(offset, axis_length, probe, line_index)
     while True:
         island_end = _text_island_end(offset, axis_length, probe, line_index, island_max_lines)
         if island_end is None:
             return (offset, dark_run)
-        offset = _residual_margin_end(island_end, axis_length, probe, line_index)
+        offset = _blend_edge_end(island_end, axis_length, probe, line_index)
+        offset = _residual_margin_end(offset, axis_length, probe, line_index)
 
 
 def luma_frame_stats(

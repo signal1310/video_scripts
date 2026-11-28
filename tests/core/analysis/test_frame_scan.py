@@ -315,6 +315,45 @@ class TestWeakStepAndResidualBars(unittest.TestCase):
         self.assertEqual(box, CropBox(width, height - 22, 0, 22))
 
 
+class TestBlendEdgeColumn(unittest.TestCase):
+    """재표본 경계에 남은 반화소 혼합 열이 그림 쪽에 남지 않는지 검증"""
+
+    def _frame(self, edge_luma: int, *, picture: int = 200) -> list[list[int]]:
+        """왼쪽 검은 여백 105열, 경계 혼합 열, 오른쪽 그림으로 이루어진 480x360 회색 평면
+
+        - video23 실측 경계 열(12.21절): 여백 16, 혼합 열 105(그림 218 방향), 그림 첫 열 106(그림)
+        - 혼합 열 못지않게 여백 열도 남겨 어느 쪽이 여백인지 판정이 갈리는 상황을 재현
+        """
+        width, height = 480, 360
+        rows: list[list[int]] = []
+        for row_index in range(height):
+            values = [16] * 104 + [8] + [edge_luma] + [picture] * (width - 106)
+            if row_index % 2 == 1:
+                values = [16] * 104 + [8] + [edge_luma] + [picture - 6] * (width - 106)
+            rows.append(values)
+        return rows
+
+    def test_half_picture_blend_column_is_cropped_with_the_bar(self) -> None:
+        """경계 혼합 열의 그림 몫이 절반을 넘으면 여백으로 두지 않음(video23 프로필)"""
+        rows = self._frame(124)
+        box, _ratio, edges = luma_frame_stats(_plane(rows), 480, 480, 360)
+        self.assertEqual(box, CropBox(480 - 106, 360, 106, 0))
+        # - 어두운 근거 두께는 띠 판정 구간(105)이라 혼합 열을 붙인 경계(106)와 따로 남음
+        self.assertEqual(edges.left, 105)
+
+    def test_bar_side_blend_column_stays_in_the_margin(self) -> None:
+        """그림 몫이 절반 미만인 혼합 열은 여백으로 두어 그림을 자르지 않음"""
+        rows = self._frame(60)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 480, 480, 360)
+        self.assertEqual(box, CropBox(480 - 105, 360, 105, 0))
+
+    def test_nearly_picture_blend_column_stays_as_picture(self) -> None:
+        """그림 몫이 상한을 넘는 열은 그림이라 여백으로 빼지 않음"""
+        rows = self._frame(180)
+        box, _ratio, _edges = luma_frame_stats(_plane(rows), 480, 480, 360)
+        self.assertEqual(box, CropBox(480 - 105, 360, 105, 0))
+
+
 class TestCropConsensusDarkEvidence(unittest.TestCase):
     """합집합이 띠 근거로만 다수 두께를 채택하고, 무시한 지점을 안내 플래그로 남기는지 검증"""
 

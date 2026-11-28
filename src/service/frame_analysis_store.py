@@ -18,6 +18,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import TypeVar
 
+from src.core.analysis.file_manager import is_video_file
 from src.core.analysis.frame_analysis import ActiveRegion, normalize_manual_active_frame
 from src.core.models import ActiveFrame
 from src.core.workspace_paths import LogicalOwnerResolver, is_within_roots
@@ -25,6 +26,7 @@ from src.service.analysis_store import ContentKey, FileKey
 from src.service.designation_content import (
     ContentIdentity,
     ContentMove,
+    file_content_identity,
     fill_missing_fingerprints,
     mismatched_paths,
     optional_text,
@@ -138,13 +140,37 @@ def _record_and_promote_best_effort(conn: sqlite3.Connection, found: Mapping[Fil
             conn.execute("ROLLBACK")
 
 
+def _current_file_keys(path: str) -> list[tuple[int, str]]:
+    """폴더 아래 지금 있는 영상 파일의 내용 키(크기, 지문) 목록
+
+    - 파일을 하나씩 읽어 지문을 계산하므로, 영상 N개 폴더 하나당 N번 파일 읽기가 듦
+    - 같은 내용 키가 여러 개면 하나만 남김(소속 판정에는 집합으로 충분)
+    """
+    keys: list[tuple[int, str]] = []
+    for dirpath, _dirnames, filenames in os.walk(path):
+        for name in filenames:
+            if not is_video_file(name):
+                continue
+            identity = file_content_identity(os.path.join(dirpath, name))
+            if identity is not None:
+                keys.append(identity)
+    return keys
+
+
 def _frame_cache_keys(
-    conn: sqlite3.Connection, root_dirs: Sequence[str] | None
+    conn: sqlite3.Connection,
+    root_dirs: Sequence[str] | None,
+    current_keys: set[ContentKey] | None = None,
 ) -> tuple[list[ContentKey], list[FileKey]]:
     """정리 범위에 드는 내용 행 키와 아직 옮기지 않은 옛 행 키 목록
 
     - 범위 판정기는 한 번만 만들어 행마다 폴더 파싱과 파일 존재 조회를 반복하지 않음
-    - 내용 행의 파일명은 대표 값이므로 그 값으로 소속을 판정(옮기기 전과 같은 기준)
+    - 내용 행의 파일명은 대표 값이라 이름으로 소속을 판정할 수 없으므로, 각 작업 폴더의 지금
+      파일 내용 키(`current_keys`, DB 연결 밖에서 미리 구함)와 맞는 행을 해당 폴더 소속으로 봄
+    - 지금 파일 내용 키와 맞지 않는 행은 저장된 대표 파일명이 작업 폴더 안에 속할 때만 그 폴더
+      소속으로 봄. 폴더에서 지워진 영상의 행을 이 규칙이 지우나, 폴더 사이를 옮긴 영상의 행은
+      옮기기 전 폴더의 대표 파일명이 그쪽을 가리켜 옮기기 전 폴더 정리에서도 셈(남는 잔여)
+    - 옛 파일명 키 행은 경로를 그대로 지니므로 종전처럼 저장 파일명으로 판정
     """
     content_rows = conn.execute(
         f"SELECT {', '.join(CONTENT_KEY_COLUMN_NAMES)}, filename FROM {FRAME_ANALYSIS_TABLE}"
@@ -158,8 +184,14 @@ def _frame_cache_keys(
             [(str(row[0]), int(row[1]), int(row[2])) for row in legacy_rows],
         )
     resolver = LogicalOwnerResolver(root_dirs)
+    keys: set[ContentKey] = set() if current_keys is None else current_keys
+
+    def _owned(row: tuple[int, str, str]) -> bool:
+        key = (row[0], row[1])
+        return key in keys or (key not in keys and resolver.owner(row[2]) is not None)
+
     return (
-        [(int(row[0]), str(row[1])) for row in content_rows if resolver.owner(str(row[2])) is not None],
+        [(int(row[0]), str(row[1])) for row in content_rows if _owned(row)],
         [(str(row[0]), int(row[1]), int(row[2])) for row in legacy_rows if resolver.owner(str(row[0])) is not None],
     )
 
@@ -312,11 +344,21 @@ class FrameAnalysisStore:
 
         return self._run(_count)
 
+    def _current_file_keys(self, root_dirs: Sequence[str] | None) -> set[ContentKey]:
+        """작업 폴더들의 지금 영상 파일 내용 키 집합. DB 연결 밖에서 미리 구함"""
+        if root_dirs is None:
+            return set()
+        keys: set[ContentKey] = set()
+        for root in root_dirs:
+            keys.update(_current_file_keys(root))
+        return keys
+
     def count_for_roots(self, root_dirs: Sequence[str] | None = None) -> int:
         """화질 분석 캐시 행 수. root_dirs를 주면 그 작업 폴더 소속 논리 파일명만 셈"""
+        keys = self._current_file_keys(root_dirs)
 
         def _count(conn: sqlite3.Connection) -> int:
-            content, legacy = _frame_cache_keys(conn, root_dirs)
+            content, legacy = _frame_cache_keys(conn, root_dirs, keys)
             return len(content) + len(legacy)
 
         return self._run(_count)
@@ -326,7 +368,8 @@ class FrameAnalysisStore:
 
         - 수동 VR 보호와 잘라내기 제외 지정은 별도 테이블이라 함께 지우지 않음
         """
-        content, legacy = self._run(lambda conn: _frame_cache_keys(conn, root_dirs))
+        keys = self._current_file_keys(root_dirs)
+        content, legacy = self._run(lambda conn: _frame_cache_keys(conn, root_dirs, keys))
         if not content and not legacy:
             return 0
 

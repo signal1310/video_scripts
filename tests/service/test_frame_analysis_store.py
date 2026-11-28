@@ -14,6 +14,7 @@ from src.core.analysis.file_fingerprint import compute_fingerprint
 from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.models import ActiveFrame, VideoProps
 from src.service.analysis_store import ANALYSIS_TABLE_NAME, AnalysisStore, StoredEntry
+from src.service.frame_analysis_record import FrameAnalysisRecord
 from src.service.frame_analysis_store import (
     FRAME_ANALYSIS_LEGACY_TABLE,
     SQLITE_BUSY_TIMEOUT_SEC,
@@ -36,6 +37,59 @@ class _StoreTestCase(unittest.TestCase):
         self.db_path = os.path.join(tmp.name, "video_cache.sqlite3")
         self.store = FrameAnalysisStore(self.db_path)
         self.addCleanup(self.store.close)
+
+
+class TestFrameCacheOwnership(_StoreTestCase):
+    """내용 행의 정리 범위 판정이 지금 파일의 내용 키를 따르는지 검증"""
+
+    def _make_video(self, root: str, name: str, payload: bytes) -> str:
+        os.makedirs(root, exist_ok=True)
+        path = os.path.join(root, name)
+        with open(path, "wb") as handle:
+            handle.write(payload)
+        return path
+
+    def _record_for_file(self, path: str) -> FrameAnalysisRecord:
+        stat = os.stat(path)
+        fingerprint = compute_fingerprint(path, stat.st_size)
+        return make_frame_record(
+            os.path.basename(path),
+            size=stat.st_size,
+            mtime=stat.st_mtime_ns,
+            fingerprint=fingerprint,
+        )
+
+    def test_moved_row_counts_and_clears_for_new_root_only(self) -> None:
+        """A에서 분석한 행을 B로 옮기면 B에서만 세고 지우며, A에서는 세지 않음"""
+        root_a = os.path.join(self.tmp_dir, "A")
+        root_b = os.path.join(self.tmp_dir, "B")
+        path = self._make_video(root_a, "clip.mp4", b"payload-a")
+        record = self._record_for_file(path)
+        self.store.save(record)
+        os.makedirs(root_b, exist_ok=True)
+        moved = os.path.join(root_b, "clip.mp4")
+        os.rename(path, moved)
+
+        self.assertEqual(self.store.count_for_roots([root_b]), 1)
+        self.assertEqual(self.store.count_for_roots([root_a]), 0)
+        self.assertEqual(self.store.clear_for_roots([root_a]), 0)
+        self.assertEqual(self.store.count(), 1)
+        self.assertEqual(self.store.clear_for_roots([root_b]), 1)
+        self.assertEqual(self.store.count(), 0)
+
+    def test_row_still_under_root_a_is_untouched_by_clearing_b(self) -> None:
+        """A에 still 있는 파일의 행은 B를 지워도 남고, A를 지울 때만 지워짐"""
+        root_a = os.path.join(self.tmp_dir, "A")
+        root_b = os.path.join(self.tmp_dir, "B")
+        path = self._make_video(root_a, "stay.mp4", b"payload-b")
+        record = self._record_for_file(path)
+        self.store.save(record)
+
+        self.assertEqual(self.store.clear_for_roots([root_b]), 0)
+        self.assertEqual(self.store.count(), 1)
+        self.assertEqual(self.store.count_for_roots([root_a]), 1)
+        self.assertEqual(self.store.clear_for_roots([root_a]), 1)
+        self.assertEqual(self.store.count(), 0)
 
 
 class TestFrameAnalysisStore(_StoreTestCase):
@@ -765,6 +819,15 @@ class TestFrameStoreChangedFileIdentity(_StoreTestCase):
 class TestFrameStoreScopedCleanup(_StoreTestCase):
     """화질 분석 캐시와 영상별 지정의 정리 범위별 건수와 비우기"""
 
+    def _record_for_file(self, path: str) -> FrameAnalysisRecord:
+        stat = os.stat(path)
+        return make_frame_record(
+            os.path.basename(path),
+            size=stat.st_size,
+            mtime=stat.st_mtime_ns,
+            fingerprint=compute_fingerprint(path, stat.st_size),
+        )
+
     def setUp(self) -> None:
         super().setUp()
         roots = tempfile.TemporaryDirectory()
@@ -779,9 +842,11 @@ class TestFrameStoreScopedCleanup(_StoreTestCase):
         self.vr_b = os.path.join(self.root_b, "vr_b.mp4")
 
     def test_frame_cache_counts_and_clears_only_given_roots(self) -> None:
-        with open(os.path.join(self.root_a, "a.mp4"), "wb") as handle:
+        path = os.path.join(self.root_a, "a.mp4")
+        with open(path, "wb") as handle:
             handle.write(b"x")
-        self.store.save(make_frame_record("a.mp4", fingerprint="a" * 32))
+        record = self._record_for_file(path)
+        self.store.save(record)
         self.store.save(make_frame_record("root_dir_b/b.mp4", fingerprint="b" * 32))
         self.assertEqual(self.store.count_for_roots([self.root_a]), 1)
         self.assertEqual(self.store.clear_for_roots([self.root_a]), 1)
@@ -791,10 +856,11 @@ class TestFrameStoreScopedCleanup(_StoreTestCase):
         self.assertEqual(self.store.count(), 0)
 
     def test_frame_cache_keeps_bare_filename_of_other_root(self) -> None:
-        """경로 없는 파일명은 범위 폴더에 실제 파일이 있을 때만 그 폴더 소속으로 봄"""
-        with open(os.path.join(self.root_a, "only_a.mp4"), "wb") as handle:
+        """내용 키가 범위 폴더의 지금 파일과 맞는 행만 그 폴더 소속으로 봄"""
+        path = os.path.join(self.root_a, "only_a.mp4")
+        with open(path, "wb") as handle:
             handle.write(b"x")
-        self.store.save(make_frame_record("only_a.mp4", fingerprint="a" * 32))
+        self.store.save(self._record_for_file(path))
         self.store.save(make_frame_record("only_b.mp4", fingerprint="b" * 32))
         self.assertEqual(self.store.count_for_roots([self.root_a]), 1)
         self.assertEqual(self.store.clear_for_roots([self.root_a]), 1)
@@ -1039,7 +1105,10 @@ class TestFrameStoreScopedCleanupCost(_StoreTestCase):
         os.makedirs(self.root_a, exist_ok=True)
 
     def test_thousands_of_rows_scan_folder_once(self) -> None:
-        """수천 행 화질 분석 캐시를 현재 폴더 범위로 셀 때 폴더 파싱과 scandir이 행 수를 따르지 않는지 검증"""
+        """수천 행 화질 분석 캐시를 현재 폴더 범위로 셀 때 폴더 파싱과 폴더 훑기가 행 수를 따르지 않는지 검증
+
+        - 내용 행 소속 판정은 폴더의 지금 파일 지문을 읽으므로, 빈 폴더에서는 파일 읽기가 없어야 함
+        """
         for index in range(self.ROW_COUNT):
             self.store.save(
                 make_frame_record(f"clip_{index}.mp4", fingerprint=f"{index:032x}")
@@ -1052,4 +1121,4 @@ class TestFrameStoreScopedCleanupCost(_StoreTestCase):
             self.assertEqual(self.store.count_for_roots([self.root_a]), 0)
         self.assertLessEqual(parse.call_count, 2)
         self.assertEqual(isfile.call_count, 0)
-        self.assertEqual(scandir.call_count, 1)
+        self.assertLessEqual(scandir.call_count, 2)

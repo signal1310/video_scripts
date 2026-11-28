@@ -28,6 +28,15 @@ class TestStylesheet(GuiTestCase):
             self.assertNotIn("AppTitle", qss)
             self.assertNotIn("SuccessButton", qss)
 
+    def test_global_push_button_rule_has_no_focus_outline(self) -> None:
+        """다크, 라이트 모두 공통 QPushButton 규칙이 포커스 사각형을 그리지 않도록 outline을 끄는지 검증"""
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            qss = build_stylesheet(palette)
+            block = re.search(r"(?m)^QPushButton \{(.*?)\}", qss, re.S)
+            self.assertIsNotNone(block)
+            assert block is not None
+            self.assertIn("outline: none;", block.group(1))
+
     def test_set_state_property_updates_boolean_property(self) -> None:
         """set_state_property가 QSS 동적 속성 문자열을 true/false로 설정함을 검증"""
         edit = QLineEdit()

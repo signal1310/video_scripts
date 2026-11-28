@@ -206,6 +206,24 @@ class MainWindowActionTests(GuiTestCase):
             self.window.header_bar.split_analyze.btn_main.click()
         start_mock.assert_called_once()
 
+    def test_apply_report_refreshes_the_encode_state_immediately(self) -> None:
+        """분석 결과를 표에 반영하면 인코딩 메뉴를 열지 않아도 시작 상태와 대상 수를 다시 계산하는지 검증"""
+        from tests._factories import make_eval, make_video
+
+        report = make_report(
+            [
+                make_eval(video=make_video(filename="a.mp4")),
+                make_eval(video=make_video(filename="b.mp4")),
+            ],
+            root_dir=self.window._current_root_dir(),
+        )
+        with mock.patch.object(self.window.menu, "refresh_encode_state") as refresh:
+            self.window.apply_report(report)
+        refresh.assert_called_once_with()
+        # - 메뉴 새로고침이 헤더 버튼 배지까지 갱신하는지 실제 경로로 확인
+        self.window.menu.refresh_encode_state()
+        self.assertEqual(self.window.header_bar.btn_encode_start.badge.count, 2)
+
     def test_cancelled_chained_analysis_clears_pending_followup(self) -> None:
         """연속 분석이 폴더 미선택 등으로 시작되지 않으면 예약된 후속 단계가 비워지는지 검증"""
         with (

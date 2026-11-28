@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QPushButton
 
 from src.core.config import ClassifierConfig
 from src.gui.constants import PATH_EMPTY_TEXT, PATH_FONT_FAMILIES
@@ -168,6 +168,13 @@ class TestHeaderRefreshButton(GuiTestCase):
         refresh = layout.indexOf(self.header.btn_refresh)
         self.assertEqual(refresh, layout.indexOf(self.header.folder_icon) - 1)
         self.assertEqual(layout.indexOf(self.header.folder_icon), layout.indexOf(self.header.path_stack) - 1)
+
+    def test_header_buttons_take_focus_only_from_the_keyboard(self) -> None:
+        """헤더의 모든 버튼이 마우스 클릭으로 포커스 사각형을 남기지 않고 Tab 이동만 허용하는지 검증"""
+        buttons = self.header.findChildren(QPushButton)
+        self.assertTrue(buttons)
+        for button in buttons:
+            self.assertEqual(button.focusPolicy(), Qt.FocusPolicy.TabFocus)
 
     def test_refresh_button_is_transparent_icon_only_with_shortcut_tooltip(self) -> None:
         """새로고침 버튼이 아이콘만 가진 투명 버튼이고 툴팁에 기본 단축키가 붙는지 검증"""

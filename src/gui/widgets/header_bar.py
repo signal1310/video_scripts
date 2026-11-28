@@ -494,6 +494,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
 
         self._refresh_folder_name(initial_dir)
         self.init_theme_listener()
+        # - 마우스 클릭, 트랙패드 가로 스크롤이 버튼 안에 남기는 검은 포커스 사각형을 막고 Tab 이동은 유지
+        for button in self.findChildren(QPushButton):
+            button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
 
     @property
     def committed_path(self) -> str:

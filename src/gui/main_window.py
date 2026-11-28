@@ -827,13 +827,9 @@ class MainWindow(QMainWindow):
         previous = self._current_report
         self._current_report = report
         apply_report_preserving_selection(
-            self._session,
-            previous,
-            report,
-            self.table_view,
-            self.table_model,
-            order_report_evaluations(report),
+            self._session, previous, report, self.table_view, self.table_model, order_report_evaluations(report)
         )
+        self.menu.refresh_encode_state()
         self.menu.update_selection_state(len(self.table_view.get_selected_evaluations()))
         self._update_filter_count_label()
         self.dashboard.update_from_report(report)

@@ -23,7 +23,6 @@
     "src/gui/log_file.py",
     "src/gui/logging_bridge.py",
     "src/gui/menus/dynamic_menus.py",
-    "src/gui/menus/menu_base.py",
     "src/gui/menus/menu_edit.py",
     "src/gui/menus/menu_view.py",
     "src/gui/preview/preview_info_items.py",

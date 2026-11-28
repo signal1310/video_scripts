@@ -18,7 +18,7 @@ def make_action(
     if status_tip:
         act.setToolTip(status_tip)
         act.setStatusTip(status_tip)
-    act.triggered.connect(slot)
+    act.triggered.connect(lambda _checked=False: slot())
     return act
 
 

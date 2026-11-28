@@ -21,6 +21,7 @@ from src.gui.table.frame_analysis_columns import (
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.table_search_highlight import (
     draw_cell_text,
+    paint_plain_cell_with_icon,
     paint_plain_cell_with_search,
     paint_search_cell,
     search_query_of,
@@ -546,7 +547,17 @@ class NameAccentDelegate(ClipTextDelegate):
                 painter, option, index, query=query, palette=palette, elide=False
             )
         ):
-            super().paint(painter, option, index)
+            icon = index.data(Qt.ItemDataRole.DecorationRole)
+            has_text = isinstance(index.data(Qt.ItemDataRole.DisplayRole), str) and bool(
+                index.data(Qt.ItemDataRole.DisplayRole)
+            )
+            if isinstance(icon, QIcon) and not icon.isNull() and has_text:
+                # - 기본 렌더링은 아이콘을 글자 위에 겹쳐 그리므로, 아이콘이 있는 셀은 글자를 아이콘 오른쪽으로 물려 그림
+                paint_plain_cell_with_icon(
+                    painter, option, index, palette=palette, elide=False
+                )
+            else:
+                super().paint(painter, option, index)
         accent: QColor | None = index.data(VideoTableModel.ACCENT_ROLE)
         if not isinstance(accent, QColor):
             return

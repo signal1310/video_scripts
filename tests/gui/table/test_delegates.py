@@ -7,7 +7,7 @@ from typing import Any
 
 from PyQt6.QtCore import QModelIndex, QRect, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QImage, QPainter, QPixmap, QStandardItem, QStandardItemModel
-from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem
+from PyQt6.QtWidgets import QApplication, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
 from src.gui.constants import FONT_TABLE_BADGE_PT, FONT_UI_FAMILY
 from src.gui.table.delegates import (
@@ -398,6 +398,53 @@ class TestRowTintDelegates(unittest.TestCase):
         ActiveFrameDelegate().paint(
             None, QStyleOptionViewItem(), _index(ACTIVE_FRAME_VR_TEXT, {})
         )
+
+
+    def test_name_cell_keeps_text_right_of_warning_icon(self) -> None:
+        """여백 확인 필요 경고 아이콘이 있는 이름 셀에서 글자가 아이콘 오른쪽에서 시작함을 검증"""
+        index = _index(
+            "아주 긴 파일명 테스트용 동영상 클립 이름.mp4",
+            {int(Qt.ItemDataRole.DecorationRole): _solid_icon(_ICON_BLUE)},
+        )
+        image = _paint(NameAccentDelegate(), index, 120, 30)
+        icon = _bbox(image, _is(_ICON_BLUE))
+        text = _bbox(image, lambda c: c.name() != _WHITE and c.name() != _ICON_BLUE and c.lightness() < 128)
+        assert icon is not None and text is not None
+        self.assertEqual(icon[0], 4)
+        self.assertGreaterEqual(text[0], icon[2] + 1)
+        self.assertLessEqual(text[2], 119)
+
+    def test_name_cell_keeps_text_right_of_icon_with_search_query(self) -> None:
+        """검색어가 있을 때도 아이콘이 있는 이름 셀의 글자가 아이콘과 겹치지 않음을 검증"""
+        index = _index(
+            "아주 긴 파일명 테스트용 동영상 클립 이름.mp4",
+            {int(Qt.ItemDataRole.DecorationRole): _solid_icon(_ICON_BLUE)},
+        )
+        view = QWidget()
+        view.setProperty("search_highlight_query", "파일")
+        image = QImage(120, 30, QImage.Format.Format_ARGB32)
+        image.fill(QColor(_WHITE))
+        painter = QPainter(image)
+        option = QStyleOptionViewItem()
+        option.rect = QRect(0, 0, 120, 30)
+        option.font = QFont()
+        option.widget = view
+        NameAccentDelegate().paint(painter, option, index)
+        painter.end()
+        icon = _bbox(image, _is(_ICON_BLUE))
+        text = _bbox(image, lambda c: c.name() != _WHITE and c.name() != _ICON_BLUE and c.lightness() < 128)
+        assert icon is not None and text is not None
+        self.assertEqual(icon[0], 4)
+        self.assertGreaterEqual(text[0], icon[2] + 1)
+
+    def test_name_cell_without_icon_is_unchanged(self) -> None:
+        """아이콘이 없는 이름 셀은 평소와 같은 위치에서 글자를 그림을 검증"""
+        index = _index("clip.mp4", {})
+        image = _paint(NameAccentDelegate(), index, 200, 30)
+        text = _bbox(image, lambda c: c.name() != _WHITE and c.lightness() < 128)
+        assert text is not None
+        self.assertLessEqual(text[0], 6)
+        self.assertGreaterEqual(text[2], 90)
 
 
 if __name__ == "__main__":

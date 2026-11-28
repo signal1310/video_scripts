@@ -147,27 +147,24 @@ def draw_cell_text(
     )
 
 
-def paint_plain_cell_with_search(
+def paint_plain_cell_with_icon(
     painter: QPainter,
     option: QStyleOptionViewItem,
     index: QModelIndex,
     *,
-    query: str,
     palette: ThemePalette,
+    query: str = "",
     elide: bool = True,
-) -> bool:
-    """기본 스타일로 배경과 아이콘만 그리고 글자만 검색 강조로 다시 그림
+) -> None:
+    """기본 스타일로 배경을 칠하고 장식 아이콘을 글자 왼쪽에 둔 채 글자를 그림
 
-    - 일치하는 값이 없으면 False를 돌려 호출자가 평소 기본 렌더링을 쓰게 함
-    - `elide`가 거짓이면 말줄임 없이 잘라 그림(파일명 열)
+    - 아이콘이 있으면 텍스트 사각형 왼쪽을 아이콘 뒤로 물려 아이콘과 글자가 겹치지 않게 함
+    - 아이콘이 없으면 텍스트 사각형이 평소와 같아 렌더링이 변하지 않음
+    - `elide`가 참이면 말줄임, 거짓이면 셀 경계에서 잘라 그림(파일명 열)
     """
     text = index.data(Qt.ItemDataRole.DisplayRole)
     if not isinstance(text, str) or not text:
-        return False
-    segments = split_search_segments(text, query)
-    if not any(matched for _segment, matched in segments):
-        return False
-
+        return
     widget = cast("QWidget | None", option.widget)
     style = widget.style() if widget is not None else QApplication.style()
     styled = QStyleOptionViewItem(option)
@@ -208,6 +205,30 @@ def paint_plain_cell_with_search(
         painter, rect, text, query=query, palette=palette, color=color, alignment=alignment
     )
     painter.restore()
+
+
+def paint_plain_cell_with_search(
+    painter: QPainter,
+    option: QStyleOptionViewItem,
+    index: QModelIndex,
+    *,
+    query: str,
+    palette: ThemePalette,
+    elide: bool = True,
+) -> bool:
+    """기본 스타일로 배경과 아이콘만 그리고 글자만 검색 강조로 다시 그림
+
+    - 일치하는 값이 없으면 False를 돌려 호출자가 평소 기본 렌더링을 쓰게 함
+    - `elide`가 거짓이면 말줄임 없이 잘라 그림(파일명 열)
+    """
+    text = index.data(Qt.ItemDataRole.DisplayRole)
+    if not isinstance(text, str) or not text:
+        return False
+    segments = split_search_segments(text, query)
+    if not any(matched for _segment, matched in segments):
+        return False
+
+    paint_plain_cell_with_icon(painter, option, index, palette=palette, query=query, elide=elide)
     return True
 
 

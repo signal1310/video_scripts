@@ -8,7 +8,7 @@ from collections.abc import Callable
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QPoint
+from PyQt6.QtCore import QEvent, QPoint, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
@@ -318,6 +318,16 @@ class TestFilterBarCollapse(GuiTestCase):
             self.assertEqual(_button_center_color(bar.btn_compact).name(), palette.bg_selected.lower())
             bar.set_compact(False)
             bar.hide()
+
+    def test_filter_bar_buttons_only_take_keyboard_tab_focus(self) -> None:
+        """필터 바 버튼이 마우스 클릭이나 가로 스크롤로 포커스 테두리를 남기지 않도록 탭 포커스만 받는지 검증"""
+        bar = _make_bar()
+        self.addCleanup(bar.close)
+        buttons = bar.findChildren(QPushButton)
+        self.assertTrue(buttons)
+        for button in buttons:
+            with self.subTest(button=button.objectName() or button.accessibleName()):
+                self.assertEqual(button.focusPolicy(), Qt.FocusPolicy.TabFocus)
 
     def test_chip_border_and_fill_survive_the_flat_button_rule(self) -> None:
         """여백 확인 칩은 평면 버튼 규칙보다 구체적인 선택자로 경고색 배경과 테두리를 유지하는지 검증"""

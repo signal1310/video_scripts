@@ -320,6 +320,9 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         for chip in (self.btn_clear_col_filters, self.btn_review_filter, self.btn_vary_filter):
             chip.installEventFilter(self)
         self.btn_edit_exceptions.installEventFilter(self)
+        # - 마우스 클릭과 가로 스크롤이 버튼에 포커스 테두리를 남기지 않도록 탭 이동만 허용
+        for button in self.findChildren(QPushButton):
+            button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         # - 여기서부터 접힘 판단이 유효해져 최소 크기 질의가 접힌 폭 기준으로 답해짐
         self._collapse_ready = True
         self.init_theme_listener()

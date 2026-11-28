@@ -5,7 +5,7 @@ import unittest
 from typing import TypeVar
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
-from PyQt6.QtGui import QKeyEvent, QMouseEvent
+from PyQt6.QtGui import QFont, QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QLabel
 
 from src.gui.table.column_filter_popover import ColumnFilterPopover
@@ -70,6 +70,23 @@ class TestColumnFilterPopover(GuiTestCase):
     def _set_null_mode(popover: ColumnFilterPopover, mode: str) -> None:
         combo = _need(popover.combo_null_mode)
         combo.setCurrentIndex(combo.findData(mode))
+
+    def test_number_labels_are_not_clipped_at_thirteen_point_font(self) -> None:
+        """13pt 글꼴에서도 품질값 없음 라벨이 콜론까지 잘리지 않고 표시됨을 검증"""
+        original_font = QApplication.font()
+        QApplication.setFont(QFont(original_font.family(), 13))
+        self.addCleanup(QApplication.setFont, original_font)
+        spec = ColumnSpec(
+            _COL, ColumnDataType.NUMBER, decimals=0, filter_step=0.1, nullable_label="품질값 없음"
+        )
+        popover = self._popover(spec, bounds=(None, None, 3))
+        popover.show()
+        _APP.processEvents()
+        labels = [lbl for lbl in popover.findChildren(QLabel) if lbl.text().endswith(":")]
+        self.assertIn("품질값 없음:", [lbl.text() for lbl in labels])
+        for lbl in labels:
+            with self.subTest(label=lbl.text()):
+                self.assertGreaterEqual(lbl.width(), lbl.sizeHint().width())
 
     def test_special_values_are_appended_after_the_cell_values(self) -> None:
         """필터 전용 특수 항목이 셀 값 목록 뒤에 따로 붙고 선택 시 필터 값이 되는지 검증"""

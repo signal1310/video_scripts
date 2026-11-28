@@ -206,6 +206,11 @@ class TestHeaderContextMenu(unittest.TestCase):
         actions[RESET_COLUMNS_TEXT].trigger()
         self.assertEqual(self.host.calls, [("reset_sort", None), ("reset_columns", None)])
 
+    def test_reset_columns_entry_has_an_icon_like_the_view_menu(self) -> None:
+        """열 구성 복원 항목이 보기 메뉴와 같은 복원 아이콘을 가지는지 검증"""
+        action = self._header_menu()[RESET_COLUMNS_TEXT]
+        self.assertFalse(action.icon().isNull())
+
 
 _FFMPEG_COPY_SINGLE = "FFmpeg 명령 복사"
 _FFMPEG_COPY_MULTI = "선택한 2개 FFmpeg 명령 복사"

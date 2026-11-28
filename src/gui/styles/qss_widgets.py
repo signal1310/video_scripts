@@ -289,9 +289,13 @@ QFrame#FilterBar QPushButton {{
     background-color: transparent;
     border: 1px solid transparent;
     border-radius: 7px;
+    outline: none;
 }}
 QFrame#FilterBar QPushButton:hover {{
     background-color: {p.bg_hover};
+}}
+QFrame#FilterBar QPushButton:focus {{
+    border: 1px solid {p.border_focus};
 }}
 QFrame#FilterBar QPushButton:checked {{
     background-color: {p.bg_selected};

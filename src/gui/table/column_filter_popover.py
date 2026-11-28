@@ -37,7 +37,6 @@ _POPOVER_ANCHOR_OFFSET_Y: int = 2
 _POPOVER_SHADOW_BLUR: float = 14.0
 _POPOVER_SHADOW_OFFSET_Y: float = 3.0
 _POPOVER_SHADOW_ALPHA: int = 55
-_NUMBER_LABEL_WIDTH: int = 64
 
 
 class ColumnFilterPopover(FloatingPopupFrame):
@@ -212,14 +211,24 @@ class ColumnFilterPopover(FloatingPopupFrame):
 
     def _add_labeled_row(
         self, parent_layout: QVBoxLayout, label_text: str, widget: QWidget
-    ) -> None:
+    ) -> QLabel:
         row = QHBoxLayout()
         row.setSpacing(6)
         lbl = QLabel(label_text, self)
-        lbl.setFixedWidth(_NUMBER_LABEL_WIDTH)
         row.addWidget(lbl)
         row.addWidget(widget, stretch=1)
         parent_layout.addLayout(row)
+        return lbl
+
+    @staticmethod
+    def _align_label_widths(labels: list[QLabel]) -> None:
+        """수치 입력 행의 라벨 폭을 가장 긴 라벨에 맞춰 잘리지 않게 정렬
+
+        - 고정 폭을 쓰면 글꼴이 커질 때 콜론 뒤가 콤보 상자에 가려지므로 글자 폭 힌트로 정함
+        """
+        width = max(lbl.sizeHint().width() for lbl in labels)
+        for lbl in labels:
+            lbl.setMinimumWidth(width)
 
     @staticmethod
     def _resolve_initial_null_mode(rule: ColumnFilterRule) -> str:
@@ -253,12 +262,12 @@ class ColumnFilterPopover(FloatingPopupFrame):
         self.spin_min = self._create_bound_spinbox(
             current_rule.min_value if current_rule is not None else None, min_bound
         )
-        self._add_labeled_row(layout, "최소 (>=):", self.spin_min)
+        label_min = self._add_labeled_row(layout, "최소 (>=):", self.spin_min)
         self.spin_max = self._create_bound_spinbox(
             current_rule.max_value if current_rule is not None else None, max_bound
         )
-        self._add_labeled_row(layout, "최대 (<=):", self.spin_max)
-
+        label_max = self._add_labeled_row(layout, "최대 (<=):", self.spin_max)
+        labels = [label_min, label_max]
         if nl := self._spec.nullable_label:
             combo = QComboBox(self)
             for label, mode in (
@@ -273,7 +282,8 @@ class ColumnFilterPopover(FloatingPopupFrame):
                 combo.setCurrentIndex(max(0, idx))
             combo.currentIndexChanged.connect(self._on_null_mode_changed)
             self.combo_null_mode = combo
-            self._add_labeled_row(layout, f"{nl}:", combo)
+            labels.append(self._add_labeled_row(layout, f"{nl}:", combo))
+        self._align_label_widths(labels)
 
         if self._number_bucket_counts:
             lbl_buckets = QLabel(f"구간별 분포 ({len(self._number_bucket_counts)}개)", self)

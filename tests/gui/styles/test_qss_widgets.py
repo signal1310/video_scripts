@@ -56,6 +56,12 @@ class TestQssWidgets(unittest.TestCase):
             self.assertIn("background-color: transparent;", rest)
             self.assertIn("border: 1px solid transparent;", rest)
             self.assertIn("border-radius: 7px;", rest)
+            # - OS 기본 검은 포커스 사각형 대신 팔레트 테두리만 쓰도록 아웃라인을 끔
+            self.assertIn("outline: none;", rest)
+
+            focus = _rule_body(qss, "QFrame#FilterBar QPushButton:focus")
+            self.assertIn(f"border: 1px solid {palette.border_focus};", focus)
+            self.assertEqual(_hex_colors(focus), [palette.border_focus])
 
             hover = _rule_body(qss, "QFrame#FilterBar QPushButton:hover")
             self.assertIn(f"background-color: {palette.bg_hover};", hover)

@@ -285,6 +285,15 @@ QFrame#EncodeFooterChip[chipState="running"] QLabel#EncodeFooterChipText {{
 QFrame#EncodeFooterChip[chipState="paused"] QLabel#EncodeFooterChipText {{
     color: {p.badge_pending[1]};
 }}
+QLabel#PathAutocompleteKeycap {{
+    background-color: {p.bg_elevated};
+    color: {p.text_secondary};
+    border: 1px solid {p.border_subtle};
+    border-radius: 4px;
+    padding: 1px 4px;
+    font-size: 8pt;
+    font-weight: 600;
+}}
 QFrame#FilterBar QPushButton {{
     background-color: transparent;
     border: 1px solid transparent;

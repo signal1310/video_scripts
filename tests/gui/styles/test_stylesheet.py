@@ -63,6 +63,16 @@ class TestStylesheet(GuiTestCase):
                 self.assertIn(f"border: 1px solid {checked_border};", checked)
                 self.assertNotIn("2px", checked)
 
+    def test_path_autocomplete_keycap_uses_palette_tokens(self) -> None:
+        """경로 자동완성 하단 키캡이 두 테마 모두 팔레트 토큰으로 스타일링되는지 검증"""
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            qss = build_widgets_qss(palette)
+            block = self._qss_block(qss, "QLabel#PathAutocompleteKeycap")
+            self.assertIn(f"background-color: {palette.bg_elevated};", block)
+            self.assertIn(f"color: {palette.text_secondary};", block)
+            self.assertIn(f"border: 1px solid {palette.border_subtle};", block)
+            self.assertIn("border-radius: 4px;", block)
+
     @staticmethod
     def _qss_block(qss: str, selector: str) -> str:
         """지정 선택자의 QSS 선언 블록 본문을 반환"""

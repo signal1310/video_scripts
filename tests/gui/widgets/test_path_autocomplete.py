@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QFocusEvent, QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication, QLineEdit, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QLineEdit, QWidget
 
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets import path_autocomplete as module
@@ -297,6 +297,25 @@ class FolderAutocompletePopupTests(unittest.TestCase):
         self._popup.show_listing(self._listing(parent=None, truncated=True))
         self.assertIn(TRUNCATED_NOTICE, self._popup.count_text)
         self.assertIn("2개 폴더", self._popup.count_text)
+
+    def test_footer_shows_keycaps_for_the_list_keys(self) -> None:
+        """하단 안내가 Up, Down 글자 대신 화살표와 키캡 배지로 그려짐을 검증"""
+        keycaps = self._popup.findChildren(QLabel, "PathAutocompleteKeycap")
+        texts = [label.text() for label in keycaps]
+        for expected in ("↑", "↓", "Tab", "Enter"):
+            self.assertIn(expected, texts)
+        for unwanted in ("Up", "Down"):
+            self.assertNotIn(unwanted, texts)
+        self.assertNotIn("Up", KEY_HINT)
+        self.assertNotIn("Down", KEY_HINT)
+
+    def test_footer_width_keeps_the_key_hint_inside_the_popup(self) -> None:
+        """앵커가 좁아도 하단 키 안내 폭만큼 팝업을 넓혀 잘리지 않게 함을 검증"""
+        self._anchor.resize(40, 24)
+        self._popup.show_for(self._anchor)
+        footer = self._popup._footer_layout
+        self.assertGreaterEqual(self._popup.width(), footer.sizeHint().width())
+        self._popup.close()
 
     def test_reading_state_hides_list_and_shows_notice(self) -> None:
         self._popup.show_listing(self._listing(parent=None))
@@ -634,6 +653,8 @@ class PathAutocompleteTests(unittest.TestCase):
     def test_key_hint_mentions_the_list_keys(self) -> None:
         self.assertIn("Tab", KEY_HINT)
         self.assertIn("Enter", KEY_HINT)
+        self.assertNotIn("Up", KEY_HINT)
+        self.assertNotIn("Down", KEY_HINT)
 
     def test_max_folder_cap_is_the_agreed_value(self) -> None:
         self.assertEqual(PATH_AC_MAX_FOLDERS, 200)

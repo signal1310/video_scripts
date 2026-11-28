@@ -35,7 +35,16 @@ PATH_AC_MAX_FOLDERS: int = 200
 PARENT_ROW_TEXT: str = ".."
 READING_NOTICE: str = "폴더를 읽는 중입니다"
 TRUNCATED_NOTICE: str = "일부만 표시합니다"
-KEY_HINT: str = "Up Down 이동, Tab/Enter 채우기, 선택 없이 Enter 확정"
+KEY_HINT_GROUPS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("↑", "↓"), "이동"),
+    (("Tab", "Enter"), "채우기"),
+    (("Enter",), "확정"),
+)
+KEY_HINT: str = ", ".join(f"{'/'.join(keys)} {action}" for keys, action in KEY_HINT_GROUPS)
+_KEYCAP_OBJECT_NAME: str = "PathAutocompleteKeycap"
+_FOOTER_OBJECT_NAME: str = "PathAutocompleteFooter"
+_KEYCAP_GAP_PX: int = 3
+_KEY_GROUP_GAP_PX: int = 8
 _FOLDER_ICON_NAME: str = "folder"
 _FOLDER_ROW_ICON_SIZE_PX: int = 14
 _LIST_MAX_HEIGHT_PX: int = 232
@@ -224,20 +233,29 @@ class FolderAutocompletePopup(FloatingPopupFrame):
         self.list_folders.itemClicked.connect(self._on_item_clicked)
         footer = QHBoxLayout()
         footer.setContentsMargins(6, 2, 6, 1)
+        footer.setSpacing(_KEYCAP_GAP_PX)
+        self._footer_layout: QHBoxLayout = footer
         self.lbl_count = QLabel(card)
-        self.lbl_count.setObjectName("PathAutocompleteFooter")
-        self.lbl_keys = QLabel(KEY_HINT, card)
-        self.lbl_keys.setObjectName("PathAutocompleteFooter")
+        self.lbl_count.setObjectName(_FOOTER_OBJECT_NAME)
         footer.addWidget(self.lbl_count)
         footer.addStretch(1)
-        footer.addWidget(self.lbl_keys)
+        self._keycaps: list[QLabel] = []
+        for index, (keys, action) in enumerate(KEY_HINT_GROUPS):
+            # - 키 묶음 사이만 넓혀 묶음 안의 키캡은 붙여 보이게 함
+            if index:
+                footer.addSpacing(_KEY_GROUP_GAP_PX)
+            for key in keys:
+                footer.addWidget(self._keycap(key, card))
+            action_label = QLabel(action, card)
+            action_label.setObjectName(_FOOTER_OBJECT_NAME)
+            footer.addWidget(action_label)
         layout.addWidget(self.list_folders)
         layout.addLayout(footer)
 
     def show_for(self, anchor: QWidget) -> None:
-        """앵커 입력 칸 바로 아래에 같은 폭으로 표시"""
+        """앵커 입력 칸 아래에 표시. 하단 키 안내가 잘리지 않을 만큼은 폭을 넓힘"""
         self._anchor = anchor
-        self.setFixedWidth(max(anchor.width(), _POPUP_MIN_WIDTH_PX))
+        self.setFixedWidth(max(anchor.width(), _POPUP_MIN_WIDTH_PX, self._footer_width_hint()))
         self.show_clamped_at(anchor.mapToGlobal(QPoint(0, anchor.height() + _POPUP_GAP_PX)))
 
     def show_reading(self, anchor: QWidget) -> None:
@@ -328,6 +346,18 @@ class FolderAutocompletePopup(FloatingPopupFrame):
                 if hit is not None and (hit is self._anchor or self._anchor.isAncestorOf(hit)):
                     return False
         return super().eventFilter(a0, a1)
+
+    def _keycap(self, text: str, parent: QWidget) -> QLabel:
+        """하단 키 안내에 쓰는 키캡 배지"""
+        keycap = QLabel(text, parent)
+        keycap.setObjectName(_KEYCAP_OBJECT_NAME)
+        keycap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._keycaps.append(keycap)
+        return keycap
+
+    def _footer_width_hint(self) -> int:
+        """하단 줄이 잘리지 않는 데 필요한 팝업 폭"""
+        return self._footer_layout.sizeHint().width() + _CARD_PADDING_PX * 2
 
     def _folder_icon(self) -> QIcon:
         """목록 행에 쓰는 폴더 아이콘"""

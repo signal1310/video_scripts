@@ -164,6 +164,16 @@ class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
         super().leaveEvent(a0)
         self.update()
 
+    def changeEvent(self, e: QEvent | None) -> None:
+        """활성 상태가 바뀌면 아이콘, 글자, 대상 수 배지 배색을 함께 갱신
+
+        - setEnabled(False)만 호출된 경우 paintEvent만 다시 돌고 자식 라벨과 배지에
+          이전 준비 완료 초록 색조가 남는 문제를 막음
+        """
+        super().changeEvent(e)
+        if e is not None and e.type() == QEvent.Type.EnabledChange:
+            self._apply_appearance()
+
     def _is_ready(self) -> bool:
         """인코딩 창을 열 대상이 있으면서 바로 실행할 수 있는 유휴 상태인지
 
@@ -211,11 +221,14 @@ class HeaderEncodeButton(QPushButton, ThemeAwareMixin):
         """대상 수 배지의 (바탕, 글자) 토큰. 준비 완료에서는 강조색 바탕에 고대비 글자
 
         - 강조색은 라이트에서 어두운 초록, 다크에서 밝은 초록이므로 글자도 테마별 극값을 씀
+        - 비활성 상태에서는 무채색 경계 토큰을 바탕에 써서 초록 색조 없이 알약 형태만 유지
         """
         palette = self._palette
         if self._is_ready():
             foreground = palette.bg_base if palette.is_dark else palette.text_on_accent
             return palette.card_highlight_val, foreground
+        if not self.isEnabled():
+            return palette.border_subtle, palette.text_muted
         return palette.bg_elevated, palette.text_muted
 
     def _fill_color(self) -> str:

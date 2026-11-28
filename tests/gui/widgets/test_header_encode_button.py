@@ -217,7 +217,34 @@ class HeaderEncodeButtonTests(GuiTestCase):
             self._state_colors(),
             (palette.bg_elevated, palette.text_muted, palette.border_subtle),
         )
-        self.assertEqual(self.button._badge_colors(), (palette.bg_elevated, palette.text_muted))
+        self.assertEqual(self.button._badge_colors(), (palette.border_subtle, palette.text_muted))
+
+    def test_disabling_a_ready_button_clears_green_tint_from_text_icon_and_badge(self) -> None:
+        """준비 완료 버튼이 비활성화될 때 글자, 아이콘, 배지의 초록 색조가 즉시 빠지는지 검증"""
+        for palette in (DARK_PALETTE, LIGHT_PALETTE):
+            self.button.apply_theme(palette)
+            self.button.setEnabled(True)
+            self.button.set_target_count(13)
+            self.button.set_status(_status(CHIP_STATE_IDLE))
+
+            self.button.setEnabled(False)
+
+            self.assertEqual(self.button.badge._background, palette.border_subtle)
+            self.assertEqual(self.button.badge._foreground, palette.text_muted)
+            self.assertEqual(self.button.text_label.color, palette.text_muted)
+            image = self.button.icon_label.pixmap().toImage()
+            colors = {
+                image.pixelColor(x, y).name().lower()
+                for x in range(image.width())
+                for y in range(image.height())
+                if image.pixelColor(x, y).alpha() > 200
+            }
+            self.assertIn(palette.text_muted.lower(), colors)
+            self.assertNotIn(palette.card_highlight_val.lower(), colors)
+
+            self.button.setEnabled(True)
+            self.assertEqual(self.button.badge._background, palette.card_highlight_val)
+            self.assertEqual(self.button.text_label.color, palette.card_highlight_val)
 
     def test_idle_without_targets_keeps_the_neutral_button_colors(self) -> None:
         """대상이 0인 유휴 상태에서는 강조 배색 없이 기존 중립 버튼 배색을 유지하는지 검증"""

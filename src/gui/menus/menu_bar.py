@@ -346,6 +346,9 @@ class MainMenuController:
         self._crop_scan_running = crop_running
         self._apply_frame_analysis_state()
         if state_changed:
+            header = getattr(self._window, "header_bar", None)
+            if isinstance(header, HeaderBar):
+                header.set_frame_analysis_running(running, crop_running)
             self.refresh_encode_state()
 
     def _refresh_manual_target_menu(self) -> None:

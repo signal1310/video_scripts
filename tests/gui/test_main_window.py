@@ -8,6 +8,8 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
 from src.core.config import ClassifierConfig
@@ -271,6 +273,38 @@ class MainWindowActionTests(GuiTestCase):
             self.window.cancel_active_task()
         cancel_task.assert_called_once()
         cancel_restore.assert_called_once()
+
+    def test_cancel_active_task_stops_a_running_frame_analysis_first(self) -> None:
+        """화질 분석이 도는 중이면 헤더 중단과 Esc가 화질 분석만 취소하는지 검증"""
+        with (
+            mock.patch.object(
+                type(self.window.frame_analysis),
+                "is_running",
+                new_callable=mock.PropertyMock,
+                return_value=True,
+            ),
+            mock.patch.object(self.window.frame_analysis, "cancel") as cancel_frame,
+            mock.patch.object(self.window._tasks, "cancel") as cancel_task,
+        ):
+            self.window.cancel_active_task()
+        cancel_frame.assert_called_once()
+        cancel_task.assert_not_called()
+
+    def test_escape_cancels_a_running_frame_analysis(self) -> None:
+        """일반 분석 없이 화질 분석만 도는 중에도 Esc가 중단 요청을 보내는지 검증"""
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
+        with (
+            mock.patch.object(
+                type(self.window.frame_analysis),
+                "is_running",
+                new_callable=mock.PropertyMock,
+                return_value=True,
+            ),
+            mock.patch.object(self.window, "cancel_active_task") as cancel,
+        ):
+            self.window.keyPressEvent(event)
+        cancel.assert_called_once()
+        self.assertTrue(event.isAccepted())
 
     def test_start_analyze_is_blocked_while_frame_analysis_runs(self) -> None:
         """화질 분석이 진행 중이면 일반 분석을 시작하지 않고 진행 사유를 알리는지 검증"""

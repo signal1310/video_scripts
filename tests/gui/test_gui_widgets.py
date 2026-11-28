@@ -45,7 +45,11 @@ from src.gui.widgets.collapsible_top_area import (
 from src.gui.widgets.custom_spinbox import CustomIntegerSpinBox, OptionalNumberSpinBox
 from src.gui.widgets.filter_bar import ROW_GROUP_TOOLTIP, FilterTuningBar
 from src.gui.widgets.folder_path_button import fit_path_items, split_path_parts
-from src.gui.widgets.footer_bar import FooterBar
+from src.gui.widgets.footer_bar import (
+    CROP_SCAN_CANCEL_NAME,
+    FRAME_ANALYSIS_CANCEL_NAME,
+    FooterBar,
+)
 from src.gui.widgets.header_bar import TOP_AREA_COLLAPSE_ICON, HeaderBar, SplitAnalyzeButton
 from tests._factories import make_video
 from tests._gui_helpers import GuiTestCase
@@ -296,6 +300,32 @@ class TestGUIWidgetsModule(GuiTestCase):
         self.assertTrue(hb.btn_browse.isEnabled())
         self.assertTrue(hb.btn_open_explorer.isEnabled())
         self.assertTrue(hb.split_analyze.btn_main.isEnabled())
+
+    def test_header_bar_shows_the_stop_button_named_after_the_frame_run(self) -> None:
+        """화질 분석, 검은 여백 감지 중에는 중단 버튼이 그 작업 이름으로 보이고 끝나면 분석 버튼으로 돌아오는지 검증"""
+        hb = HeaderBar("C:/dummy_path")
+        for crop_scan, name in ((False, FRAME_ANALYSIS_CANCEL_NAME), (True, CROP_SCAN_CANCEL_NAME)):
+            with self.subTest(name=name):
+                hb.set_frame_analysis_running(True, crop_scan)
+                self.assertEqual(hb.analyze_stack.currentIndex(), 1)
+                self.assertTrue(hb.btn_cancel.isEnabled())
+                self.assertEqual(hb.btn_cancel.accessibleName(), name)
+                self.assertTrue(hb.btn_cancel.toolTip().startswith(name))
+                # - 일반 분석과 달리 다른 헤더 컨트롤은 그대로 둠
+                self.assertTrue(hb.btn_browse.isEnabled())
+                hb.set_frame_analysis_running(False, crop_scan)
+                self.assertEqual(hb.analyze_stack.currentIndex(), 0)
+                self.assertFalse(hb.btn_cancel.isEnabled())
+                self.assertEqual(hb.btn_cancel.accessibleName(), "분석 중단")
+
+    def test_header_bar_keeps_the_stop_button_when_analysis_follows_a_frame_run(self) -> None:
+        """화질 분석이 끝나며 일반 분석이 이어지면 중단 버튼이 일반 분석 이름으로 남는지 검증"""
+        hb = HeaderBar("C:/dummy_path")
+        hb.set_frame_analysis_running(True, False)
+        hb.set_busy(True)
+        hb.set_frame_analysis_running(False, False)
+        self.assertEqual(hb.analyze_stack.currentIndex(), 1)
+        self.assertEqual(hb.btn_cancel.accessibleName(), "분석 중단")
 
     def test_header_bar_folder_buttons_emit_signals(self) -> None:
         """작업 폴더 선택, 탐색기 열기 버튼은 36x36 아이콘 전용이고 기존 시그널을 내는지 검증"""

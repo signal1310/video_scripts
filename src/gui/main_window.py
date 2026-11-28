@@ -861,7 +861,13 @@ class MainWindow(QMainWindow):
         self._tasks.start_analyze(include_keyframe=include_keyframe, force_reanalyze=force_reanalyze)
 
     def cancel_active_task(self) -> None:
-        """진행 중인 백그라운드 작업과 이전 분석 결과 판정 중단 요청"""
+        """진행 중인 백그라운드 작업과 이전 분석 결과 판정 중단 요청
+
+        - 화질 분석과 검은 여백 감지가 도는 중이면 헤더 중단 버튼과 Esc가 그 작업을 멈춤
+        """
+        if self.frame_analysis.is_running:
+            self.frame_analysis.cancel()
+            return
         self._tasks.cancel()
         self._restore_flow.cancel()
 
@@ -882,7 +888,9 @@ class MainWindow(QMainWindow):
         """ESC 키 입력 시 실행 중인 백그라운드 작업을 즉시 중단"""
         if event is None:
             return
-        if event.key() == Qt.Key.Key_Escape and self._tasks.is_running():
+        if event.key() == Qt.Key.Key_Escape and (
+            self._tasks.is_running() or self.frame_analysis.is_running
+        ):
             self.cancel_active_task()
             event.accept()
             return

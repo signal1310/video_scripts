@@ -53,6 +53,7 @@ from src.gui.styles.stylesheet import set_state_property
 from src.gui.theme import ThemeAwareMixin
 from src.gui.widgets.analyze_mode_popup import FRAME_MODE, AnalyzeModePopup
 from src.gui.widgets.folder_path_button import FolderPathButton
+from src.gui.widgets.footer_bar import CROP_SCAN_CANCEL_NAME, FRAME_ANALYSIS_CANCEL_NAME
 from src.gui.widgets.header_encode_button import (
     HeaderEncodeButton,
     create_encode_arrow_label,
@@ -69,7 +70,9 @@ _MODE_ARROW_WIDTH_PX: int = 26
 _MODE_ICON_SIZE_PX: int = 14
 _MODE_ICON_GAP_PX: int = 7
 _MODE_ARROW_ICON_SIZE_PX: int = 12
-_CANCEL_TOOLTIP_BASE: str = "분석 중단\n현재 진행 중인 분석 작업을 즉시 중단합니다."
+_CANCEL_NAME: str = "분석 중단"
+_CANCEL_TOOLTIP_BASE: str = f"{_CANCEL_NAME}\n현재 진행 중인 분석 작업을 즉시 중단합니다."
+_FRAME_CANCEL_TOOLTIP_DETAIL: str = "현재 진행 중인 작업을 즉시 중단합니다."
 _COLLAPSE_TOOLTIP_BASE: str = "상단 영역 접기\n상단 영역을 접습니다."
 TOP_AREA_COLLAPSE_ICON: str = "panel-top-close"
 _PATH_HINT_BASE: str = "경로 직접 입력: 클릭하면 작업 폴더 경로를 입력할 수 있습니다."
@@ -329,6 +332,9 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self._edit_path_key: str = DEFAULT_SHORTCUTS["file.edit_path"]
         self._refresh_key: str = DEFAULT_SHORTCUTS["file.refresh"]
         self._encode_start_key: str = DEFAULT_SHORTCUTS["encode.start"]
+        self._cancel_key: str = DEFAULT_SHORTCUTS["analyze.cancel"]
+        self._task_busy: bool = False
+        self._frame_cancel_name: str | None = None
         self._encode_start_state: StartState | None = None
         self._encoding_active: bool = False
 
@@ -444,12 +450,11 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         self.split_analyze.frame_min_tier_changed.connect(self.frame_min_tier_changed.emit)
         self.analyze_stack.addWidget(self.split_analyze)
 
-        self.btn_cancel = QPushButton("분석 중단", self)
+        self.btn_cancel = QPushButton(_CANCEL_NAME, self)
         self.btn_cancel.setObjectName("DangerButton")
         self.btn_cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_cancel.setToolTip(
-            format_tooltip_with_shortcut(_CANCEL_TOOLTIP_BASE, DEFAULT_SHORTCUTS["analyze.cancel"])
-        )
+        self.btn_cancel.setAccessibleName(_CANCEL_NAME)
+        self.btn_cancel.setToolTip(format_tooltip_with_shortcut(_CANCEL_TOOLTIP_BASE, self._cancel_key))
         self.btn_cancel.setEnabled(False)
         self.btn_cancel.clicked.connect(self.cancel_clicked.emit)
         self.analyze_stack.addWidget(self.btn_cancel)
@@ -573,7 +578,8 @@ class HeaderBar(QFrame, ThemeAwareMixin):
         if encode_key is not None:
             self._encode_start_key = encode_key
         self._refresh_encode_start_tooltip()
-        self.btn_cancel.setToolTip(format_tooltip_with_shortcut(_CANCEL_TOOLTIP_BASE, cancel_key))
+        self._cancel_key = cancel_key
+        self._apply_cancel_label()
         self.btn_collapse_top.setToolTip(
             format_tooltip_with_shortcut(_COLLAPSE_TOOLTIP_BASE, collapse_key)
         )
@@ -680,8 +686,34 @@ class HeaderBar(QFrame, ThemeAwareMixin):
             if busy
             else (self._encode_start_state.enabled if self._encode_start_state is not None else False)
         )
-        self.btn_cancel.setEnabled(busy)
-        self.analyze_stack.setCurrentIndex(1 if busy else 0)
+        self._task_busy = busy
+        self._apply_cancel_label()
+
+    def set_frame_analysis_running(self, running: bool, crop_scan: bool) -> None:
+        """화질 분석, 검은 여백 감지 실행 동안 분석 버튼 자리에 중단 버튼을 그 작업 이름으로 표시
+
+        - 다른 헤더 컨트롤은 일반 분석과 달리 잠그지 않음
+        """
+        if not running:
+            self._frame_cancel_name = None
+        else:
+            self._frame_cancel_name = CROP_SCAN_CANCEL_NAME if crop_scan else FRAME_ANALYSIS_CANCEL_NAME
+        self._apply_cancel_label()
+
+    def _apply_cancel_label(self) -> None:
+        """실행 중인 작업에 맞춰 중단 버튼의 이름, 툴팁, 표시 여부를 정함
+
+        - 화질 분석이 끝나며 일반 분석을 이어 시작해도 중단 버튼이 남도록 두 상태를 함께 봄
+        """
+        name = self._frame_cancel_name
+        tooltip = _CANCEL_TOOLTIP_BASE if name is None else f"{name}\n{_FRAME_CANCEL_TOOLTIP_DETAIL}"
+        label = name or _CANCEL_NAME
+        self.btn_cancel.setText(label)
+        self.btn_cancel.setAccessibleName(label)
+        self.btn_cancel.setToolTip(format_tooltip_with_shortcut(tooltip, self._cancel_key))
+        showing = self._task_busy or name is not None
+        self.btn_cancel.setEnabled(showing)
+        self.analyze_stack.setCurrentIndex(1 if showing else 0)
 
     def apply_theme(self, palette: ThemePalette) -> None:
         """활성 테마 팔레트에 맞춰 버튼 아이콘 색상을 갱신"""

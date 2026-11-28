@@ -104,6 +104,17 @@ class MainMenuControllerEncodeTests(unittest.TestCase):
         self.menu.sync_frame_analysis_state(has_list=True, has_selection=False, running=True)
         self.assertGreater(self.state_calls, before)
 
+    def test_sync_frame_analysis_state_switches_the_header_stop_button(self) -> None:
+        """화질 분석 실행 상태가 바뀔 때 헤더 중단 버튼에 실행 여부와 작업 종류를 전달하는지 검증"""
+        header = mock.Mock(spec=HeaderBar)
+        self.window.header_bar = header  # type: ignore[attr-defined]
+        self.menu.sync_frame_analysis_state(
+            has_list=True, has_selection=False, running=True, crop_running=True
+        )
+        header.set_frame_analysis_running.assert_called_once_with(True, True)
+        self.menu.sync_frame_analysis_state(has_list=True, has_selection=False, running=False)
+        header.set_frame_analysis_running.assert_called_with(False, False)
+
     def test_selection_only_update_does_not_recompute_the_encode_start_item(self) -> None:
         """선택만 바뀐 화질 분석 상태 갱신은 인코딩 시작 항목을 다시 계산하지 않는지 검증"""
         self.menu.sync_frame_analysis_state(has_list=True, has_selection=False, running=False)

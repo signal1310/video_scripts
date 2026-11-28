@@ -19,6 +19,7 @@ from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.table.frame_analysis_columns import (
+    ACTIVE_FRAME_HDR_TEXT,
     ACTIVE_FRAME_KEEP_FULL_TEXT,
     ACTIVE_FRAME_MANUAL_NAME,
     ACTIVE_FRAME_VR_TEXT,
@@ -239,6 +240,37 @@ class FrameAnalysisColumnModelTests(unittest.TestCase):
         )
         self.model.set_manual_vr_overrides(["a.mp4"])
         self.model.set_crop_exclusions(["b.mp4"])
+
+    def test_hdr_row_shows_pill_text_and_batch_reason_until_it_is_measured(self) -> None:
+        """자동 배치가 건너뛴 HDR 행은 활성 화면 셀에 HDR 문구와 사유 툴팁을 쓰고, 측정 뒤에는 결과를 씀"""
+        from src.gui.frame_analysis_skip import SkipKind, skip_reason_tooltip
+
+        self.model.set_data_source(
+            [
+                make_eval(make_video(filename="hdr.mp4"), smart_action=SmartAction.PASS_HDR),
+                self.evals[1],
+            ],
+            root_dir=_ROOT,
+        )
+        for col in (
+            VideoTableModel.COL_ACTIVE_FRAME,
+            VideoTableModel.COL_DOWNSCALE_CANDIDATE,
+            VideoTableModel.COL_QUALITY_METRIC,
+        ):
+            self.assertEqual(
+                self.model.data(self.model.index(0, col), _TOOLTIP),
+                skip_reason_tooltip(SkipKind.HDR),
+            )
+        active = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)
+        self.assertEqual(self.model.data(active, _DISPLAY), ACTIVE_FRAME_HDR_TEXT)
+        hdr_eval = self.model.get_evaluation_row(0)
+        assert hdr_eval is not None
+        self.assertEqual(
+            self.model.get_filter_values_for(hdr_eval, VideoTableModel.COL_ACTIVE_FRAME),
+            (ACTIVE_FRAME_HDR_TEXT,),
+        )
+        self.model.set_frame_analysis_results({"hdr.mp4": self.result})
+        self.assertEqual(self.model.data(active, _DISPLAY), "-")
 
     def test_columns_show_values_tooltips_and_filters(self) -> None:
         empty = self.model.index(0, VideoTableModel.COL_ACTIVE_FRAME)

@@ -15,6 +15,7 @@ from src.gui.constants import (
 )
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.frame_analysis_columns import (
+    ACTIVE_FRAME_HDR_TEXT,
     ACTIVE_FRAME_KEEP_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
     is_downscale_plain_text,
@@ -492,9 +493,10 @@ class IconTextDelegate(_PaletteDelegateBase):
 
 
 class ActiveFrameDelegate(IconTextDelegate):
-    """활성 화면 열에서 VR 보호와 전체 화면 유지 표기를 작은 알약으로 강조하는 델리게이트
+    """활성 화면 열에서 VR 보호, HDR, 전체 화면 유지 표기를 작은 알약으로 강조하는 델리게이트
 
     - 나머지 값은 아이콘을 글자 왼쪽에 두는 글자 렌더링을 그대로 씀(사용자 지정 연필, 여백 확인 필요 경고)
+    - HDR은 VR(녹색), 전체 화면 유지(회색)와 구분되도록 인디고 계열 예외 톤을 씀
     """
 
     def paint(
@@ -510,6 +512,7 @@ class ActiveFrameDelegate(IconTextDelegate):
         p = ThemeManager().current_palette
         pill_tones = {
             ACTIVE_FRAME_VR_TEXT: p.badge_optimal,
+            ACTIVE_FRAME_HDR_TEXT: p.badge_exception,
             ACTIVE_FRAME_KEEP_FULL_TEXT: p.badge_pass,
         }
         tones = pill_tones.get(text or "")

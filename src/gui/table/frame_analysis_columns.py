@@ -30,6 +30,8 @@ FRAME_ANALYSIS_COLUMNS: frozenset[int] = frozenset(
 
 ACTIVE_FRAME_FULL_TEXT: str = "-"
 ACTIVE_FRAME_VR_TEXT: str = "VR 보호"
+# - 자동 배치가 건너뛴 HDR 행의 활성 화면 셀 표시 문구. 우클릭 분석으로 잰 결과가 있으면 그 결과를 보여 줌
+ACTIVE_FRAME_HDR_TEXT: str = "HDR"
 ACTIVE_FRAME_FAILED_TEXT: str = "감지 실패"
 # - 활성 화면 열 필터에만 있는 특수 항목. 셀 값 집합에는 넣지 않고 필터 전용으로 붙임
 ACTIVE_FRAME_MARGINS_VARY_TEXT: str = "구간별 여백 차이 존재"
@@ -163,12 +165,15 @@ def result_summary_text(result: FrameAnalysisResult | None) -> str:
     return ", ".join(part for part in parts if part)
 
 
-def active_frame_text(result: FrameAnalysisResult | None) -> str:
-    """활성 화면 셀 문구: 미측정 빈칸, VR 보호, 감지 실패, 검은 띠 크기, 전체
+def active_frame_text(result: FrameAnalysisResult | None, *, skip_reason: SkipKind | None = None) -> str:
+    """활성 화면 셀 문구: 미측정 빈칸, HDR, VR 보호, 감지 실패, 검은 띠 크기, 전체
 
     - VR 보호는 감지 결과를 쓰지 않으므로 스캔이 실패해도 보호 문구를 그대로 씀
+    - 자동 배치가 건너뛴 HDR 행은 결과가 없을 때 HDR 문구를 쓰고, 결과가 있으면 그 결과를 보여 줌
     """
     if result is None:
+        if skip_reason is SkipKind.HDR:
+            return ACTIVE_FRAME_HDR_TEXT
         return ""
     if result.is_vr_protected:
         return ACTIVE_FRAME_VR_TEXT
@@ -239,7 +244,10 @@ def active_frame_tooltip(
 
 
 def active_frame_sort_value(result: FrameAnalysisResult | None) -> tuple[int, int]:
-    """활성 화면 정렬 값: 미측정을 가장 앞에 두고 화면 면적 비교"""
+    """활성 화면 정렬 값: 미측정을 가장 앞에 두고 화면 면적 비교
+
+    - HDR 문구만 있는 행은 측정값이 없으므로 미측정과 같은 자리에 둠
+    """
     if result is None:
         return (0, 0)
     return (1, result.active_region.width * result.active_region.height)
@@ -502,17 +510,19 @@ class FrameAnalysisResults:
 
         - 사용자 지정 활성 화면은 자동 감지 결과 대신 지정 크기를 그대로 보여 줌
         - 잘라내기 제외로 전체 화면을 쓰는 영상은 전체 화면 유지 문구를 보여 줌(설정 끔이면 크기 그대로)
+        - HDR로 건너뛴 행은 결과가 없으면 HDR 문구를 보여 줌(우클릭 측정 결과가 있으면 그 결과)
         """
         result = self._results.get(filename)
         manual = self._manual_frames.get(filename)
+        skip_reason = self._skip_reasons.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
             if manual is not None and (result is None or not result.is_vr_protected):
                 return f"{manual.width}x{manual.height}"
             if crop_enabled and self.is_keep_full(filename):
                 return ACTIVE_FRAME_KEEP_FULL_TEXT
-            return active_frame_text(result)
+            return active_frame_text(result, skip_reason=skip_reason)
         if col == DOWNSCALE_CANDIDATE_COLUMN:
-            return downscale_candidate_text(result, skip_reason=self._skip_reasons.get(filename))
+            return downscale_candidate_text(result, skip_reason=skip_reason)
         return quality_metric_text(result)
 
     def filter_value(self, filename: str, col: int, *, crop_enabled: bool = True) -> str:
@@ -580,15 +590,21 @@ class FrameAnalysisResults:
         return quality_metric_sort_value(result)
 
     def tooltip(self, filename: str, col: int, *, crop_enabled: bool = True) -> str:
-        """화질 분석 열의 셀 툴팁. 활성 화면은 잘라내기 설정이 꺼져 있으면 그 사유를 함께 보여 줌"""
+        """화질 분석 열의 셀 툴팁. 활성 화면은 잘라내기 설정이 꺼져 있으면 그 사유를 함께 보여 줌
+
+        - 결과가 없고 자동 배치에서 건너뛴 행은 활성 화면, 측정 지표 셀도 축소 후보와 같은 사유 툴팁을 씀
+        """
         result = self._results.get(filename)
         manual = self._manual_frames.get(filename)
+        skip_reason = self._skip_reasons.get(filename)
         if col == ACTIVE_FRAME_COLUMN:
             if result is None and manual is not None:
                 tip = f"{_ACTIVE_FRAME_TIP}\n{_ACTIVE_FRAME_MANUAL_TIP}"
                 if not crop_enabled:
                     return f"{tip}\n{_ACTIVE_FRAME_CROP_OFF_TIP}"
                 return tip
+            if skip_reason is not None and result is None:
+                return skip_reason_tooltip(skip_reason)
             if crop_enabled and self.is_keep_full(filename) and result is not None:
                 region = result.active_region
                 return _ACTIVE_FRAME_KEEP_FULL_TIP.format(size=f"{region.width}x{region.height}")
@@ -599,9 +615,9 @@ class FrameAnalysisResults:
                 crop_enabled=crop_enabled,
             )
         if col == DOWNSCALE_CANDIDATE_COLUMN:
-            return downscale_candidate_tooltip(
-                result, skip_reason=self._skip_reasons.get(filename)
-            )
+            return downscale_candidate_tooltip(result, skip_reason=skip_reason)
+        if skip_reason is not None and result is None:
+            return skip_reason_tooltip(skip_reason)
         return quality_metric_tooltip(result)
 
     def strikeout(self, filename: str, col: int, *, crop_enabled: bool = True) -> bool:

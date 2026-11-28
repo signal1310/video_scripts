@@ -21,6 +21,7 @@ from src.gui.table.delegates import (
     QuietDotDelegate,
 )
 from src.gui.table.frame_analysis_columns import (
+    ACTIVE_FRAME_HDR_TEXT,
     ACTIVE_FRAME_KEEP_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
     DOWNSCALE_KEEP_TEXT,
@@ -375,6 +376,22 @@ class TestRowTintDelegates(unittest.TestCase):
         other = _paint(ActiveFrameDelegate(), _index("1920x1080", {}), 200, 30)
         self.assertIsNone(_bbox(other, _is(QColor(p.badge_optimal[0]).name())))
         self.assertIsNone(_bbox(other, _is(QColor(p.badge_pass[0]).name())))
+
+    def test_hdr_pill_uses_the_exception_tone_apart_from_vr_and_keep_full(self) -> None:
+        """HDR 표기는 VR, 전체 화면 유지와 다른 예외 톤의 알약으로 그려짐을 검증"""
+        p = self.palette
+        hdr = _paint(ActiveFrameDelegate(), _index(ACTIVE_FRAME_HDR_TEXT, {}), 200, 30)
+        pill = _bbox(hdr, _is(QColor(p.badge_exception[0]).name()))
+        text = _bbox(hdr, _is(QColor(p.badge_exception[1]).name()))
+        assert pill is not None and text is not None
+        self.assertIsNone(_bbox(hdr, _is(QColor(p.badge_optimal[0]).name())))
+        self.assertIsNone(_bbox(hdr, _is(QColor(p.badge_pass[0]).name())))
+        # - 세 알약의 배경 토큰이 서로 달라 행끼리 구분됨
+        self.assertEqual(
+            len({p.badge_exception[0], p.badge_optimal[0], p.badge_pass[0]}), 3
+        )
+        self.assertGreaterEqual(pill[0], 0)
+        self.assertLessEqual(pill[2], 199)
 
     def test_keep_full_pill_puts_the_crop_icon_left_of_the_text(self) -> None:
         """전체 화면 유지 알약이 crop-full 아이콘을 글자 왼쪽에 두고 알약 안에 담는지 검증"""

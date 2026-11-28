@@ -12,6 +12,7 @@ from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
     ACTIVE_FRAME_FAILED_TEXT,
     ACTIVE_FRAME_FULL_TEXT,
+    ACTIVE_FRAME_HDR_TEXT,
     ACTIVE_FRAME_KEEP_FULL_TEXT,
     ACTIVE_FRAME_MARGINS_VARY_TEXT,
     ACTIVE_FRAME_VR_TEXT,
@@ -89,6 +90,13 @@ class FrameAnalysisTextTests(unittest.TestCase):
 
     def test_active_frame_values(self) -> None:
         self.assertEqual(active_frame_text(None), "")
+        self.assertEqual(active_frame_text(None, skip_reason=SkipKind.HDR), ACTIVE_FRAME_HDR_TEXT)
+        self.assertEqual(active_frame_text(None, skip_reason=SkipKind.EXCEPTION), "")
+        # - 측정 결과가 생긴 HDR 행은 HDR 문구 대신 결과를 보여 줌
+        self.assertEqual(
+            active_frame_text(_result(candidate="720p"), skip_reason=SkipKind.HDR),
+            ACTIVE_FRAME_FULL_TEXT,
+        )
         self.assertEqual(active_frame_text(_result()), ACTIVE_FRAME_FULL_TEXT)
         self.assertEqual(
             active_frame_text(_result(active=ActiveRegion(1920, 800, 0, 140, True))), "1920x800"
@@ -144,6 +152,49 @@ class FrameAnalysisTextTests(unittest.TestCase):
             skip_reason_tooltip(SkipKind.HDR),
         )
         self.assertEqual(view.sort_value("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN), (0, 0))
+
+    def test_hdr_row_without_result_shows_pill_text_and_reason_in_all_three_cells(self) -> None:
+        """측정 전 HDR 행은 활성 화면 셀에 HDR 문구를 쓰고 세 열 툴팁 모두 사유를 알림"""
+        view = FrameAnalysisResults()
+        view.set_skip_reasons({"hdr.mp4": SkipKind.HDR})
+        self.assertEqual(view.display("hdr.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_HDR_TEXT)
+        self.assertEqual(view.filter_value("hdr.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_HDR_TEXT)
+        for col in (ACTIVE_FRAME_COLUMN, DOWNSCALE_CANDIDATE_COLUMN, QUALITY_METRIC_COLUMN):
+            self.assertEqual(view.tooltip("hdr.mp4", col), skip_reason_tooltip(SkipKind.HDR))
+        self.assertEqual(view.sort_value("hdr.mp4", ACTIVE_FRAME_COLUMN), (0, 0))
+
+    def test_skipped_rows_without_result_name_the_reason_in_active_and_metric_cells(self) -> None:
+        """결과가 없는 건너뜀 행은 활성 화면, 측정 지표 툴팁도 축소 후보와 같은 사유를 씀"""
+        for kind in (SkipKind.EXCEPTION, SkipKind.ALREADY_ENCODED, SkipKind.INTERLACED):
+            with self.subTest(kind=kind):
+                view = FrameAnalysisResults()
+                view.set_skip_reasons({"a.mp4": kind})
+                self.assertNotIn(
+                    "화질 분석 전", view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN)
+                )
+                self.assertEqual(
+                    view.tooltip("a.mp4", ACTIVE_FRAME_COLUMN), skip_reason_tooltip(kind)
+                )
+                self.assertEqual(
+                    view.tooltip("a.mp4", QUALITY_METRIC_COLUMN), skip_reason_tooltip(kind)
+                )
+        plain = FrameAnalysisResults()
+        self.assertIn("화질 분석 전", plain.tooltip("a.mp4", ACTIVE_FRAME_COLUMN))
+        self.assertIn("화질 분석 전", plain.tooltip("a.mp4", QUALITY_METRIC_COLUMN))
+
+    def test_hdr_row_with_result_keeps_the_measured_cells_and_frame_tooltip(self) -> None:
+        """측정 결과가 생긴 HDR 행은 HDR 문구 대신 측정 결과와 기존 툴팁을 그대로 씀"""
+        view = FrameAnalysisResults()
+        view.set_skip_reasons({"hdr.mp4": SkipKind.HDR})
+        view.set_results({"hdr.mp4": _result(active=ActiveRegion(1920, 800, 0, 140, True))})
+        self.assertEqual(view.display("hdr.mp4", ACTIVE_FRAME_COLUMN), "1920x800")
+        self.assertEqual(
+            view.tooltip("hdr.mp4", ACTIVE_FRAME_COLUMN),
+            active_frame_tooltip(view.result("hdr.mp4")),
+        )
+        self.assertEqual(view.tooltip("hdr.mp4", QUALITY_METRIC_COLUMN), quality_metric_tooltip(
+            view.result("hdr.mp4")
+        ))
 
     def test_row_with_result_shows_skipped_text_and_hides_stale_candidate(self) -> None:
         """측정 결과가 있는 건너뜀 행은 옛 후보 대신 건너뜀 문구와 사유 툴팁을 씀

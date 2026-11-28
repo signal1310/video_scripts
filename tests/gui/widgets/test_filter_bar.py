@@ -1,21 +1,27 @@
-"""좁은 창에서 필터 바 버튼이 단계별로 아이콘만 남는지, 글자가 잘리지 않는지 검증"""
+"""좁은 창에서 필터 바 버튼이 단계별로 아이콘만 남는지, 아이콘 전용 버튼이 글자를 갖지 않는지 검증"""
+
+from __future__ import annotations
 
 import os
 import unittest
+from collections.abc import Callable
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QEvent, QPoint
+from PyQt6.QtGui import QColor
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
 
 from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.widgets.filter_bar import (
     COLLAPSE_LEVEL_CHIPS,
     COLLAPSE_LEVEL_DROPDOWNS,
     COLLAPSE_LEVEL_FULL,
-    COLLAPSE_LEVEL_PRIMARY,
     COMPACT_BUTTON_TEXT,
+    COMPACT_TOOLTIP,
     COUNT_BADGE_OFFSET_PX,
+    EXCEPTION_BUTTON_TEXT,
     REVIEW_CHIP_LABEL,
     REVIEW_CHIP_TOOLTIP,
     ROW_GROUP_TOOLTIP,
@@ -27,20 +33,23 @@ from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
-# - 접힘 대상 일곱 버튼을 접힘 단계 순서대로 나열한 (속성 이름, 단계)
+# - 접힘 대상 다섯 버튼을 접힘 단계 순서대로 나열한 (속성 이름, 단계)
 COLLAPSE_STEPS: tuple[tuple[str, int], ...] = (
-    ("btn_compact", COLLAPSE_LEVEL_PRIMARY),
-    ("btn_edit_exceptions", COLLAPSE_LEVEL_PRIMARY),
     ("btn_reset_filters", COLLAPSE_LEVEL_CHIPS),
     ("btn_clear_col_filters", COLLAPSE_LEVEL_CHIPS),
     ("btn_review_filter", COLLAPSE_LEVEL_CHIPS),
     ("btn_column_preset", COLLAPSE_LEVEL_DROPDOWNS),
     ("btn_row_group", COLLAPSE_LEVEL_DROPDOWNS),
 )
+# - 창 폭과 무관하게 늘 아이콘만 보이는 버튼
+ICON_ONLY_BUTTONS: tuple[str, ...] = ("btn_compact", "btn_edit_exceptions")
+COLLAPSE_LEVELS: list[int] = [COLLAPSE_LEVEL_FULL, COLLAPSE_LEVEL_CHIPS, COLLAPSE_LEVEL_DROPDOWNS]
 WIDE_WIDTH_PX: int = 1400
 # - 접힘 단계별로 그 단계가 실제 적용되는 폭을 찾을 때 내려가는 범위
 PROBE_WIDTHS_PX: range = range(WIDE_WIDTH_PX, 480, -10)
 CLIPPING_WIDTHS_PX: range = range(1500, 520, -20)
+# - PyQt6 스텁이 QTest.mouseMove를 인스턴스 메서드로 선언해 정적 호출의 형식 검사가 실패하므로 호출 가능한 형태로 받음
+_send_mouse_move: Callable[..., None] = QTest.mouseMove
 
 
 def _make_bar() -> FilterTuningBar:
@@ -52,6 +61,12 @@ def _make_bar() -> FilterTuningBar:
     bar.set_exception_tokens(["alpha", "beta"])
     bar.set_row_group("column:4", label="코덱", count=12)
     return bar
+
+
+def _button_center_color(button: QPushButton) -> QColor:
+    """버튼 위쪽 가운데 픽셀 색. 아이콘과 글자가 닿지 않는 자리라 배경색을 읽을 수 있음"""
+    image = button.grab().toImage()
+    return image.pixelColor(image.width() // 2, 6)
 
 
 class TestFilterBarCollapse(GuiTestCase):
@@ -67,11 +82,11 @@ class TestFilterBarCollapse(GuiTestCase):
         return bar
 
     def test_wide_width_keeps_every_full_label(self) -> None:
-        """넓은 폭에서는 모든 버튼이 오늘과 같은 전체 문구를 보이는지 검증"""
+        """넓은 폭에서도 아이콘 전용 버튼은 글자가 없고, 나머지는 지금처럼 전체 문구를 보이는지 검증"""
         bar = self._shown_bar()
         self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_FULL)
-        self.assertEqual(bar.btn_compact.text(), COMPACT_BUTTON_TEXT)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙 (2)")
+        self.assertEqual(bar.btn_compact.text(), "")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "")
         self.assertEqual(bar.btn_reset_filters.text(), "필터 초기화")
         self.assertEqual(bar.btn_clear_col_filters.text(), "열 필터 2개 ×")
         self.assertEqual(bar.btn_review_filter.text(), f"{REVIEW_CHIP_LABEL} 3")
@@ -79,9 +94,12 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱 (12)")
         self.assertFalse(bar._clear_col_filters_badge.isVisible())
         self.assertFalse(bar._review_filter_badge.isVisible())
+        # - 예외 규칙 개수는 넓은 폭에서도 배지로 보임
+        self.assertTrue(bar._exception_badge.isVisible())
+        self.assertEqual(bar._exception_badge.count, 2)
 
     def test_level_grows_as_the_bar_narrows(self) -> None:
-        """폭을 줄이면 접힘 단계가 0에서 3까지 차례로 올라가는지 검증"""
+        """폭을 줄이면 접힘 단계가 0에서 2까지 차례로 올라가는지 검증"""
         bar = self._shown_bar()
         levels: list[int] = []
         for width in range(WIDE_WIDTH_PX, 500, -20):
@@ -89,7 +107,7 @@ class TestFilterBarCollapse(GuiTestCase):
             _APP.processEvents()
             if not levels or levels[-1] != bar.collapse_level:
                 levels.append(bar.collapse_level)
-        self.assertEqual(levels, [0, 1, 2, 3])
+        self.assertEqual(levels, COLLAPSE_LEVELS)
 
     def _level_widths(self, bar: FilterTuningBar) -> dict[int, int]:
         """각 접힘 단계가 처음 나타나는 폭을 폭을 줄여 가며 찾아 반환"""
@@ -98,7 +116,7 @@ class TestFilterBarCollapse(GuiTestCase):
             bar.resize(width, 44)
             _APP.processEvents()
             widths.setdefault(bar.collapse_level, width)
-        self.assertEqual(sorted(widths), [0, 1, 2, 3])
+        self.assertEqual(sorted(widths), COLLAPSE_LEVELS)
         return widths
 
     def _at_level(self, bar: FilterTuningBar, level: int) -> None:
@@ -129,13 +147,15 @@ class TestFilterBarCollapse(GuiTestCase):
         bar = self._shown_bar(width=620)
         self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_DROPDOWNS)
         self.assertEqual(bar.btn_compact.accessibleName(), COMPACT_BUTTON_TEXT)
-        self.assertEqual(bar.btn_edit_exceptions.accessibleName(), "예외 규칙 (2)")
+        self.assertEqual(bar.btn_edit_exceptions.accessibleName(), EXCEPTION_BUTTON_TEXT)
         self.assertEqual(bar.btn_reset_filters.accessibleName(), "필터 초기화")
         self.assertEqual(bar.btn_clear_col_filters.accessibleName(), "열 필터 해제")
         self.assertEqual(bar.btn_review_filter.accessibleName(), REVIEW_CHIP_LABEL)
         self.assertEqual(bar.btn_column_preset.accessibleName(), "열: 기본")
         self.assertEqual(bar.btn_row_group.accessibleName(), "그룹: 코덱 (12)")
         for name, _step in COLLAPSE_STEPS:
+            self.assertTrue(getattr(bar, name).toolTip(), name)
+        for name in ICON_ONLY_BUTTONS:
             self.assertTrue(getattr(bar, name).toolTip(), name)
 
     def test_dropdown_tooltips_carry_the_current_value(self) -> None:
@@ -183,7 +203,7 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertEqual(bar.search_edit.minimumWidth(), SEARCH_COMPACT_MIN_WIDTH_PX)
 
     def test_longer_exception_label_recollapses_at_the_wide_boundary(self) -> None:
-        """넓은 단계 경계 폭에서 예외 규칙 문구가 길어지면 크기 변경 없이도 다시 접어 잘리지 않는지 검증"""
+        """넓은 단계 경계 폭에서 예외 규칙 개수가 늘어도 버튼이 다시 접히지 않고 배지로만 보이는지 검증"""
         bar = self._shown_bar()
         boundary = WIDE_WIDTH_PX
         for width in PROBE_WIDTHS_PX:
@@ -198,10 +218,9 @@ class TestFilterBarCollapse(GuiTestCase):
         bar.set_disabled_exception_count(3)
         _APP.processEvents()
         button = bar.btn_edit_exceptions
-        self.assertTrue(
-            button.text() == "" or button.geometry().width() >= button.sizeHint().width(),
-            f"{button.text()} {button.geometry().width()} < {button.sizeHint().width()}",
-        )
+        self.assertEqual(button.text(), "")
+        self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_FULL)
+        self.assertIn("비활성 규칙: 3개", button.toolTip())
 
     def test_no_button_text_is_wider_than_its_geometry(self) -> None:
         """어느 폭에서도 글자가 남아 있는 버튼의 폭이 sizeHint보다 작지 않은지 검증"""
@@ -227,7 +246,7 @@ class TestFilterBarCollapse(GuiTestCase):
     def test_widening_restores_the_full_labels(self) -> None:
         """좁혔다가 다시 넓히면 모든 버튼이 전체 문구로 돌아오는지 검증"""
         bar = self._shown_bar()
-        bar.resize(560, 44)
+        bar = self._shown_bar(width=560)
         _APP.processEvents()
         self.assertGreaterEqual(bar.collapse_level, COLLAPSE_LEVEL_CHIPS)
         self.assertEqual(bar.btn_column_preset.text(), "")
@@ -237,10 +256,10 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_FULL)
         self.assertEqual(bar.btn_column_preset.text(), "열: 기본")
         self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱 (12)")
-        self.assertEqual(bar.btn_compact.text(), COMPACT_BUTTON_TEXT)
+        self.assertEqual(bar.btn_compact.text(), "")
 
     def test_labels_follow_later_state_changes(self) -> None:
-        """접힌 뒤 프리셋, 그룹, 규칙 수가 바뀌어도 다시 펼치면 새 문구가 나오는지 검증"""
+        """접힌 뒤 프리셋, 그룹, 규칙 수가 바뀌어도 다시 펼치면 새 문구와 배지가 나오는지 검증"""
         bar = self._shown_bar(width=620)
         bar.set_column_preset("quality")
         bar.set_row_group("folder", label="폴더", count=4)
@@ -249,6 +268,7 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertEqual(bar.btn_column_preset.text(), "")
         self.assertEqual(bar.btn_row_group.text(), "")
         self.assertEqual(bar.btn_edit_exceptions.text(), "")
+        self.assertEqual(bar._exception_badge.count, 3)
         self.assertIn("열: 화질, 해상도", bar.btn_column_preset.toolTip())
         self.assertIn("그룹: 폴더 (4)", bar.btn_row_group.toolTip())
 
@@ -256,15 +276,69 @@ class TestFilterBarCollapse(GuiTestCase):
         _APP.processEvents()
         self.assertEqual(bar.btn_column_preset.text(), "열: 화질, 해상도")
         self.assertEqual(bar.btn_row_group.text(), "그룹: 폴더 (4)")
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙 (3)")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "")
+        self.assertEqual(bar._exception_badge.count, 3)
+
+    def test_flat_button_states_use_palette_tokens(self) -> None:
+        """필터 바 버튼이 두 테마에서 쉼은 투명, 호버는 bg_hover, 켜짐은 bg_selected로 그려지는지 검증"""
+        from src.gui.styles.stylesheet import build_stylesheet
+
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            bar = _make_bar()
+            self.addCleanup(bar.close)
+            bar.setStyleSheet(build_stylesheet(palette))
+            bar.show()
+            bar.resize(WIDE_WIDTH_PX, 44)
+            _APP.processEvents()
+
+            button = bar.btn_column_preset
+            self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_FULL)
+            # - 쉼 상태 배경은 투명이라 따로 칠하지 않고 부모 필터 바의 카드 배경이 그대로 보임
+            rest = _button_center_color(button)
+            self.assertEqual((rest.alpha(), rest.name()), (0, "#000000"))
+
+            _send_mouse_move(bar.search_edit, QPoint(4, 4))
+            _APP.processEvents()
+            _send_mouse_move(button, QPoint(button.width() // 2, button.height() // 2))
+            _APP.processEvents()
+            self.assertEqual(_button_center_color(button).name(), palette.bg_hover.lower())
+
+            _send_mouse_move(bar.search_edit, QPoint(4, 4))
+            _APP.processEvents()
+            bar.btn_compact.setChecked(True)
+            _APP.processEvents()
+            self.assertEqual(_button_center_color(bar.btn_compact).name(), palette.bg_selected.lower())
+            bar.set_compact(False)
+            bar.hide()
+
+    def test_chip_border_and_fill_survive_the_flat_button_rule(self) -> None:
+        """여백 확인 칩은 평면 버튼 규칙보다 구체적인 선택자로 경고색 배경과 테두리를 유지하는지 검증"""
+        from src.gui.styles.stylesheet import build_stylesheet
+
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            bar = _make_bar()
+            self.addCleanup(bar.close)
+            bar.setStyleSheet(build_stylesheet(palette))
+            bar.show()
+            bar.resize(WIDE_WIDTH_PX, 44)
+            _APP.processEvents()
+            image = bar.btn_review_filter.grab().toImage()
+            filled = {
+                image.pixelColor(x, image.height() // 2).name()
+                for x in range(image.width())
+            }
+            self.assertIn(palette.badge_pending[0].lower(), filled)
+            self.assertIn(palette.badge_pending[1].lower(), filled)
 
     def test_compact_checked_state_survives_collapse(self) -> None:
-        """좁게 보기 버튼이 아이콘만 남아도 켜짐 상태가 유지되는지 검증"""
+        """좁게 보기 버튼이 아이콘만으로도 켜짐 상태를 유지하고 접근성 이름을 지키는지 검증"""
         bar = self._shown_bar()
         bar.btn_compact.click()
         bar.resize(620, 44)
         _APP.processEvents()
         self.assertEqual(bar.btn_compact.text(), "")
+        self.assertEqual(bar.btn_compact.accessibleName(), COMPACT_BUTTON_TEXT)
+        self.assertEqual(bar.btn_compact.toolTip(), COMPACT_TOOLTIP)
         self.assertTrue(bar.btn_compact.isChecked())
         self.assertTrue(bar.is_compact())
         bar.set_compact(False)
@@ -277,11 +351,65 @@ class TestFilterBarCollapse(GuiTestCase):
         bar.resize(520, 44)
         self.assertFalse(bar.isVisible())
         self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_FULL)
-        self.assertEqual(bar.btn_compact.text(), COMPACT_BUTTON_TEXT)
+        self.assertEqual(bar.btn_compact.text(), "")
         self.assertEqual(bar.btn_column_preset.text(), "열: 기본")
 
+    def test_icon_only_buttons_never_show_text_at_any_width(self) -> None:
+        """좁게 보기와 예외 규칙 버튼이 보통 폭과 좁은 폭 모두에서 글자 없이 아이콘만 보이는지 검증"""
+        bar = self._shown_bar()
+        for width in (WIDE_WIDTH_PX, 900, 700, 620, 520):
+            bar.resize(width, 44)
+            _APP.processEvents()
+            for name in ICON_ONLY_BUTTONS:
+                button = getattr(bar, name)
+                self.assertEqual(button.text(), "", f"{name}@{width}")
+                self.assertFalse(button.icon().isNull(), f"{name}@{width}")
+                self.assertGreaterEqual(button.width(), button.iconSize().width(), f"{name}@{width}")
+        self.assertEqual(bar.btn_compact.accessibleName(), COMPACT_BUTTON_TEXT)
+        self.assertEqual(bar.btn_edit_exceptions.accessibleName(), EXCEPTION_BUTTON_TEXT)
+
+    def test_exception_badge_follows_the_active_rule_count(self) -> None:
+        """예외 규칙 배지가 활성 규칙이 있을 때만 보이고 개수를 따르며, 다 지우면 숨는지 검증"""
+        bar = self._shown_bar()
+        self.assertTrue(bar._exception_badge.isVisible())
+        self.assertEqual(bar._exception_badge.count, 2)
+
+        bar.set_exception_tokens(["only"])
+        _APP.processEvents()
+        self.assertTrue(bar._exception_badge.isVisible())
+        self.assertEqual(bar._exception_badge.count, 1)
+        self.assertIn("활성 규칙 (1개): only", bar.btn_edit_exceptions.toolTip())
+
+        bar.set_exception_tokens([])
+        _APP.processEvents()
+        self.assertFalse(bar._exception_badge.isVisible())
+        self.assertEqual(bar._exception_badge.count, 0)
+
+        # - 비활성 규칙만 있어도 활성 수가 0이라 배지는 숨기고 툴팁에만 알림
+        bar.set_disabled_exception_count(2)
+        _APP.processEvents()
+        self.assertFalse(bar._exception_badge.isVisible())
+        self.assertIn("비활성 규칙: 2개", bar.btn_edit_exceptions.toolTip())
+
+    def test_exception_button_sits_between_search_chips_and_view_controls(self) -> None:
+        """예외 규칙 버튼이 검색과 필터 칩 뒤, 뷰 컨트롤 앞에 구분선으로 분리되어 놓이는지 검증"""
+        bar = self._shown_bar()
+        layout = bar.layout()
+        assert layout is not None
+        order: list[QWidget] = []
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                order.append(widget)
+        exceptions_at = order.index(bar.btn_edit_exceptions)
+        self.assertIs(order[exceptions_at - 1], bar._row_divider)
+        self.assertIs(order[exceptions_at + 1], bar._exceptions_divider)
+        self.assertEqual(order[exceptions_at + 2], bar.btn_column_preset)
+        self.assertLess(order.index(bar.btn_review_filter), exceptions_at)
+
     def test_chip_resize_repositions_the_badge(self) -> None:
-        """칩 버튼 폭이 바뀌면 겹쳐 둔 배지를 오른쪽 위에 다시 붙이는지 검증"""
+        """개수 배지를 겹쳐 둔 버튼 폭이 바뀌면 배지를 다시 붙이는지 검증"""
         bar = self._shown_bar(width=620)
         event = QEvent(QEvent.Type.Resize)
         bar.btn_clear_col_filters.resize(80, 22)
@@ -291,6 +419,10 @@ class TestFilterBarCollapse(GuiTestCase):
             80 - bar._clear_col_filters_badge.width() - COUNT_BADGE_OFFSET_PX,
         )
         self.assertFalse(bar.eventFilter(bar.btn_review_filter, event))
+        self.assertFalse(bar.eventFilter(bar.btn_edit_exceptions, event))
+        badge = bar._exception_badge
+        self.assertGreaterEqual(badge.x(), 0)
+        self.assertLessEqual(badge.x() + badge.width(), bar.btn_edit_exceptions.width())
         self.assertFalse(bar.eventFilter(bar.search_edit, event))
 
     def test_apply_theme_recolors_icons_and_badges(self) -> None:
@@ -302,6 +434,8 @@ class TestFilterBarCollapse(GuiTestCase):
             self.assertFalse(bar.btn_clear_col_filters.icon().isNull())
             self.assertIn(palette.accent_blue, bar._clear_col_filters_badge.styleSheet())
             self.assertIn(palette.badge_pending[2], bar._review_filter_badge.styleSheet())
+            self.assertIn(palette.accent_blue, bar._exception_badge.styleSheet())
+            self.assertEqual(bar.btn_edit_exceptions.text(), "")
         self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_CHIPS)
 
 

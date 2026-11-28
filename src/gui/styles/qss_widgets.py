@@ -285,7 +285,22 @@ QFrame#EncodeFooterChip[chipState="running"] QLabel#EncodeFooterChipText {{
 QFrame#EncodeFooterChip[chipState="paused"] QLabel#EncodeFooterChipText {{
     color: {p.badge_pending[1]};
 }}
-QPushButton#ClearColumnFiltersButton {{
+QFrame#FilterBar QPushButton {{
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+}}
+QFrame#FilterBar QPushButton:hover {{
+    background-color: {p.bg_hover};
+}}
+QFrame#FilterBar QPushButton:checked {{
+    background-color: {p.bg_selected};
+    border: 1px solid {p.action_primary_border};
+}}
+QFrame#FilterBar QPushButton:pressed {{
+    background-color: {p.bg_selected};
+}}
+QFrame#FilterBar QPushButton#ClearColumnFiltersButton {{
     background-color: {p.subtitle_bg};
     color: {p.accent_blue};
     border: 1px solid {p.accent_blue};
@@ -295,10 +310,10 @@ QPushButton#ClearColumnFiltersButton {{
     font-weight: 600;
     min-height: 20px;
 }}
-QPushButton#ClearColumnFiltersButton:hover {{
+QFrame#FilterBar QPushButton#ClearColumnFiltersButton:hover {{
     background-color: {p.bg_hover};
 }}
-QPushButton#ClearAllFiltersButton {{
+QFrame#FilterBar QPushButton#ClearAllFiltersButton {{
     background-color: transparent;
     color: {p.text_secondary};
     border: 1px solid {p.border_subtle};
@@ -308,11 +323,11 @@ QPushButton#ClearAllFiltersButton {{
     font-weight: 600;
     min-height: 18px;
 }}
-QPushButton#ClearAllFiltersButton:hover {{
+QFrame#FilterBar QPushButton#ClearAllFiltersButton:hover {{
     background-color: {p.bg_hover};
     color: {p.text_primary};
 }}
-QPushButton#ReviewFilterChip {{
+QFrame#FilterBar QPushButton#ReviewFilterChip {{
     background-color: {p.badge_pending[0]};
     color: {p.badge_pending[1]};
     border: 1px solid {p.badge_pending[1]};
@@ -322,16 +337,12 @@ QPushButton#ReviewFilterChip {{
     font-weight: 600;
     min-height: 20px;
 }}
-QPushButton#ReviewFilterChip:hover {{
+QFrame#FilterBar QPushButton#ReviewFilterChip:hover {{
     background-color: {p.bg_hover};
 }}
-QPushButton#ReviewFilterChip:checked {{
+QFrame#FilterBar QPushButton#ReviewFilterChip:checked {{
     background-color: {p.badge_pending[0]};
     color: {p.badge_pending[1]};
     border: 2px solid {p.badge_pending[1]};
-}}
-QPushButton#CompactTableButton:checked, QPushButton#CompactTableButton:checked:hover {{
-    background-color: {p.bg_selected};
-    border-color: {p.action_primary_border};
 }}
 """

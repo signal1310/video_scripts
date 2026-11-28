@@ -547,25 +547,35 @@ class TestGUIWidgetsModule(GuiTestCase):
         bar.exception_editor_requested.connect(lambda: clicks.append("open"))
         bar.exceptions_changed.connect(lambda: changed.append("changed"))
 
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "")
+        self.assertEqual(bar.btn_edit_exceptions.accessibleName(), "예외 규칙")
         self.assertFalse(bar.btn_edit_exceptions.icon().isNull())
+        self.assertTrue(bar._exception_badge.isHidden())
         bar.btn_edit_exceptions.click()
         self.assertEqual(clicks, ["open"])
 
         bar.set_exception_tokens(["@hevc", "v.duration < 10"])
         self.assertEqual(changed, ["changed"])
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙 (2)")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "")
+        # - 창을 띄우지 않은 위젯이라 isVisible 대신 명시적 숨김 여부로 확인
+        self.assertFalse(bar._exception_badge.isHidden())
+        self.assertEqual(bar._exception_badge.count, 2)
         self.assertIn("@hevc", bar.btn_edit_exceptions.toolTip())
 
         bar.set_disabled_exception_count(1)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙 (2, 비활성 1)")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "")
+        self.assertEqual(bar._exception_badge.count, 2)
+        self.assertIn("비활성 규칙: 1개", bar.btn_edit_exceptions.toolTip())
 
         bar.sync_filter_state(search="clip", exception_tokens=[])
         self.assertEqual(len(changed), 1)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙 (비활성 1)")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "")
+        self.assertTrue(bar._exception_badge.isHidden())
+        self.assertIn("비활성 규칙: 1개", bar.btn_edit_exceptions.toolTip())
 
         bar.set_disabled_exception_count(0)
-        self.assertEqual(bar.btn_edit_exceptions.text(), "예외 규칙")
+        self.assertEqual(bar.btn_edit_exceptions.text(), "")
+        self.assertNotIn("비활성", bar.btn_edit_exceptions.toolTip())
 
         bar.set_busy(True)
         self.assertFalse(bar.btn_edit_exceptions.isEnabled())
@@ -1228,7 +1238,7 @@ class TestGUIWidgetsModule(GuiTestCase):
             self.assertFalse(bar.btn_auto_fit.icon().isNull())
             self.assertEqual(
                 bar.btn_auto_fit.icon().pixmap(14, 14).toImage(),
-                get_icon("move-horizontal", palette=palette, size=14).pixmap(14, 14).toImage(),
+                get_icon("fit-columns-width", palette=palette, size=14).pixmap(14, 14).toImage(),
             )
 
     def test_filter_bar_row_group_menu_controls(self) -> None:
@@ -1363,8 +1373,8 @@ class TestGUIWidgetsModule(GuiTestCase):
         bar.set_review_flagged_count(0)
         self.assertTrue(bar.btn_review_filter.isHidden())
 
-    def test_filter_bar_wide_layout_keeps_preset_and_compact_button_text(self) -> None:
-        """넓은 폭에서도 열 프리셋, 좁게 보기 버튼이 글자 폭만큼 보이는지 검증"""
+    def test_filter_bar_wide_layout_keeps_preset_text_and_icons(self) -> None:
+        """넓은 폭에서도 열 프리셋은 글자 폭만큼 보이고 아이콘 전용 버튼은 아이콘을 온전히 보이는지 검증"""
         bar = FilterTuningBar()
         self.addCleanup(bar.close)
         bar.resize(1200, 40)

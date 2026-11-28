@@ -49,6 +49,16 @@ class SvgTests(unittest.TestCase):
         self.assertIn("maximize-2", module.SVG_TEMPLATES)
 
 
+    def test_fit_columns_width_icon_is_registered_and_renders(self) -> None:
+        """열 너비 맞춤 아이콘이 양옆 막대와 양방향 화살표로 등록되고 두 테마에서 그려지는지 검증"""
+        template = module.SVG_TEMPLATES["fit-columns-width"]
+        for path in ("M3.5 4v16", "M20.5 4v16", "M6.4 12h11.2"):
+            self.assertIn(f'<path d="{path}"/>', template)
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            icon = get_icon("fit-columns-width", palette=palette, size=14)
+            self.assertFalse(icon.isNull())
+            self.assertFalse(icon.pixmap(14, 14).toImage().isNull())
+
     def test_pencil_icon_is_registered_and_renders(self) -> None:
         """연필 아이콘이 등록되고 두 테마 색으로 그려지는지 검증"""
         self.assertIn("16.5 3.5", module.SVG_TEMPLATES["pencil"])

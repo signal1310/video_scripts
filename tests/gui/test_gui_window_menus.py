@@ -316,7 +316,8 @@ class TestGUIWindowMenus(GuiWindowTestCase):
         dialog.sync_tokens(["keep_me"], ["paused_rule"])
         dialog.btn_apply.click()
         self.assertEqual(mw.filter_bar.get_exception_tokens(), ["keep_me"])
-        self.assertIn("비활성 1", mw.filter_bar.btn_edit_exceptions.text())
+        self.assertEqual(mw.filter_bar.btn_edit_exceptions.text(), "")
+        self.assertIn("비활성 규칙: 1개", mw.filter_bar.btn_edit_exceptions.toolTip())
         self.assertEqual(load_app_state().ui.disabled_exception_tokens, ["paused_rule"])
 
     def test_selection_actions_follow_selected_row_and_busy_state(self) -> None:

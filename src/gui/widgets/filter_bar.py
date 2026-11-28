@@ -43,6 +43,7 @@ __all__ = ["FilterTuningBar"]
 
 COLUMN_PRESET_PREFIX: str = "열: "
 COMPACT_BUTTON_TEXT: str = "좁게 보기"
+EXCEPTION_BUTTON_TEXT: str = "예외 규칙"
 GROUP_BUTTON_PREFIX: str = "그룹: "
 GROUP_NONE_LABEL: str = "없음"
 RESET_BUTTON_TEXT: str = "필터 초기화"
@@ -57,12 +58,11 @@ COLUMN_PRESET_TOOLTIP_TEMPLATE: str = "표에 표시할 열 묶음을 고릅니�
 # - 여백 확인 필요 칩: 이름은 TERMINOLOGY 4.5절 표준어, 개수는 결과 상태 필터와 같은 `이름 N` 형식
 REVIEW_CHIP_LABEL: str = "여백 확인 필요"
 REVIEW_CHIP_TOOLTIP: str = "자동 잘라내기를 보류한 영상만 봅니다."
-# - 좁은 창 단계별 접힘: 1단계 좁게 보기/예외 규칙, 2단계 필터 초기화/칩, 3단계 열/그룹 드롭다운
+# - 좁은 창 단계별 접힘: 1단계 필터 초기화/칩, 2단계 열/그룹 드롭다운. 좁게 보기와 예외 규칙은 늘 아이콘만 씀
 COLLAPSE_LEVEL_FULL: int = 0
-COLLAPSE_LEVEL_PRIMARY: int = 1
-COLLAPSE_LEVEL_CHIPS: int = 2
-COLLAPSE_LEVEL_DROPDOWNS: int = 3
-# - 1, 2단계에서 검색창은 기본 최소 폭을 지키고, 3단계에서 모두 접힌 뒤에야 더 줄어듦
+COLLAPSE_LEVEL_CHIPS: int = 1
+COLLAPSE_LEVEL_DROPDOWNS: int = 2
+# - 1단계에서 검색창은 기본 최소 폭을 지키고, 2단계에서 모두 접힌 뒤에야 더 줄어듦
 SEARCH_MIN_WIDTH_PX: int = 220
 SEARCH_COMPACT_MIN_WIDTH_PX: int = 140
 # - 글자 폭 합계가 가용 폭과 같아지는 경계에서 잘리지 않도록 남기는 여유
@@ -70,6 +70,9 @@ COLLAPSE_SAFETY_MARGIN_PX: int = 6
 COUNT_BADGE_OFFSET_PX: int = 2
 COUNT_BADGE_HEIGHT_PX: int = 14
 COUNT_BADGE_PADDING_X_PX: int = 2
+BAR_ICON_SIZE_PX: int = 14
+# - 예외 규칙 배지는 아이콘 오른쪽에 붙이므로 아이콘 그림에 배지 폭과 사이 여백을 더함
+EXCEPTION_BADGE_GAP_PX: int = 4
 CURRENT_VALUE_TOOLTIP_TEMPLATE: str = "{base}\n현재 값: {value}"
 
 
@@ -227,19 +230,28 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         divider.setFixedSize(1, 20)
         self._row_divider = divider
 
-        self.btn_edit_exceptions = QPushButton("예외 규칙", self)
+        # - 예외 규칙은 필터 상태 진입점이라 뷰 컨트롤과 구분선으로 나눔
+        exceptions_divider = QFrame(self)
+        exceptions_divider.setObjectName("ToolbarDivider")
+        exceptions_divider.setFixedSize(1, 20)
+        self._exceptions_divider = exceptions_divider
+
+        self.btn_edit_exceptions = QPushButton("", self)
+        self.btn_edit_exceptions.setObjectName("ExceptionsButton")
         self.btn_edit_exceptions.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_edit_exceptions.setAccessibleName(EXCEPTION_BUTTON_TEXT)
         set_button_icon(
             self.btn_edit_exceptions,
             "ban",
             palette=get_active_palette(),
             size=14,
-            pad_right=6,
+            pad_right=0,
         )
         self.btn_edit_exceptions.clicked.connect(self.exception_editor_requested.emit)
-        # - 규칙 개수를 붙인 글자가 길어져도 좁은 창에서 최소 폭까지만 줄어들게 함
-        self.btn_edit_exceptions.setMinimumWidth(SHRINKABLE_BUTTON_MIN_WIDTH_PX)
-        self.btn_edit_exceptions.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        # - 아이콘만 보이므로 폭은 아이콘과 배지가 정하고, 창이 좁아져도 글자가 잘릴 일이 없음
+        self.btn_edit_exceptions.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self._exception_badge = FilterBarCountBadge(self.btn_edit_exceptions)
+        self._exception_icon_pad: int = 0
 
         self.btn_column_preset = QPushButton(f"{COLUMN_PRESET_PREFIX}{preset_label(PRESET_DEFAULT)}", self)
         self.btn_column_preset.setObjectName("ColumnPresetButton")
@@ -292,38 +304,39 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             accessible_name=AUTO_FIT_LABEL,
             fixed_size=BAR_CONTROL_SIZE_PX,
         )
-        set_button_icon(self.btn_auto_fit, "move-horizontal", palette=get_active_palette(), size=14, pad_right=0)
+        set_button_icon(self.btn_auto_fit, "fit-columns-width", palette=get_active_palette(), size=14, pad_right=0)
 
-        self.btn_compact = QPushButton(COMPACT_BUTTON_TEXT, self)
+        self.btn_compact = QPushButton("", self)
         self.btn_compact.setObjectName("CompactTableButton")
         self.btn_compact.setCheckable(True)
         self.btn_compact.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_compact.setToolTip(COMPACT_TOOLTIP)
-        # - 선호 폭은 글자 폭을 따르되, 좁은 창에서는 44px까지만 줄어 창 최소 폭을 밀어내지 않게 함
-        self.btn_compact.setMinimumWidth(SHRINKABLE_BUTTON_MIN_WIDTH_PX)
-        self.btn_compact.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.btn_compact.setAccessibleName(COMPACT_BUTTON_TEXT)
+        # - 기능 이름은 접근성 이름과 툴팁으로만 알리고 버튼에는 아이콘만 그림
+        self.btn_compact.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.btn_compact.toggled.connect(self._on_compact_toggled)
-        set_button_icon(self.btn_compact, "minimize-2", palette=get_active_palette(), size=14, pad_right=6)
+        set_button_icon(self.btn_compact, "minimize-2", palette=get_active_palette(), size=14, pad_right=0)
 
         row.addWidget(self.search_edit, stretch=1)
         row.addWidget(self.btn_review_filter)
         row.addWidget(self.btn_clear_col_filters)
         row.addWidget(self.btn_reset_filters)
         row.addWidget(divider)
+        row.addWidget(self.btn_edit_exceptions)
+        row.addWidget(exceptions_divider)
         row.addWidget(self.btn_column_preset)
         row.addWidget(self.btn_row_group)
         row.addWidget(self.btn_auto_fit)
         row.addWidget(self.btn_compact)
-        row.addWidget(self.btn_edit_exceptions)
 
         # - 여백 확인 필요 칩은 글자에 개수가 붙어도 접근성 이름은 이름 그대로 유지
         self._accessible_names = {
             self.btn_clear_col_filters: "열 필터 해제",
             self.btn_review_filter: REVIEW_CHIP_LABEL,
         }
+        # - 좁게 보기와 예외 규칙은 늘 아이콘만 쓰므로 접힐 문구가 없음
         self._full_labels = {
             self.btn_reset_filters: RESET_BUTTON_TEXT,
-            self.btn_compact: COMPACT_BUTTON_TEXT,
             self.btn_column_preset: self.btn_column_preset.text(),
             self.btn_row_group: self.btn_row_group.text(),
             self.btn_clear_col_filters: "",
@@ -331,33 +344,35 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         for button, text in self._full_labels.items():
             button.setAccessibleName(text)
         self.btn_clear_col_filters.setAccessibleName("열 필터 해제")
-        # - 예외 규칙 문구는 규칙 수에 따라 바뀌므로 전체 문구 등록 뒤에 계산
-        self._refresh_exception_button()
         self._icon_specs = {
-            self.btn_edit_exceptions: ("ban", 6),
             self.btn_column_preset: ("eye", 6),
             self.btn_row_group: ("folder-tree", 6),
-            self.btn_auto_fit: ("move-horizontal", 0),
-            self.btn_compact: ("minimize-2", 6),
+            self.btn_auto_fit: ("fit-columns-width", 0),
+            self.btn_compact: ("minimize-2", 0),
             self.btn_reset_filters: ("refresh-cw", 0),
             self.btn_clear_col_filters: ("filter", 0),
             self.btn_review_filter: ("alert-triangle", 0),
         }
         self._icon_pads = {button: pad for button, (_name, pad) in self._icon_specs.items()}
         self._preset_base_tooltip = self.btn_column_preset.toolTip()
+        # - 예외 규칙 툴팁과 배지는 규칙 수에 따라 바뀌므로 아이콘 준비 뒤에 계산
+        self._refresh_exception_button()
         for chip in (self.btn_clear_col_filters, self.btn_review_filter):
             chip.installEventFilter(self)
+        self.btn_edit_exceptions.installEventFilter(self)
         # - 여기서부터 접힘 판단이 유효해져 최소 크기 질의가 접힌 폭 기준으로 답해짐
         self._collapse_ready = True
         self.init_theme_listener()
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
-        """접힌 칩 버튼의 폭이 바뀌면 겹쳐 둔 개수 배지 위치를 다시 잡음"""
+        """개수 배지를 겹쳐 둔 버튼의 폭이 바뀌면 배지 위치를 다시 잡음"""
         if a1 is not None and a1.type() == QEvent.Type.Resize:
             if a0 is self.btn_clear_col_filters:
                 self._place_badge(self.btn_clear_col_filters, self._clear_col_filters_badge)
             elif a0 is self.btn_review_filter:
                 self._place_badge(self.btn_review_filter, self._review_filter_badge)
+            elif a0 is self.btn_edit_exceptions:
+                self._place_exception_badge()
         return super().eventFilter(a0, a1)
 
     def minimumSizeHint(self) -> QSize:
@@ -395,8 +410,6 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     def _collapse_step_for(self, button: QPushButton) -> int:
         """그 버튼이 아이콘만 남는 접힘 단계. 접힘 대상이 아니면 단계 밖 값"""
         steps: dict[QPushButton, int] = {
-            self.btn_compact: COLLAPSE_LEVEL_PRIMARY,
-            self.btn_edit_exceptions: COLLAPSE_LEVEL_PRIMARY,
             self.btn_reset_filters: COLLAPSE_LEVEL_CHIPS,
             self.btn_clear_col_filters: COLLAPSE_LEVEL_CHIPS,
             self.btn_review_filter: COLLAPSE_LEVEL_CHIPS,
@@ -425,11 +438,12 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self.btn_clear_col_filters,
             self.btn_reset_filters,
             self._row_divider,
+            self.btn_edit_exceptions,
+            self._exceptions_divider,
             self.btn_column_preset,
             self.btn_row_group,
             self.btn_auto_fit,
             self.btn_compact,
-            self.btn_edit_exceptions,
         ]
 
     def _required_width(self) -> int:
@@ -791,18 +805,9 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._emit_filter_changed()
 
     def _refresh_exception_button(self) -> None:
+        """예외 규칙 버튼의 툴팁과 활성 규칙 수 배지를 지금 규칙 목록에 맞춤"""
         active = len(self._active_tokens)
         disabled = self._disabled_count
-        if active > 0 and disabled > 0:
-            label = f"예외 규칙 ({active}, 비활성 {disabled})"
-        elif active > 0:
-            label = f"예외 규칙 ({active})"
-        elif disabled > 0:
-            label = f"예외 규칙 (비활성 {disabled})"
-        else:
-            label = "예외 규칙"
-        self._set_button_label(self.btn_edit_exceptions, label)
-
         tip_lines = [
             format_tooltip_with_shortcut(
                 "제외할 파일명 키워드, 조건식 목록을 편집합니다.",
@@ -818,6 +823,41 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         if disabled > 0:
             tip_lines.append(f"• 비활성 규칙: {disabled}개")
         self.btn_edit_exceptions.setToolTip("\n".join(tip_lines))
+        self._update_exception_badge(active)
+
+    def _update_exception_badge(self, active: int) -> None:
+        """활성 규칙이 있을 때만 아이콘 오른쪽 숫자 배지를 보이고, 배지 몫만큼 아이콘 오른쪽을 비움
+
+        - 버튼에 글자가 없으므로 개수는 배지로만 알리고, 배지가 아이콘을 덮지 않게 아이콘 폭에 더함
+        """
+        self._exception_badge.set_count(active)
+        show_badge = active > 0
+        self._exception_badge.setVisible(show_badge)
+        pad = self._exception_badge.width() + EXCEPTION_BADGE_GAP_PX if show_badge else 0
+        if pad == self._exception_icon_pad:
+            self._place_exception_badge()
+            return
+        self._exception_icon_pad = pad
+        # - 아이콘 그림에 오른쪽 여백을 넣으면 버튼이 그만큼 넓어져 배지 자리가 비워짐
+        set_button_icon(
+            self.btn_edit_exceptions, "ban", palette=self._palette, size=BAR_ICON_SIZE_PX, pad_right=pad
+        )
+        self._place_exception_badge()
+
+    def _place_exception_badge(self) -> None:
+        """예외 규칙 배지를 버튼 안 아이콘 바로 오른쪽에 붙임"""
+        badge = self._exception_badge
+        if badge.isHidden():
+            return
+        button = self.btn_edit_exceptions
+        # - 아이콘 폭이 바뀐 직후에는 아직 레이아웃 전이라 예상 폭으로 자리를 잡음
+        content_width = BAR_ICON_SIZE_PX + self._exception_icon_pad
+        width = max(button.width(), content_width)
+        left = (width - content_width) // 2
+        badge.move(
+            left + BAR_ICON_SIZE_PX + EXCEPTION_BADGE_GAP_PX,
+            (button.height() - badge.height()) // 2,
+        )
 
     def set_active_column_filter_count(self, count: int) -> None:
         """활성화된 열 헤더 동적 필터 개수에 따라 일괄 해제 배지 버튼을 갱신"""
@@ -886,9 +926,18 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
                 size=14,
                 pad_right=0 if self._is_collapsed(button) else pad_right,
             )
+        # - 예외 규칙 아이콘은 배지 자리만큼의 여백을 스스로 관리하므로 따로 다시 그림
+        set_button_icon(
+            self.btn_edit_exceptions,
+            "ban",
+            palette=palette,
+            size=BAR_ICON_SIZE_PX,
+            pad_right=self._exception_icon_pad,
+        )
         self._style_count_badges(palette)
 
     def _style_count_badges(self, palette: ThemePalette) -> None:
         """개수 배지를 현재 테마 팔레트 색으로 다시 칠함"""
         self._clear_col_filters_badge.setStyleSheet(_count_badge_style(palette, "clear"))
         self._review_filter_badge.setStyleSheet(_count_badge_style(palette, "review"))
+        self._exception_badge.setStyleSheet(_count_badge_style(palette, "clear"))

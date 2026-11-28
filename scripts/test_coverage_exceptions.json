@@ -5,7 +5,6 @@
     "src/core/analysis/file_fingerprint.py",
     "src/core/evaluation/downscale_resolver.py",
     "src/core/evaluation/quality_metrics.py",
-    "src/core/evaluation/size_estimator.py",
     "src/core/exceptions.py",
     "src/core/logging_setup.py",
     "src/core/paths.py",

@@ -31,7 +31,7 @@ from src.core.encode.precise_tune_policy import (
     PRECISE_TUNE_COMPARE_TOLERANCE,
     should_precise_tune,
 )
-from src.core.encoder_specs import resolve_level_cap_kbps
+from src.core.encoder_specs import get_encode_codec_family, resolve_level_cap_kbps
 from src.core.evaluation.classification_policy import CODEC_UPGRADE_MIN_GAIN_RATIO
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.evaluation.quality_metrics import (
@@ -40,6 +40,9 @@ from src.core.evaluation.quality_metrics import (
     calc_optimal_pair,
 )
 from src.core.evaluation.size_estimator import (
+    STATIC_SCREEN_RATIO_FLOOR,
+    STATIC_SCREEN_RATIO_THRESHOLD,
+    calc_stream_bitrate_factor,
     estimate_after_size_mb,
     estimate_video_stream_mb,
 )
@@ -48,6 +51,7 @@ from src.core.probe_parser import BITS_PER_BYTE, BITS_PER_KBIT
 from src.core.quality_target import (
     MAXRATE_HEADROOM_MULTIPLIER,
     corrected_target_kbps,
+    encoder_size_factor,
     general_maxrate_kbps,
 )
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
@@ -211,6 +215,64 @@ class TestHelpConceptsPage(unittest.TestCase):
         self.assertIn("위 4개 항 중 가장 작은 값", html)
         self.assertIn(f"<b>{evaluation.expected_after_mb:,.1f} MB</b>", html)
         self.assertNotIn("위 3개 항 중 가장 작은 값", html)
+
+    def test_estimated_size_example_names_duration_and_fps(self) -> None:
+        """3절 예시 첫 줄이 수준 상한의 길이와 증가율의 fps를 같은 입력으로 밝히는지 검증"""
+        cfg = ClassifierConfig()
+        video = example_video(cfg)
+        html = self._html(cfg)
+        self.assertIn(
+            f"MB 영상({video.duration / 60.0:g}분, {video.fps:g}fps, 영상 스트림", html
+        )
+
+    def test_estimated_size_example_shows_computed_bitrate_factor(self) -> None:
+        """factor_br 식 뒤에 세 항의 최솟값이 실제 계산값으로 붙는지 검증"""
+        cfg = ClassifierConfig()
+        video = example_video(cfg)
+        evaluation = VideoEvaluator.evaluate_video(video, cfg)
+        codec = cfg.encode.encode_codec
+        codec_weight_ratio = cfg.get_codec_weight(
+            get_encode_codec_family(codec)
+        ) / cfg.get_codec_weight(video.codec)
+        size_factor = encoder_size_factor(codec)
+        ratio = evaluation.target_bitrate_ratio
+        factor = calc_stream_bitrate_factor(
+            ratio, codec_weight_ratio=codec_weight_ratio, encoder=codec
+        )
+        self.assertLess(factor, size_factor)
+        html = self._html(cfg)
+        self.assertIn(
+            "C<sub>출력</sub>/C<sub>원본</sub> × E) "
+            f"= <b>{factor:.4f}</b><br/>",
+            html,
+        )
+
+    def test_estimated_size_example_shows_cap_stream_mb(self) -> None:
+        """레벨 상한 항이 상한 비트레이트와 길이로 계산한 MB를 함께 보여 주는지 검증"""
+        cfg = ClassifierConfig()
+        video = example_video(cfg)
+        html = self._html(cfg)
+        cap_kbps = resolve_level_cap_kbps(
+            cfg.encode.encode_codec, video.width, video.height, video.fps
+        )
+        assert cap_kbps is not None
+        cap_stream_mb = (
+            cap_kbps * BITS_PER_KBIT * video.duration / BITS_PER_BYTE / BYTES_PER_MB
+        )
+        self.assertIn(
+            f"{cap_kbps:,} kbps × {video.duration / 60.0:g}분 = {cap_stream_mb:,.1f} MB)",
+            html,
+        )
+
+    def test_static_screen_weight_text_includes_the_else_branch(self) -> None:
+        """정적 화면 가중치 수식이 기준 미만이 아닐 때의 값 1을 함께 표기하는지 검증"""
+        html = self._html()
+        self.assertIn(
+            f"W<sub>정적</sub> = {STATIC_SCREEN_RATIO_THRESHOLD:.2f} / "
+            f"max(r<sub>원본</sub>, {STATIC_SCREEN_RATIO_FLOOR:.2f}) "
+            f"(r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}일 때, 아니면 1)",
+            html,
+        )
 
     def test_estimated_size_example_cap_term_arithmetic_adds_up(self) -> None:
         """상한 항의 인용 식이 실제 상한 전 영상 스트림으로 계산한 값과 일치하는지 검증"""

@@ -66,13 +66,14 @@ from src.core.evaluation.size_estimator import (
     STATIC_SCREEN_RATIO_FLOOR,
     STATIC_SCREEN_RATIO_THRESHOLD,
     calc_keyframe_increase_ratio,
+    calc_stream_bitrate_factor,
     combine_video_caps_kbps,
     estimate_after_size_mb,
     estimate_video_stream_mb,
+    stream_mb_at_kbps,
 )
 from src.core.messages import format_over_bitrate_desc
-from src.core.models import BYTES_PER_MB, VideoProps
-from src.core.probe_parser import BITS_PER_BYTE, BITS_PER_KBIT
+from src.core.models import VideoProps
 from src.core.quality_target import (
     ENCODER_QUALITY_BITRATE_K,
     ENCODER_SIZE_FACTORS,
@@ -175,7 +176,7 @@ def example_video(cfg: ClassifierConfig) -> VideoProps:
     )
     vid_kbps = round(_EXAMPLE_BITRATE_MULTIPLE * source_optimal)
     duration_sec = _EXAMPLE_DURATION_MIN * 60.0
-    stream_mb = vid_kbps * BITS_PER_KBIT * duration_sec / BITS_PER_BYTE / BYTES_PER_MB
+    stream_mb = stream_mb_at_kbps(vid_kbps, duration_sec)
     return VideoProps(
         filename="example.mp4",
         width=_EXAMPLE_WIDTH,
@@ -416,10 +417,16 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     )
     # - 상한은 증가율과 품질 계수를 반영한 뒤의 영상 스트림과 비교하므로 그 값을 그대로 보여 줌
     stream_after_mb = plain_mb - other_mb
+    bitrate_factor = calc_stream_bitrate_factor(
+        ratio, codec_weight_ratio=codec_weight_ratio, encoder=codec
+    )
+    cap_stream_mb = (
+        stream_mb_at_kbps(cap_kbps, vid.duration) if cap_kbps is not None else 0.0
+    )
     cap_term = (
         f"{_cap_label(maxrate_kbps, level_cap_kbps)} = {other_mb:,.1f} + "
         f"min(상한 전 영상 스트림 {stream_after_mb:,.1f}, {cap_kbps:,} kbps × "
-        f"{vid.duration / 60.0:g}분) = {capped_mb:,.1f} MB<br/>"
+        f"{vid.duration / 60.0:g}분 = {cap_stream_mb:,.1f} MB) = {capped_mb:,.1f} MB<br/>"
         if cap_kbps is not None
         else ""
     )
@@ -429,12 +436,14 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
         terms_mb.append(capped_mb)
     is_encode = evaluation.smart_action.is_encode
     over_example = (
-        f"<b>계산 예시 (판정표 예상 용량)</b>: {vid.vid_size_MB:,.0f} MB 영상(영상 스트림 {stream_mb:,.1f} MB, "
+        f"<b>계산 예시 (판정표 예상 용량)</b>: {vid.vid_size_MB:,.0f} MB 영상"
+        f"({vid.duration / 60.0:g}분, {vid.fps:g}fps, 영상 스트림 {stream_mb:,.1f} MB, "
         f"나머지 {other_mb:,.1f} MB), 키프레임 간격 {vid.keyframe_interval:g}초<br/>"
         f"r<sub>출력</sub> = <b>{ratio:.3f}배</b>, E = {size_factor:.2f}, "
         f"품질 계수 = {quality_factor:.4f}(출력 품질값 {format_cq_value(output_cq)}), "
         f"증가율 = {kf_ratio:.4f}<br/>"
-        f"factor<sub>br</sub> = min(E, E ÷ r<sub>출력</sub>, C<sub>출력</sub>/C<sub>원본</sub> × E)<br/>"
+        f"factor<sub>br</sub> = min(E, E ÷ r<sub>출력</sub>, C<sub>출력</sub>/C<sub>원본</sub> × E) "
+        f"= <b>{bitrate_factor:.4f}</b><br/>"
         f"상한 전 = {other_mb:,.1f} + {stream_mb:,.1f} × factor<sub>br</sub> × (1 + {kf_ratio:.4f}) × "
         f"{quality_factor:.4f} = {plain_mb:,.1f} MB<br/>"
         f"키프레임 목표 = {other_mb:,.1f} + {stream_mb:,.1f} × (1 + {kf_ratio:.4f}) = {kf_target_mb:,.1f} MB, "
@@ -501,8 +510,9 @@ def _size_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
                         "K<sub>fps,kf</sub> = clamp((",
                         fraction_html(p, f"{cfg.bitrate_model.base_fps:g}", "fps"),
                         f")<sup>{FPS_KF_CORRECTION_EXPONENT:.1f}</sup>, {FPS_KF_FACTOR_MIN:.1f}, {FPS_KF_FACTOR_MAX:.1f}),  "
-                        f"W<sub>정적</sub> = r<sub>원본</sub> &lt; {STATIC_SCREEN_RATIO_THRESHOLD:.2f}일 때 "
-                        f"{STATIC_SCREEN_RATIO_THRESHOLD:.2f} / max(r<sub>원본</sub>, {STATIC_SCREEN_RATIO_FLOOR:.2f})",
+                        f"W<sub>정적</sub> = {STATIC_SCREEN_RATIO_THRESHOLD:.2f} / max(r<sub>원본</sub>, "
+                        f"{STATIC_SCREEN_RATIO_FLOOR:.2f}) (r<sub>원본</sub> &lt; "
+                        f"{STATIC_SCREEN_RATIO_THRESHOLD:.2f}일 때, 아니면 1)",
                     ),
                     (
                         note_html(

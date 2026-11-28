@@ -4,6 +4,7 @@ import os
 import unittest
 from collections.abc import Callable
 from typing import Any
+from unittest import mock
 
 from PyQt6.QtCore import QModelIndex, QRect, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QIcon, QImage, QPainter, QPixmap, QStandardItem, QStandardItemModel
@@ -22,6 +23,7 @@ from src.gui.table.delegates import (
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_KEEP_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
+    DOWNSCALE_KEEP_TEXT,
 )
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
@@ -445,6 +447,66 @@ class TestRowTintDelegates(unittest.TestCase):
         assert text is not None
         self.assertLessEqual(text[0], 6)
         self.assertGreaterEqual(text[2], 90)
+
+
+class TestOutlineChipKeepText(unittest.TestCase):
+    """축소 후보 열에서 유지 값은 칩 없이 옅은 일반 글자로 그려짐을 검증"""
+
+    def setUp(self) -> None:
+        """테마를 고정하고 팔레트를 확정"""
+        mgr = ThemeManager()
+        self.addCleanup(mgr.set_mode, mgr.mode)
+
+    def _chip_calls(self, text: str) -> list[object]:
+        """drawRoundedRect 호출을 기록하며 텍스트를 그린 뒤 호출 인자 목록을 반환"""
+        calls: list[object] = []
+        original = QPainter.drawRoundedRect
+
+        def spy(self_painter: QPainter, *args: object) -> None:
+            calls.append(args)
+            original(self_painter, *args)  # type: ignore[arg-type]
+
+        with mock.patch.object(QPainter, "drawRoundedRect", spy):
+            _paint(OutlineChipDelegate(), _index(text, {}), 200, 30)
+        return calls
+
+    def _check_keep_text(self) -> None:
+        """유지는 칩을 그리지 않고 text_muted 색의 굵지 않은 글자로 그려짐을 검증"""
+        p = ThemeManager().current_palette
+        keep_index = _index(DOWNSCALE_KEEP_TEXT, {})
+        self.assertEqual(self._chip_calls(DOWNSCALE_KEEP_TEXT), [])
+        image = _paint(OutlineChipDelegate(), keep_index, 200, 30)
+        text = _bbox(image, _is(QColor(p.text_muted).name()))
+        assert text is not None
+        # - 칩 테두리가 없어 글자만 셀 안에 남음
+        self.assertGreaterEqual(text[0], 0)
+        self.assertLessEqual(text[2], 199)
+
+        plain = QImage(200, 30, QImage.Format.Format_ARGB32)
+        plain.fill(QColor(_WHITE))
+        painter = QPainter(plain)
+        option = QStyleOptionViewItem()
+        option.rect = QRect(0, 0, 200, 30)
+        option.font = QFont()
+        OutlineChipDelegate().paint(painter, option, keep_index)
+        painter.end()
+        self.assertFalse(option.font.bold())
+
+    def test_keep_text_in_dark_palette(self) -> None:
+        """다크 테마에서 유지가 칩 없이 옅은 글자로 그려짐을 검증"""
+        ThemeManager().set_mode(ThemeManager.MODE_DARK)
+        self._check_keep_text()
+
+    def test_keep_text_in_light_palette(self) -> None:
+        """라이트 테마에서 유지가 칩 없이 옅은 글자로 그려짐을 검증"""
+        ThemeManager().set_mode(ThemeManager.MODE_LIGHT)
+        self._check_keep_text()
+
+    def test_tier_text_keeps_the_chip(self) -> None:
+        """후보 규격 값은 기존 칩 렌더링을 유지함을 검증"""
+        for mode in (ThemeManager.MODE_DARK, ThemeManager.MODE_LIGHT):
+            ThemeManager().set_mode(mode)
+            self.assertEqual(len(self._chip_calls("720p")), 1)
 
 
 if __name__ == "__main__":

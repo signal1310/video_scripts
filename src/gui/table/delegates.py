@@ -17,6 +17,7 @@ from src.gui.styles.palettes import ThemePalette
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_KEEP_FULL_TEXT,
     ACTIVE_FRAME_VR_TEXT,
+    is_downscale_plain_text,
 )
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.table_search_highlight import (
@@ -330,6 +331,22 @@ class OutlineChipDelegate(_PaletteDelegateBase):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._paint_state_background(painter, option, index, p)
+
+        if is_downscale_plain_text(text):
+            # - 유지는 후보 규격이 아니므로 칩 대신 옅은 일반 글자로 표시해 후보와 시각적 무게를 구분
+            font = QFont(option.font)
+            font.setBold(False)
+            painter.setFont(font)
+            draw_cell_text(
+                painter,
+                QRectF(option.rect),
+                text,
+                option,
+                palette=p,
+                color=self._get_color(p.text_muted),
+            )
+            painter.restore()
+            return
 
         font = QFont(option.font)
         font.setBold(True)

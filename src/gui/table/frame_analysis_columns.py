@@ -44,6 +44,11 @@ ACTIVE_FRAME_MANUAL_NAME: str = "사용자 지정 활성 화면"
 CROP_REVIEW_TEXT: str = "여백 확인 필요"
 DOWNSCALE_KEEP_TEXT: str = "유지"
 DOWNSCALE_UNMEASURABLE_TEXT: str = "측정 불가"
+
+
+def is_downscale_plain_text(text: str) -> bool:
+    """축소 후보 열에서 칩 대신 일반 글자로 보여 줄 값인지 여부(유지)"""
+    return text == DOWNSCALE_KEEP_TEXT
 METRIC_VMAF_TEXT: str = "VMAF"
 METRIC_SSIM_FALLBACK_TEXT: str = "SSIM (대체)"
 # - 축소 후보 열의 표시 값: 미측정 빈칸, 감지 전용 빈칸, 측정 불가, 유지, 규격 표시 이름

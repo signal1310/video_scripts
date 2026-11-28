@@ -17,6 +17,11 @@
 
 ### 1.2. 작업 흐름 확장
 * **(보류) 같은 작업 폴더의 오래된 열린 배치 정리**: 중지 뒤 다시 시작할 때마다 이전 배치가 열린 채 남음. 이어서 재인코딩 확인은 같은 폴더의 가장 최근 배치만 묻고(2026-11-20 사용자 결정), 나머지는 열린 채 쌓임. 사용자는 지금처럼 두기를 선택했고, 같은 폴더의 열린 배치를 한꺼번에 닫는 기능은 미구현
+* **(예정) 예외 규칙 조건식 문법 확장(파이썬 람다 수준 자유도)** (2026-11-28 사용자 요청): [`exception_rules.py`](src/core/evaluation/exception_rules.py)의 AST 화이트리스트 보안 경계는 유지하면서 표현력을 넓힘
+  * 속성 확장: [`VideoProps`](src/core/models.py)에 이미 있는 `is_hdr`, `is_10bit`, `has_encode_tag`, `encode_keywords` 노출 및 확장자 편의 속성(`ext`) 검토
+  * 컴프리헨션과 내장 함수: `any`, `all`, `sum`, `int`, `float`, `str`, `bool` 및 제너레이터/리스트 컴프리헨션(반복 상한 적용) 지원
+  * 문자열과 정규식: `replace`, `split`, `count`, `find` 메서드와 안전한 정규식 헬퍼(`regex(pattern, text)`) 추가
+* **(예정) 도움말에 예외 규칙 문법 예시 보강** (2026-11-28 사용자 요청): 편집기 UI는 간결하게 유지하고, 도움말([`help_concepts_page.py`](src/gui/help/help_concepts_page.py) 등)에 내장 함수(`abs`, `min`, `max`, `round`, `len`), 문자열 메서드(`lower`, `startswith`, `endswith` 등), 비교/논리/삼항/인덱싱 연산자, `lambda v:` 문법의 실전 예시를 정리해 안내
 * **(예정) 다중 폴더 배치 큐**: 복수 폴더 드래그 앤 드롭 등록과 순차 분석, 분류
   * 현황: 드롭 처리([`window_layout.py`](src/gui/window_layout.py) `handle_drop_dirs_event`)는 Shift 또는 Ctrl을 누른 채 드롭하면 작업 폴더를 추가하고, 그 밖에는 단일 작업 폴더로 전환. 순차 분석 큐는 미구현
 * **(예정) 회색, 흰색 등 비검은 단색 화면 여백 감지 확장** (2026-11-27 사용자 확정): 현재 [`frame_scan.py`](src/core/analysis/frame_scan.py)는 어두운 여백(`Y <= 24`)만 감지함. 중간 회색, 흰색, 컬러 단색 레터박스/필러박스도 평탄도(줄 안 편차)와 경계 계단 기준으로 감지하도록 확장(오감지 방지를 위한 다지점 합의와 보류 기준을 함께 설계)

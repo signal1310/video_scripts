@@ -30,10 +30,11 @@ from src.gui.controllers.frame_analysis_controller import (
     FrameAnalysisWorker,
     attach_frame_analysis,
     completion_status_text,
-    frame_analysis_stage_text,
     run_frame_analysis_body,
 )
 from src.gui.controllers.frame_analysis_targets import build_requests
+from src.gui.controllers.frame_progress_buffer import frame_analysis_stage_text
+from src.gui.frame_analysis_skip import SkipKind, skip_reason_for_frame_analysis
 from src.gui.menus.menu_bar import MainMenuController
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.filter_bar import FilterTuningBar
@@ -537,6 +538,21 @@ class ControllerTests(_ControllerCase):
             completion_status_text(both, label="여백 감지"),
             "여백 감지 완료: 3개 (캐시 재사용 1개, 감지 실패 2개)",
         )
+
+    def test_completion_status_text_mentions_skip_counts(self) -> None:
+        """배치가 영상을 건너뛰면 완료 상태 줄에 건너뜀 수와 주요 사유를 함께 알림"""
+        finished = FrameAnalysisFinished({"a.mp4": _result()}, total=4)
+        counts = {SkipKind.HDR: 1, SkipKind.EXCEPTION: 2}
+        self.assertEqual(
+            completion_status_text(finished, skip_counts=counts),
+            "화질 분석 완료: 4개 (건너뜀 3개(HDR 1, 예외 규칙 2))",
+        )
+        self.assertEqual(
+            completion_status_text(finished, skip_counts={SkipKind.MANUAL_TARGET: 1}),
+            "화질 분석 완료: 4개 (건너뜀 1개(직접 지정 1))",
+        )
+        # - 건너뛴 영상이 없으면 기존 문구를 그대로 씀
+        self.assertEqual(completion_status_text(finished), "화질 분석 완료: 4개")
 
     def test_crop_scan_body_finished_event_carries_failed_scans(self) -> None:
         """감지 전용 실행 종료 이벤트의 결과가 완료 상태 줄의 감지 실패 수로 이어지는지 검증"""
@@ -1237,6 +1253,90 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         worker = cast("_FakeWorker", controller._worker)
         self.assertEqual(worker.kwargs["crop_only_names"], frozenset())
         controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
+
+    def test_manual_analysis_announces_hdr_skip_once(self) -> None:
+        """수동 분석은 HDR 건너뜀을 시작 안내로 한 번만 알리고 완료 줄에는 겹쳐 쓰지 않음"""
+        hdr = make_eval(video=make_video(filename="h.mp4"), smart_action=SmartAction.PASS_HDR)
+        encoded = make_eval(
+            video=make_video(filename="e.mp4"), smart_action=SmartAction.PASS_ALREADY_ENCODED
+        )
+        self._write_video(self.root, "h.mp4")
+        self._write_video(self.root, "e.mp4")
+        controller = self.make_controller()
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_evaluations([hdr, encoded], crop_only=False)
+        self.assertEqual([request.filename for request in controller._requests], ["e.mp4"])
+        self.assertEqual(self.notifications, ["HDR 영상 1개는 건너뛰었습니다."])
+        controller._on_completed(FrameAnalysisFinished({}, total=1))
+        self.assertEqual(self.notifications[-1], "화질 분석 완료: 1개")
+
+    def test_forced_crop_detection_measures_hdr_rows(self) -> None:
+        """수동 여백 감지는 HDR 영상도 측정하고 HDR 건너뜀을 안내하지 않음"""
+        hdr = make_eval(video=make_video(filename="h.mp4"), smart_action=SmartAction.PASS_HDR)
+        encoded = make_eval(
+            video=make_video(filename="e.mp4"), smart_action=SmartAction.PASS_ALREADY_ENCODED
+        )
+        self._write_video(self.root, "h.mp4")
+        self._write_video(self.root, "e.mp4")
+        controller = self.make_controller()
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_evaluations([hdr, encoded], crop_only=True)
+        self.assertEqual(
+            [request.filename for request in controller._requests], ["h.mp4", "e.mp4"]
+        )
+        self.assertEqual(self.notifications, [])
+        controller._on_completed(FrameAnalysisFinished({}, total=2, crop_only=True))
+
+    def test_start_evaluates_skip_reason_once_per_video(self) -> None:
+        """실행 시작은 영상마다 건너뜀 사유를 한 번만 계산해 스트림 요약 해석을 되풀이하지 않음"""
+        excluded = make_eval(
+            video=make_video(filename="c.mp4"), smart_action=SmartAction.PASS_EXCEPTION
+        )
+        self._write_video(self.root, "c.mp4")
+        report = make_report([self.ev, excluded], root_dir=self.root)
+        controller = self.make_controller(report=report)
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch(
+            "src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker
+        ), mock.patch(
+            "src.gui.controllers.frame_analysis_controller.skip_reason_for_frame_analysis",
+            wraps=skip_reason_for_frame_analysis,
+        ) as reason_of:
+            controller.analyze_all()
+        self.assertEqual(reason_of.call_count, 2)
+        self.assertEqual(controller._skipped_counts, {SkipKind.EXCEPTION: 1})
+        controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
+
+    def test_skip_counts_do_not_leak_into_the_next_batch(self) -> None:
+        """취소, 오류, 폴더 전환으로 끝난 실행의 건너뜀 수가 다음 배치 완료 줄로 새지 않음"""
+        excluded = make_eval(
+            video=make_video(filename="c.mp4"), smart_action=SmartAction.PASS_EXCEPTION
+        )
+        self._write_video(self.root, "c.mp4")
+        report = make_report([self.ev, excluded], root_dir=self.root)
+        controller = self.make_controller(report=report)
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_all()
+            self.assertEqual(controller._skipped_counts, {SkipKind.EXCEPTION: 1})
+            controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
+            self.assertEqual(controller._skipped_counts, {})
+            # - 건너뛴 영상이 없는 다음 실행은 앞 배치의 건너뜀 수를 완료 줄에 쓰지 않음
+            controller.analyze_evaluations([self.ev], crop_only=False)
+            self.assertEqual(controller._skipped_counts, {})
+        controller._on_completed(FrameAnalysisFinished({}, total=1))
+        self.assertEqual(self.notifications[-1], "화질 분석 완료: 1개")
+        self.assertEqual(controller._skipped_counts, {})
 
     def test_all_targets_skipped_announces_nothing_to_measure(self) -> None:
         """대상이 모두 빠지면 측정할 영상이 없다는 안내를 남김"""

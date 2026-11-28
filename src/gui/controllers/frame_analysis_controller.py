@@ -20,7 +20,7 @@ from PyQt6.QtCore import QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 from src.core.analysis.frame_analysis import count_failed_crop_scans, frame_thresholds_from_config
-from src.core.analysis.frame_analysis_runner import STAGE_SCAN, STAGE_SSIM, STAGE_VMAF, FrameAnalysisResult
+from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.analysis.reanalysis_notice import count_keyframe_missing
 from src.core.config import ClassifierConfig
 from src.core.encode.ffmpeg_capability import probe_ffmpeg_capability
@@ -33,14 +33,23 @@ from src.gui.controllers.frame_analysis_targets import (
     NO_FRAME_TARGETS_TEXT,
     build_requests,
     is_below_frame_min_tier,
-    skip_for_crop_scan,
-    skip_for_frame_analysis,
 )
-from src.gui.controllers.frame_analysis_targets import (
-    frame_estimate_text as targets_frame_estimate_text,
+from src.gui.controllers.frame_analysis_targets import frame_estimate_text as targets_frame_estimate_text
+from src.gui.controllers.frame_progress_buffer import (
+    FrameProgressBuffer,
+    StageProgress,
+    frame_analysis_stage_text,
 )
-from src.gui.controllers.frame_progress_buffer import FrameProgressBuffer, StageProgress
 from src.gui.controllers.manual_target_controller import ManualTargetController
+from src.gui.frame_analysis_skip import (
+    MANUAL_HDR_SKIP_NOTICE,
+    SKIPPED_NOTE_TEMPLATE,
+    SkipKind,
+    select_run_targets,
+    skip_counts_text,
+    skip_reason_for_crop_scan,
+    skip_reason_for_frame_analysis,
+)
 from src.gui.menus.menu_bar import MainMenuController
 from src.gui.table.column_history import ColumnHistoryRecorder
 from src.gui.table.frame_analysis_columns import (
@@ -118,22 +127,19 @@ FOLLOWUP_CROP: str = "crop"
 FOLLOWUP_FRAME: str = "frame"
 
 
-def frame_analysis_stage_text(stage: str, done: int, total: int) -> str:
-    """세부 단계 코드를 하단 표시 문구로 변환(TERMINOLOGY 6.17절)"""
-    if stage == STAGE_SCAN:
-        return "여백 확인"
-    if stage == STAGE_SSIM:
-        return f"축소 후보 선별 ({done}/{total})"
-    if stage == STAGE_VMAF:
-        return f"VMAF 정밀 확인 ({done}/{total})"
-    return ""
-
-
-def completion_status_text(finished: FrameAnalysisFinished, *, label: str = FRAME_ANALYSIS_LABEL) -> str:
-    """화질 분석 또는 검은 여백 감지 완료 상태 줄. 캐시 재사용과 감지 실패 수를 있으면 함께 알림"""
+def completion_status_text(
+    finished: FrameAnalysisFinished,
+    *,
+    label: str = FRAME_ANALYSIS_LABEL,
+    skip_counts: Mapping[SkipKind, int] | None = None,
+) -> str:
+    """화질 분석 또는 검은 여백 감지 완료 상태 줄. 캐시 재사용, 감지 실패, 건너뜀 수를 있으면 함께 알림"""
     notes = [f"캐시 재사용 {finished.cached_count}개"] if finished.cached_count > 0 else []
     if (failed := count_failed_crop_scans(finished.results.values())) > 0:
         notes.append(f"감지 실패 {failed}개")
+    if skip_counts:
+        total = sum(skip_counts.values())
+        notes.append(SKIPPED_NOTE_TEMPLATE.format(count=total, reasons=skip_counts_text(skip_counts)))
     detail = f" ({', '.join(notes)})" if notes else ""
     return f"{label} 완료: {finished.total}개{detail}" if finished.total > 0 else ""
 
@@ -282,6 +288,8 @@ class FrameAnalysisController:
         self._shown_roots: set[tuple[str, bool]] = set()
         self._start_root: str = ""
         self._crop_scan: bool = False
+        # - 방금 시작한 실행이 건너뛴 영상의 사유별 개수. 완료 상태 줄에 함께 알리는 데 씀
+        self._skipped_counts: dict[SkipKind, int] = {}
         self._pending_followup: str = ""
         self._estimator: ProgressEstimator = ProgressEstimator()
         self._current_completed: int = 0
@@ -546,11 +554,18 @@ class FrameAnalysisController:
         if report is None:
             return
         config = self._host.config_provider()
-        skip = skip_for_crop_scan if crop_only else skip_for_frame_analysis
-        targets = list(evals) if force else [ev for ev in evals if not skip(ev)]
+        reason_of = skip_reason_for_crop_scan if crop_only else skip_reason_for_frame_analysis
+        # - 영상마다 스트림 요약을 다시 읽지 않도록 사유를 한 번만 계산해 대상과 집계에 함께 씀
+        reasons = [reason_of(ev) for ev in evals]
+        selection = select_run_targets(evals, reasons, crop_only=crop_only, force=force)
+        targets = list(selection.targets)
+        if selection.forced_hdr_count > 0:
+            self._host.notify(MANUAL_HDR_SKIP_NOTICE.format(count=selection.forced_hdr_count))
         if not targets:
-            self._host.notify(NO_CROP_TARGETS_TEXT if crop_only else NO_FRAME_TARGETS_TEXT)
+            if not force:
+                self._host.notify(NO_CROP_TARGETS_TEXT if crop_only else NO_FRAME_TARGETS_TEXT)
             return
+        self._skipped_counts = selection.skipped_counts
         crop_only_names = frozenset(
             ev.video.filename
             for ev in targets
@@ -703,6 +718,9 @@ class FrameAnalysisController:
             self._worker = None
         finished = event if isinstance(event, FrameAnalysisFinished) else FrameAnalysisFinished({})
         crop_only = finished.crop_only
+        # - 끝난 실행의 건너뜀 수는 완료 상태 줄에만 쓰고 곧바로 비워, 취소, 오류, 폴더 전환 뒤 다음 배치로 새지 않게 함
+        skip_counts = self._skipped_counts
+        self._skipped_counts = {}
         self._stage_buffer.drop()
         self._host.footer.clear_frame_analysis_progress()
         report = self._host.report_provider()
@@ -735,6 +753,7 @@ class FrameAnalysisController:
                 status = completion_status_text(
                     finished,
                     label=CROP_SCAN_LABEL if crop_only else FRAME_ANALYSIS_LABEL,
+                    skip_counts=skip_counts,
                 )
                 if status:
                     self._host.notify(status)
@@ -852,7 +871,6 @@ class FrameAnalysisController:
             return
         self._shown_roots.add(key)
         self._host.show_columns(crop_only)
-
 
 
 class FrameAnalysisWindow(Protocol):

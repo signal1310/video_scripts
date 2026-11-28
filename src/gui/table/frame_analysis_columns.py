@@ -16,6 +16,7 @@ from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.quality_probe import METRIC_SSIM, METRIC_VMAF
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, RESOLUTION_TIERS
+from src.gui.frame_analysis_skip import SkipKind, skip_reason_tooltip
 
 if TYPE_CHECKING:
     from src.gui.styles.palettes import ThemePalette
@@ -44,19 +45,22 @@ ACTIVE_FRAME_MANUAL_NAME: str = "사용자 지정 활성 화면"
 CROP_REVIEW_TEXT: str = "여백 확인 필요"
 DOWNSCALE_KEEP_TEXT: str = "유지"
 DOWNSCALE_UNMEASURABLE_TEXT: str = "측정 불가"
+# - 화질 분석 대상에서 자동으로 건너뛴 행의 표시 문구. 사유는 셀 툴팁으로 보여 줌(TERMINOLOGY 6.15절)
+DOWNSCALE_SKIPPED_TEXT: str = "건너뜀"
 
 
 def is_downscale_plain_text(text: str) -> bool:
-    """축소 후보 열에서 칩 대신 일반 글자로 보여 줄 값인지 여부(유지)"""
-    return text == DOWNSCALE_KEEP_TEXT
+    """축소 후보 열에서 칩 대신 일반 글자로 보여 줄 값인지 여부(유지, 건너뜀)"""
+    return text in (DOWNSCALE_KEEP_TEXT, DOWNSCALE_SKIPPED_TEXT)
 METRIC_VMAF_TEXT: str = "VMAF"
 METRIC_SSIM_FALLBACK_TEXT: str = "SSIM (대체)"
-# - 축소 후보 열의 표시 값: 미측정 빈칸, 감지 전용 빈칸, 측정 불가, 유지, 규격 표시 이름
+# - 축소 후보 열의 표시 값: 미측정 빈칸, 감지 전용 빈칸, 측정 불가, 유지, 건너뜀, 규격 표시 이름
 DOWNSCALE_CANDIDATE_VALUE_SET: frozenset[str] = frozenset(
     {
         "",
         DOWNSCALE_KEEP_TEXT,
         DOWNSCALE_UNMEASURABLE_TEXT,
+        DOWNSCALE_SKIPPED_TEXT,
         *(tier.display for tier in RESOLUTION_TIERS),
     }
 )
@@ -241,11 +245,17 @@ def active_frame_sort_value(result: FrameAnalysisResult | None) -> tuple[int, in
     return (1, result.active_region.width * result.active_region.height)
 
 
-def downscale_candidate_text(result: FrameAnalysisResult | None) -> str:
-    """축소 후보 셀 문구: 미측정, 감지 전용 빈칸, 측정 불가, 유지, 규격명"""
-    if result is None:
-        return ""
-    if is_crop_only_result(result):
+def downscale_candidate_text(
+    result: FrameAnalysisResult | None, *, skip_reason: SkipKind | None = None
+) -> str:
+    """축소 후보 셀 문구: 미측정, 감지 전용 빈칸, 측정 불가, 유지, 건너뜀, 규격명
+
+    - 화질 분석에서 건너뛴 행은 옛 측정 결과가 있어도 건너뜀 문구를 보여 주고,
+      측정 결과는 활성 화면, 측정 지표 열에 그대로 둠
+    """
+    if skip_reason is not None:
+        return DOWNSCALE_SKIPPED_TEXT
+    if result is None or is_crop_only_result(result):
         return ""
     if result.unmeasurable:
         return DOWNSCALE_UNMEASURABLE_TEXT
@@ -278,11 +288,16 @@ def _valid_segment_text(result: FrameAnalysisResult) -> str:
     return f"유효 구간: {result.valid_segment_count}/{result.total_segment_count}"
 
 
-def downscale_candidate_tooltip(result: FrameAnalysisResult | None) -> str:
+def downscale_candidate_tooltip(
+    result: FrameAnalysisResult | None, *, skip_reason: SkipKind | None = None
+) -> str:
     """축소 후보 셀 툴팁: 감지 전용 안내, 판정 요지, 규격별 점수, 유효 구간, SSIM 대체 안내
 
     - 감지에 실패한 행은 감지 성공을 전제한 안내 대신 실패 사유와 재시도 안내를 씀
+    - 화질 분석에서 건너뛴 행은 셀 문구(건너뜀)와 맞추기 위해 옛 측정 결과의 안내보다 사유를 먼저 알림
     """
+    if skip_reason is not None:
+        return skip_reason_tooltip(skip_reason)
     if result is None:
         return _NO_RESULT_TIP
     if is_failed_crop_scan(result):
@@ -304,9 +319,14 @@ def downscale_candidate_tooltip(result: FrameAnalysisResult | None) -> str:
     return "\n".join(lines)
 
 
-def downscale_candidate_sort_value(result: FrameAnalysisResult | None) -> tuple[int, int]:
-    """축소 후보 정렬 값: 미측정, 감지 전용, 측정 불가, 유지, 후보 규격 순서"""
-    if result is None or is_crop_only_result(result):
+def downscale_candidate_sort_value(
+    result: FrameAnalysisResult | None, *, skip_reason: SkipKind | None = None
+) -> tuple[int, int]:
+    """축소 후보 정렬 값: 미측정, 감지 전용, 건너뜀, 측정 불가, 유지, 후보 규격 순서
+
+    - 건너뜀은 후보가 없으므로 옛 측정 결과와 무관하게 미측정과 같은 자리에 둠
+    """
+    if skip_reason is not None or result is None or is_crop_only_result(result):
         return (0, 0)
     if result.unmeasurable:
         return (1, 0)
@@ -358,10 +378,15 @@ class FrameAnalysisResults:
         self._crop_excluded: frozenset[str] = frozenset()
         self._manual_frames: dict[str, ActiveFrame] = {}
         self._review_flagged: frozenset[str] = frozenset()
+        self._skip_reasons: dict[str, SkipKind] = {}
 
     def set_results(self, results: Mapping[str, FrameAnalysisResult]) -> None:
         """결과 캐시 전체 교체"""
         self._results = dict(results)
+
+    def set_skip_reasons(self, reasons: Mapping[str, SkipKind]) -> None:
+        """화질 분석 건너뜀 사유를 파일명별로 교체"""
+        self._skip_reasons = dict(reasons)
 
     def update_results(self, results: Mapping[str, FrameAnalysisResult]) -> None:
         """결과 캐시에 도착한 결과를 파일명별로 병합"""
@@ -414,7 +439,12 @@ class FrameAnalysisResults:
         return bool(self._results)
 
     def candidate_tier(self, filename: str) -> str | None:
-        """파일명의 축소 후보 규격 키. 감지 전용, 후보 없음, 측정 불가면 None"""
+        """파일명의 축소 후보 규격 키. 감지 전용, 후보 없음, 측정 불가, 건너뜀이면 None
+
+        - 건너뜀 사유 행은 옛 측정 결과의 규격을 후보로 쓰지 않음(HDR 결과는 판정이 틀릴 수 있음)
+        """
+        if filename in self._skip_reasons:
+            return None
         result = self._results.get(filename)
         if result is None or result.unmeasurable or is_crop_only_result(result):
             return None
@@ -459,7 +489,7 @@ class FrameAnalysisResults:
                 return ACTIVE_FRAME_KEEP_FULL_TEXT
             return active_frame_text(result)
         if col == DOWNSCALE_CANDIDATE_COLUMN:
-            return downscale_candidate_text(result)
+            return downscale_candidate_text(result, skip_reason=self._skip_reasons.get(filename))
         return quality_metric_text(result)
 
     def filter_value(self, filename: str, col: int, *, crop_enabled: bool = True) -> str:
@@ -521,7 +551,9 @@ class FrameAnalysisResults:
                 return (1, frame_area)
             return active_frame_sort_value(result)
         if col == DOWNSCALE_CANDIDATE_COLUMN:
-            return downscale_candidate_sort_value(result)
+            return downscale_candidate_sort_value(
+                result, skip_reason=self._skip_reasons.get(filename)
+            )
         return quality_metric_sort_value(result)
 
     def tooltip(self, filename: str, col: int, *, crop_enabled: bool = True) -> str:
@@ -544,7 +576,9 @@ class FrameAnalysisResults:
                 crop_enabled=crop_enabled,
             )
         if col == DOWNSCALE_CANDIDATE_COLUMN:
-            return downscale_candidate_tooltip(result)
+            return downscale_candidate_tooltip(
+                result, skip_reason=self._skip_reasons.get(filename)
+            )
         return quality_metric_tooltip(result)
 
     def strikeout(self, filename: str, col: int, *, crop_enabled: bool = True) -> bool:

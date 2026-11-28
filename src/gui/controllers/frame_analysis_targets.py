@@ -14,8 +14,8 @@ from src.core.config import FRAME_ANALYSIS_MIN_TIER_ALL
 from src.core.encode.encode_impact import parse_stream_summary_layout
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, find_source_tier
-from src.core.smart_action import SmartAction
 from src.core.workspace_paths import resolve_source_filepath
+from src.gui.frame_analysis_skip import skip_reason_for_frame_analysis
 from src.service.frame_analysis_service import FrameAnalysisRequest
 
 NO_FRAME_TARGETS_TEXT: str = (
@@ -24,9 +24,6 @@ NO_FRAME_TARGETS_TEXT: str = (
 )
 NO_CROP_TARGETS_TEXT: str = (
     "여백 감지 대상이 없습니다. 예외 규칙, 이미 인코딩, HDR, 인터레이스 영상은 건너뜁니다."
-)
-_SKIP_ACTIONS: frozenset[SmartAction] = frozenset(
-    {SmartAction.PASS_EXCEPTION, SmartAction.PASS_ALREADY_ENCODED, SmartAction.PASS_HDR}
 )
 
 
@@ -45,29 +42,6 @@ def is_below_frame_min_tier(width: int, height: int, min_tier: str) -> bool:
     return source is None or source.short_side < limit.short_side
 
 
-def is_interlaced(ev: VideoEvaluation) -> bool:
-    """원본이 인터레이스 영상인지 스트림 요약의 필드 순서로 판정"""
-    layout = parse_stream_summary_layout(ev.video.stream_summary)
-    return layout is not None and layout.is_interlaced
-
-
-def skip_for_frame_analysis(ev: VideoEvaluation) -> bool:
-    """전체 화질 분석에서 자동으로 건너뛸 영상인지 판정
-
-    - 예외 규칙, 이미 인코딩, HDR 보존, 인터레이스 원본은 화질 분석 대상이 아님
-    - 출력 해상도를 직접 지정한 영상(축소 안 함 포함)은 판정을 덮어쓰므로 측정하지 않음
-    """
-    return ev.smart_action in _SKIP_ACTIONS or is_interlaced(ev) or bool(ev.manual_target)
-
-
-def skip_for_crop_scan(ev: VideoEvaluation) -> bool:
-    """검은 여백 감지에서 자동으로 건너뛸 영상인지 판정
-
-    - 직접 지정 영상은 판정을 덮어쓰지 않으므로 검은 여백은 정상 감지
-    """
-    return ev.smart_action in _SKIP_ACTIONS or is_interlaced(ev)
-
-
 def frame_estimate_text(
     evaluations: Sequence[VideoEvaluation], min_tier: str, *, skip: bool = True
 ) -> str:
@@ -76,7 +50,7 @@ def frame_estimate_text(
         1
         for ev in evaluations
         if not is_below_frame_min_tier(ev.video.width, ev.video.height, min_tier)
-        and not (skip and skip_for_frame_analysis(ev))
+        and not (skip and skip_reason_for_frame_analysis(ev) is not None)
     )
     return f"대상 {count}개"
 

@@ -13,10 +13,22 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import QTimer
 
+from src.core.analysis.frame_analysis_runner import STAGE_SCAN, STAGE_SSIM, STAGE_VMAF
 from src.core.diagnostics.timings import StageClock
 from src.gui.diagnostics_qt import running_developer_mode
 
 TIMINGS_LOGGER_NAME: str = "src.diagnostics.timings"
+
+
+def frame_analysis_stage_text(stage: str, done: int, total: int) -> str:
+    """세부 단계 코드를 하단 표시 문구로 변환(TERMINOLOGY 6.17절)"""
+    if stage == STAGE_SCAN:
+        return "여백 확인"
+    if stage == STAGE_SSIM:
+        return f"축소 후보 선별 ({done}/{total})"
+    if stage == STAGE_VMAF:
+        return f"VMAF 정밀 확인 ({done}/{total})"
+    return ""
 
 
 @dataclass(frozen=True, slots=True)

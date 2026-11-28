@@ -13,8 +13,10 @@ from src.gui.controllers.frame_analysis_targets import (
     build_requests,
     frame_estimate_text,
     is_below_frame_min_tier,
-    skip_for_crop_scan,
-    skip_for_frame_analysis,
+)
+from src.gui.frame_analysis_skip import (
+    skip_reason_for_crop_scan,
+    skip_reason_for_frame_analysis,
 )
 from tests._factories import make_eval, make_video
 
@@ -30,10 +32,10 @@ class SkipRuleTests(unittest.TestCase):
             SmartAction.PASS_HDR,
         ):
             with self.subTest(action=action):
-                self.assertTrue(skip_for_frame_analysis(make_eval(smart_action=action)))
-        self.assertTrue(skip_for_frame_analysis(make_eval(manual_target="keep")))
-        self.assertTrue(skip_for_frame_analysis(make_eval(manual_target="720p")))
-        self.assertFalse(skip_for_frame_analysis(make_eval()))
+                self.assertIsNotNone(skip_reason_for_frame_analysis(make_eval(smart_action=action)))
+        self.assertIsNotNone(skip_reason_for_frame_analysis(make_eval(manual_target="keep")))
+        self.assertIsNotNone(skip_reason_for_frame_analysis(make_eval(manual_target="720p")))
+        self.assertIsNone(skip_reason_for_frame_analysis(make_eval()))
         interlaced = make_eval(
             video=make_video(
                 stream_summary=(
@@ -42,16 +44,16 @@ class SkipRuleTests(unittest.TestCase):
                 )
             )
         )
-        self.assertTrue(skip_for_frame_analysis(interlaced))
-        self.assertTrue(skip_for_crop_scan(interlaced))
+        self.assertIsNotNone(skip_reason_for_frame_analysis(interlaced))
+        self.assertIsNotNone(skip_reason_for_crop_scan(interlaced))
 
     def test_crop_scan_skip_rules_keep_manual_target_videos(self) -> None:
         """여백 감지는 직접 지정 영상을 건너뛰지 않고 보존 대상과 인터레이스만 제외"""
         manual = make_eval(manual_target="720p")
-        self.assertFalse(skip_for_crop_scan(manual))
-        self.assertFalse(skip_for_crop_scan(make_eval(manual_target="keep")))
-        self.assertTrue(skip_for_crop_scan(make_eval(smart_action=SmartAction.PASS_HDR)))
-        self.assertFalse(skip_for_crop_scan(make_eval()))
+        self.assertIsNone(skip_reason_for_crop_scan(manual))
+        self.assertIsNone(skip_reason_for_crop_scan(make_eval(manual_target="keep")))
+        self.assertIsNotNone(skip_reason_for_crop_scan(make_eval(smart_action=SmartAction.PASS_HDR)))
+        self.assertIsNone(skip_reason_for_crop_scan(make_eval()))
 
 
 class MinTierTests(unittest.TestCase):

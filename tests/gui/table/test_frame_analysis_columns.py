@@ -6,6 +6,7 @@ from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, ActiveRegion, Ti
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.models import ActiveFrame, VideoEvaluation
+from src.gui.frame_analysis_skip import SkipKind, skip_reason_tooltip
 from src.gui.styles.palettes import DARK_PALETTE as _PALETTE
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_COLUMN,
@@ -29,6 +30,7 @@ from src.gui.table.frame_analysis_columns import (
     downscale_candidate_sort_value,
     downscale_candidate_text,
     downscale_candidate_tooltip,
+    is_downscale_plain_text,
     is_frame_analysis_column,
     quality_metric_sort_value,
     quality_metric_text,
@@ -90,6 +92,7 @@ class FrameAnalysisTextTests(unittest.TestCase):
 
     def test_downscale_candidate_values(self) -> None:
         self.assertEqual(downscale_candidate_text(None), "")
+        self.assertEqual(downscale_candidate_text(None, skip_reason=SkipKind.HDR), "건너뜀")
         self.assertEqual(downscale_candidate_text(_result(candidate="720p")), "720p")
         self.assertEqual(downscale_candidate_text(_result(candidate=None)), DOWNSCALE_KEEP_TEXT)
         self.assertEqual(
@@ -98,6 +101,55 @@ class FrameAnalysisTextTests(unittest.TestCase):
         )
         self.assertEqual(tier_display("unknown"), "unknown")
         self.assertEqual(tier_display("2160p"), "4K")
+
+    def test_skipped_row_without_result_shows_text_and_reason_tooltip(self) -> None:
+        """분석 결과가 없는 HDR 행은 건너뜀 문구와 사유 툴팁을 쓰고 미측정처럼 정렬됨"""
+        view = FrameAnalysisResults()
+        view.set_skip_reasons({"hdr.mp4": SkipKind.HDR})
+        self.assertEqual(view.display("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
+        self.assertEqual(view.filter_value("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
+        tip = view.tooltip("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN)
+        self.assertEqual(tip, skip_reason_tooltip(SkipKind.HDR))
+        self.assertEqual(view.sort_value("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN), (0, 0))
+        self.assertEqual(view.display("plain.mp4", DOWNSCALE_CANDIDATE_COLUMN), "")
+
+    def test_row_with_result_shows_skipped_text_and_hides_stale_candidate(self) -> None:
+        """측정 결과가 있는 건너뜀 행은 옛 후보 대신 건너뜀 문구와 사유 툴팁을 씀
+
+        측정 결과는 활성 화면과 측정 지표 열에 그대로 남김
+        """
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": _result(candidate="720p")})
+        view.set_skip_reasons({"a.mp4": SkipKind.HDR})
+        self.assertEqual(view.display("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
+        self.assertEqual(view.filter_value("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
+        self.assertEqual(view.tooltip("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), skip_reason_tooltip(SkipKind.HDR))
+        self.assertEqual(view.sort_value("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), (0, 0))
+        self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_FULL_TEXT)
+        self.assertEqual(view.display("a.mp4", QUALITY_METRIC_COLUMN), METRIC_VMAF_TEXT)
+        # - 건너뛴 행의 옛 측정 규격은 후보로 다시 쓰지 않음
+        self.assertIsNone(view.candidate_tier("a.mp4"))
+        self.assertEqual(view.candidates([make_eval(video=make_video(filename="a.mp4"))]), {})
+
+    def test_skipped_crop_only_row_shows_skipped_text_and_reason_tooltip(self) -> None:
+        """감지 전용 결과만 있는 건너뜀 행도 빈칸 대신 건너뜀 문구와 사유 툴팁을 보여 줌"""
+        crop_only = _result(candidate=None, version=236)
+        self.assertEqual(downscale_candidate_text(crop_only), "")
+        self.assertEqual(downscale_candidate_text(crop_only, skip_reason=SkipKind.HDR), "건너뜀")
+        self.assertEqual(
+            downscale_candidate_tooltip(crop_only, skip_reason=SkipKind.HDR),
+            skip_reason_tooltip(SkipKind.HDR),
+        )
+        view = FrameAnalysisResults()
+        view.set_results({"a.mp4": crop_only})
+        view.set_skip_reasons({"a.mp4": SkipKind.HDR})
+        self.assertEqual(view.display("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
+
+    def test_downscale_plain_text_covers_skipped_value(self) -> None:
+        """건너뜀은 유지와 같이 칩 대신 일반 글자로 그리는 값"""
+        self.assertTrue(is_downscale_plain_text("건너뜀"))
+        self.assertTrue(is_downscale_plain_text(DOWNSCALE_KEEP_TEXT))
+        self.assertFalse(is_downscale_plain_text("720p"))
 
     def test_quality_metric_values(self) -> None:
         self.assertEqual(quality_metric_text(None), "")

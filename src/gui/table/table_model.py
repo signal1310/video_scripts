@@ -19,6 +19,7 @@ from src.core.encoder_specs import get_encode_codec_label
 from src.core.models import ActiveFrame, VideoEvaluation
 from src.core.resolution_tiers import ResolutionTier
 from src.core.workspace_paths import resolve_source_filepath
+from src.gui.frame_analysis_skip import skip_reason_for_frame_analysis
 from src.gui.styles.icons import get_icon
 from src.gui.styles.palettes import ThemePalette
 from src.gui.table.column_filters import (
@@ -264,6 +265,15 @@ class VideoTableModel(QAbstractTableModel):
             for ev in self._base_evaluations
         ]
         self._root_dir = root_dir
+        # - 건너뛴 행의 축소 후보 셀에 사유를 보여 주기 위해 평가 결과에서 사유를 다시 모음.
+        #   인터레이스 판정은 스트림 요약을 해석한 결과를 재사용하므로 재적재마다 JSON 파싱이 늘지 않음
+        self._frame_view.set_skip_reasons(
+            {
+                ev.video.filename: reason
+                for ev in self._base_evaluations
+                if (reason := skip_reason_for_frame_analysis(ev)) is not None
+            }
+        )
         self._previous_discards = (
             frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, root_dir)
         )

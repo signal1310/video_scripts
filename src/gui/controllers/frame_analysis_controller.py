@@ -1,20 +1,18 @@
 """화질 분석 실행, 진행 표시, 취소, 표 갱신, 수동 VR 보호와 후보 적용을 연결하는 컨트롤러
 
-- 워커 본문은 `run_frame_analysis_body`로 분리해 QThread 없이 직접 테스트
-- 워커는 Qt 객체에 접근하지 않고 시그널로만 화면 스레드에 결과를 넘김
+- 배치 본문과 워커 스레드는 `frame_analysis_worker`가 맡고 이 컨트롤러는 화면 조율만 함
 - 수동 VR 보호는 캐시를 지워 다음 분석에서 새 보호 설정으로 다시 재게 함
 """
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from PyQt6.QtCore import QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QWidget
 
 from src.core.analysis.frame_analysis import frame_thresholds_from_config
@@ -28,11 +26,7 @@ from src.core.models import ActiveFrame, SummaryReport, VideoEvaluation
 from src.core.workspace_paths import resolve_source_filepath
 from src.gui.controllers.frame_analysis_events import (
     FRAME_ANALYSIS_LABEL,
-    FrameAnalysisEvent,
     FrameAnalysisFinished,
-    FrameAnalysisProgress,
-    FrameAnalysisSink,
-    FrameAnalysisStageProgress,
     completion_status_text,
 )
 from src.gui.controllers.frame_analysis_min_tier import attach_frame_min_tier
@@ -43,6 +37,7 @@ from src.gui.controllers.frame_analysis_targets import (
     is_below_frame_min_tier,
 )
 from src.gui.controllers.frame_analysis_targets import frame_estimate_text as targets_frame_estimate_text
+from src.gui.controllers.frame_analysis_worker import FrameAnalysisWorker
 from src.gui.controllers.frame_cache_loader import (
     FRAME_ANALYSIS_WORK_DIR,
     FrameCacheLoader,
@@ -107,116 +102,6 @@ FOLLOWUP_CROP: str = "crop"
 FOLLOWUP_FRAME: str = "frame"
 
 
-def run_frame_analysis_body(
-    service: FrameAnalysisService,
-    requests: Sequence[FrameAnalysisRequest],
-    cancel_event: threading.Event,
-    sink: FrameAnalysisSink,
-    *,
-    crop_only: bool = False,
-    crop_only_names: frozenset[str] = frozenset(),
-) -> None:
-    """요청 목록을 분석하고 완료분 캐시를 읽어 종료 이벤트를 보냄
-
-    - crop_only면 검은 여백 스캔만 실행하고 캐시 재사용 수도 같은 기준으로 셈
-    - crop_only_names에 든 영상은 전체 실행에서도 검은 여백만 감지
-    - 취소는 예외로 올라오므로 삼키고, 이미 저장된 완료분을 캐시에서 다시 읽어 보존
-    - 캐시 조회와 결과 읽기도 DB 오류가 날 수 있어 같은 오류 경계 안에서 실행하고, 실패는 문구를 담아 종료 이벤트로 넘김
-    - 캐시 재사용 수는 실행 전에 재어 두어야 결과를 저장한 뒤와 구분됨
-    """
-
-    def on_progress(
-        completed: int, total: int, filename: str, result: FrameAnalysisResult
-    ) -> None:
-        sink(FrameAnalysisProgress(completed, total, filename, result))
-
-    def on_stage(filename: str, stage: str, done: int, total_stage: int) -> None:
-        sink(FrameAnalysisStageProgress(0, 0, filename, stage, done, total_stage))
-
-    total = len({request.key for request in requests})
-    # - 캐시 조회와 결과 읽기도 DB 오류가 날 수 있으므로 함께 경계 안에 둠
-    try:
-        cached_count = service.count_cached(requests, crop_only=crop_only, crop_only_names=crop_only_names)
-        with contextlib.suppress(InterruptedError):
-            service.analyze_batch(
-                requests,
-                crop_only=crop_only,
-                cancel_event=cancel_event,
-                on_progress=on_progress,
-                on_stage=on_stage,
-                crop_only_names=crop_only_names,
-            )
-        results = service.load_results(requests)
-    except Exception as error:
-        sink(FrameAnalysisFinished({}, error=str(error) or type(error).__name__, crop_only=crop_only))
-        return
-    sink(
-        FrameAnalysisFinished(
-            results,
-            cancelled=cancel_event.is_set(),
-            total=total,
-            cached_count=cached_count,
-            crop_only=crop_only,
-        )
-    )
-
-
-class FrameAnalysisWorker(QThread):
-    """화질 분석 배치를 실행하는 전용 스레드"""
-
-    progress = pyqtSignal(int, int, str, object)
-    stage_progress = pyqtSignal(int, int, str, str, int, int)
-    completed = pyqtSignal(object)
-
-    def __init__(
-        self,
-        service: FrameAnalysisService,
-        requests: Sequence[FrameAnalysisRequest],
-        cancel_event: threading.Event,
-        parent: QWidget | None = None,
-        *,
-        crop_only: bool = False,
-        crop_only_names: frozenset[str] = frozenset(),
-    ) -> None:
-        super().__init__(parent)
-        self._service = service
-        self._requests = list(requests)
-        self._cancel_event = cancel_event
-        self._crop_only = crop_only
-        self._crop_only_names = crop_only_names
-
-    def cancel(self) -> None:
-        """진행 중인 화질 분석 취소 요청"""
-        self._cancel_event.set()
-
-    def run(self) -> None:
-        """워커 스레드 본문"""
-        run_frame_analysis_body(
-            self._service,
-            self._requests,
-            self._cancel_event,
-            self._emit,
-            crop_only=self._crop_only,
-            crop_only_names=self._crop_only_names,
-        )
-
-    def _emit(self, event: FrameAnalysisEvent) -> None:
-        """워커 스레드에서 진행과 종료를 시그널로 넘김"""
-        if isinstance(event, FrameAnalysisProgress):
-            self.progress.emit(event.completed, event.total, event.filename, event.result)
-        elif isinstance(event, FrameAnalysisStageProgress):
-            self.stage_progress.emit(
-                event.completed,
-                event.total,
-                event.filename,
-                event.stage,
-                event.stage_done,
-                event.stage_total,
-            )
-        else:
-            self.completed.emit(event)
-
-
 @dataclass(frozen=True)
 class FrameAnalysisHost:
     """컨트롤러가 메인 창에서 받는 의존성 묶음"""
@@ -279,8 +164,11 @@ class FrameAnalysisController:
 
     @property
     def is_running(self) -> bool:
-        """화질 분석이 실행 중인지 여부"""
-        return self._worker is not None
+        """화질 분석이 실행 중이거나 캐시 적재를 기다려 시작을 준비 중인지 여부
+
+        - 준비 중에도 실행 중과 같이 메뉴, 헤더, 인코딩 시작을 잠가 같은 클릭이 겹치지 않게 함
+        """
+        return self._worker is not None or self._pending_start is not None
 
     def reload_cached(self) -> None:
         """현재 작업 폴더의 캐시 결과와 수동 VR 보호를 표에 다시 반영
@@ -294,7 +182,8 @@ class FrameAnalysisController:
             self.cancel()
         if report is None:
             self._cache.cancel()
-            self._pending_start = None
+            if self._pending_start is not None:
+                self._clear_preparing_state()
             self._clear_cached_state()
         else:
             # - 진행 중인 적재가 있으면 그 폴더, 없으면 마지막으로 적용한 폴더를 기준으로 봄
@@ -304,7 +193,8 @@ class FrameAnalysisController:
             if active_root and active_root != report.root_dir:
                 # - 폴더가 바뀌면 이전 폴더의 캐시 결과와 지정을 먼저 지워 새 행에 섞이지 않게 함
                 self._cache.cancel()
-                self._pending_start = None
+                if self._pending_start is not None:
+                    self._clear_preparing_state()
                 self._clear_cached_state()
             self._cache.start(
                 report.evaluations,
@@ -347,15 +237,29 @@ class FrameAnalysisController:
         self._resume_pending_start()
 
     def _resume_pending_start(self) -> None:
-        """적재를 기다리던 분석을 이미 읽은 요청으로 이어서 시작"""
+        """적재를 기다리던 분석을 이미 읽은 요청으로 이어서 시작
+
+        - 적재 결과를 반영한 뒤 준비 표시를 먼저 지워, 시작하지 못하는 경우(대상 없음, FFmpeg 불가)에 준비 문구가 남지 않게 함
+        """
         pending = self._pending_start
         self._pending_start = None
-        if pending is None or self.is_running or self._host.is_busy():
+        if pending is None:
             return
-        if self._host.report_provider() is None:
+        self._host.footer.clear_frame_analysis_progress()
+        if self._worker is not None or self._host.is_busy() or self._host.report_provider() is None:
+            self._crop_scan = False
+            self.refresh_actions()
             return
         evals, crop_only, force = pending
-        self._begin(evals, crop_only=crop_only, force=force, requests=list(self._requests))
+        self._begin(
+            evals,
+            crop_only=crop_only,
+            force=force,
+            requests=self._report_requests,
+        )
+        if self._worker is None:
+            # - 시작하지 못한 경우(대상 없음, FFmpeg 불가) 준비 중으로 잠갔던 메뉴를 풀어 둠
+            self.refresh_actions()
 
     def analyze_selected(self) -> None:
         """선택한 영상의 화질 분석 시작
@@ -554,8 +458,18 @@ class FrameAnalysisController:
             else "사용자 지정 활성 화면을 지웠습니다. 이 영상은 자동으로 감지한 활성 화면을 씁니다."
         )
 
+    def _clear_preparing_state(self) -> None:
+        """적재를 기다리던 시작을 버리고 하단 준비 표시와 잠근 메뉴 상태를 되돌림"""
+        self._pending_start = None
+        self._crop_scan = False
+        self._host.footer.clear_frame_analysis_progress()
+        self.refresh_actions()
+
     def cancel(self) -> None:
-        """진행 중인 화질 분석 취소 요청"""
+        """진행 중인 화질 분석 취소 요청. 적재를 기다리던 시작은 그 자리에서 버림"""
+        if self._pending_start is not None:
+            self._clear_preparing_state()
+            return
         if self._worker is not None:
             self._worker.cancel()
 
@@ -586,8 +500,14 @@ class FrameAnalysisController:
         if self._cache.pending and self._cache.root_dir == report.root_dir:
             # - 캐시 적재가 끝나면 그 요청을 재사용해 시작하므로 파일 지문을 두 번 읽지 않음
             self._pending_start = (list(evals), crop_only, force)
+            self._start_root = report.root_dir
+            self._crop_scan = crop_only
+            self._host.footer.set_frame_analysis_preparing(crop_only=crop_only)
+            self.refresh_actions()
             return
-        self._begin(evals, crop_only=crop_only, force=force)
+        # - 같은 폴더를 이미 적재했으면 그 요청의 파일 지문을 그대로 써 화면 스레드에서 파일을 다시 읽지 않음
+        loaded = self._report_requests if report.root_dir == self._report_root else None
+        self._begin(evals, crop_only=crop_only, force=force, requests=loaded)
 
     def _begin(
         self,

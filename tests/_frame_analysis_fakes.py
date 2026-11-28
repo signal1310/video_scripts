@@ -8,7 +8,8 @@ import threading
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from src.core.analysis.frame_analysis import FRAME_ANALYSIS_VERSION, TierScore
+from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, FRAME_ANALYSIS_VERSION, ActiveRegion, TierScore
+from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.resolution_tiers import RESOLUTION_TIERS, calc_scaled_dimensions
 from src.service.frame_analysis_record import FrameAnalysisRecord
 
@@ -75,6 +76,110 @@ def make_frame_record(
         analysis_version=version,
         fingerprint=fake_fingerprint(filename, size, mtime) if fingerprint is None else fingerprint,
     )
+
+
+def make_result() -> FrameAnalysisResult:
+    """대표 화질 분석 결과(활성 화면 1920x1080, 720p 후보, VMAF)"""
+    return FrameAnalysisResult(
+        active_region=ActiveRegion(1920, 1080, 0, 0, False),
+        metric_used="vmaf",
+        vmaf_model="vmaf_v0.6.1",
+        tier_scores=(),
+        candidate_tier="720p",
+        valid_segment_count=5,
+        total_segment_count=5,
+        unmeasurable=False,
+        is_vr_protected=False,
+    )
+
+
+def make_failed_crop_result() -> FrameAnalysisResult:
+    """스캔에 실패한 여백 감지 전용 결과"""
+    return FrameAnalysisResult(
+        active_region=ActiveRegion(1920, 1080, 0, 0, False),
+        metric_used="",
+        vmaf_model="",
+        tier_scores=(),
+        candidate_tier=None,
+        valid_segment_count=0,
+        total_segment_count=9,
+        unmeasurable=True,
+        is_vr_protected=False,
+        analysis_version=CROP_SCAN_VERSION,
+    )
+
+
+class FakeFrameAnalysisService:
+    """배치 실행, 캐시 조회, 결과 읽기를 흉내 내는 서비스 대역
+
+    - behaviour로 정상, 오류, 취소, 캐시 오류를 고름
+    """
+
+    def __init__(self, behaviour: str = "ok", cached_count: int = 0) -> None:
+        self.behaviour = behaviour
+        self.progress_calls: list[tuple[int, int, str]] = []
+        self.load_calls = 0
+        self.cached_count = cached_count
+        self.crop_only: bool = False
+        self.count_crop_only: bool = False
+        self.crop_only_names: frozenset[str] = frozenset()
+        self.count_crop_only_names: frozenset[str] = frozenset()
+
+    def analyze_batch(
+        self,
+        requests: list[object],
+        *,
+        crop_only: bool = False,
+        crop_only_names: frozenset[str] = frozenset(),
+        cancel_event: threading.Event | None = None,
+        on_progress: object = None,
+        on_stage: object = None,
+    ) -> dict[str, FrameAnalysisResult]:
+        """요청 배치 실행 대역. behaviour에 따라 오류, 취소를 재현"""
+        self.crop_only = crop_only
+        self.crop_only_names = crop_only_names
+        if self.behaviour == "error":
+            raise RuntimeError("boom")
+        if self.behaviour == "empty_error":
+            raise RuntimeError()
+        if self.behaviour == "cancel" and cancel_event is not None:
+            cancel_event.set()
+            raise InterruptedError("cancel")
+        if callable(on_stage):
+            on_stage("a.mp4", "ssim", 2, 9)
+        if callable(on_progress):
+            on_progress(1, len(requests), "a.mp4", make_result())
+        return {}
+
+    def count_cached(
+        self,
+        requests: list[object],
+        *,
+        crop_only: bool = False,
+        crop_only_names: frozenset[str] = frozenset(),
+    ) -> int:
+        """캐시 재사용 수 조회 대역"""
+        if self.behaviour == "count_error":
+            raise RuntimeError("cache locked")
+        self.count_crop_only = crop_only
+        self.count_crop_only_names = crop_only_names
+        return self.cached_count if requests else 0
+
+    def load_results(self, requests: list[object]) -> dict[str, FrameAnalysisResult]:
+        """완료분 결과 읽기 대역"""
+        if self.behaviour == "load_error":
+            raise RuntimeError("cache read failed")
+        self.load_calls += 1
+        return {"a.mp4": make_result()}
+
+
+class FakeFailedCropService(FakeFrameAnalysisService):
+    """캐시에서 스캔 실패 감지 전용 결과를 읽는 서비스 대역"""
+
+    def load_results(self, requests: list[object]) -> dict[str, FrameAnalysisResult]:
+        """스캔 실패 감지 전용 결과를 돌려줌"""
+        self.load_calls += 1
+        return {"a.mp4": make_failed_crop_result()}
 
 
 def _gray_plane(

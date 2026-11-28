@@ -1,4 +1,4 @@
-"""화질 분석 컨트롤러의 요청 구성, 워커 본문, 진행, 결과 반영, VR 보호, 후보 적용 검증"""
+"""화질 분석 컨트롤러의 요청 구성, 진행, 결과 반영, VR 보호, 후보 적용 검증"""
 
 import os
 import tempfile
@@ -13,7 +13,6 @@ from unittest import mock
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from src.core.analysis.file_fingerprint import compute_fingerprint
-from src.core.analysis.frame_analysis import CROP_SCAN_VERSION, ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.encode.ffmpeg_capability import FfmpegCapability
@@ -22,21 +21,19 @@ from src.core.smart_action import SmartAction
 from src.gui.controllers.frame_analysis_controller import (
     FRAME_ANALYSIS_FLUSH_MS,
     FrameAnalysisController,
-    FrameAnalysisFinished,
     FrameAnalysisHost,
-    FrameAnalysisProgress,
-    FrameAnalysisStageProgress,
     FrameAnalysisWindow,
-    FrameAnalysisWorker,
     attach_frame_analysis,
+)
+from src.gui.controllers.frame_analysis_events import (
+    FrameAnalysisFinished,
     completion_status_text,
-    run_frame_analysis_body,
 )
 from src.gui.controllers.frame_analysis_targets import build_requests
+from src.gui.controllers.frame_analysis_worker import FrameAnalysisWorker
 from src.gui.controllers.frame_cache_loader import (
     run_frame_cache_load,
 )
-from src.gui.controllers.frame_progress_buffer import frame_analysis_stage_text
 from src.gui.frame_analysis_skip import SkipKind, skip_reason_for_batch_analysis
 from src.gui.menus.menu_bar import MainMenuController
 from src.gui.table.frame_analysis_columns import ACK_FULL, ACK_MANUAL, ACK_RESET
@@ -44,13 +41,9 @@ from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
 from src.service.frame_analysis_record import FrameAnalysisRecord
-from src.service.frame_analysis_service import (
-    FrameAnalysisRequest,
-    FrameAnalysisService,
-)
 from src.service.frame_analysis_store import FrameAnalysisStore
 from tests._factories import make_eval, make_report, make_video
-from tests._frame_analysis_fakes import make_frame_record
+from tests._frame_analysis_fakes import make_failed_crop_result, make_frame_record, make_result
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -161,6 +154,15 @@ class _FakeFooter:
         self.tooltip: str = ""
         self.crop_only: bool = False
         self.cleared: int = 0
+        # - 준비 중 표시가 켜져 있는지, 마지막 요청이 감지 전용이었는지
+        self.preparing: bool = False
+        self.preparing_crop_only: bool = False
+        self.preparing_calls: int = 0
+
+    def set_frame_analysis_preparing(self, *, crop_only: bool = False) -> None:
+        self.preparing = True
+        self.preparing_crop_only = crop_only
+        self.preparing_calls += 1
 
     def set_frame_analysis_progress(
         self,
@@ -181,6 +183,7 @@ class _FakeFooter:
 
     def clear_frame_analysis_progress(self) -> None:
         self.cleared += 1
+        self.preparing = False
 
 
 class _FakeMenu:
@@ -211,95 +214,15 @@ class _FakeHistory:
 
 
 def _result() -> FrameAnalysisResult:
-    return FrameAnalysisResult(
-        active_region=ActiveRegion(1920, 1080, 0, 0, False),
-        metric_used="vmaf",
-        vmaf_model="vmaf_v0.6.1",
-        tier_scores=(),
-        candidate_tier="720p",
-        valid_segment_count=5,
-        total_segment_count=5,
-        unmeasurable=False,
-        is_vr_protected=False,
-    )
+    """표에 반영할 대표 화질 분석 결과"""
+    return make_result()
 
 
 def _failed_crop_result() -> FrameAnalysisResult:
     """스캔에 실패한 여백 감지 전용 결과"""
-    return FrameAnalysisResult(
-        active_region=ActiveRegion(1920, 1080, 0, 0, False),
-        metric_used="",
-        vmaf_model="",
-        tier_scores=(),
-        candidate_tier=None,
-        valid_segment_count=0,
-        total_segment_count=9,
-        unmeasurable=True,
-        is_vr_protected=False,
-        analysis_version=CROP_SCAN_VERSION,
-    )
+    return make_failed_crop_result()
 
 
-class _FakeService:
-    def __init__(self, behaviour: str = "ok", cached_count: int = 0) -> None:
-        self.behaviour = behaviour
-        self.progress_calls: list[tuple[int, int, str]] = []
-        self.load_calls = 0
-        self.cached_count = cached_count
-        self.crop_only: bool = False
-        self.count_crop_only: bool = False
-
-    def analyze_batch(
-        self,
-        requests: list[object],
-        *,
-        crop_only: bool = False,
-        crop_only_names: frozenset[str] = frozenset(),
-        cancel_event: threading.Event | None = None,
-        on_progress: object = None,
-        on_stage: object = None,
-    ) -> dict[str, FrameAnalysisResult]:
-        self.crop_only = crop_only
-        self.crop_only_names = crop_only_names
-        if self.behaviour == "error":
-            raise RuntimeError("boom")
-        if self.behaviour == "empty_error":
-            raise RuntimeError()
-        if self.behaviour == "cancel" and cancel_event is not None:
-            cancel_event.set()
-            raise InterruptedError("cancel")
-        if callable(on_stage):
-            on_stage("a.mp4", "ssim", 2, 9)
-        if callable(on_progress):
-            on_progress(1, len(requests), "a.mp4", _result())
-        return {}
-
-    def count_cached(
-        self,
-        requests: list[object],
-        *,
-        crop_only: bool = False,
-        crop_only_names: frozenset[str] = frozenset(),
-    ) -> int:
-        if self.behaviour == "count_error":
-            raise RuntimeError("cache locked")
-        self.count_crop_only = crop_only
-        self.count_crop_only_names = crop_only_names
-        return self.cached_count if requests else 0
-
-    def load_results(self, requests: list[object]) -> dict[str, FrameAnalysisResult]:
-        if self.behaviour == "load_error":
-            raise RuntimeError("cache read failed")
-        self.load_calls += 1
-        return {"a.mp4": _result()}
-
-
-class _FakeFailedCropService(_FakeService):
-    """캐시에서 스캔 실패 감지 전용 결과를 읽는 서비스 대역"""
-
-    def load_results(self, requests: list[object]) -> dict[str, FrameAnalysisResult]:
-        self.load_calls += 1
-        return {"a.mp4": _failed_crop_result()}
 
 
 class _FakeWorker:
@@ -490,129 +413,6 @@ class RequestBuildingTests(_ControllerCase):
 
 
 
-class WorkerBodyTests(unittest.TestCase):
-    """QThread 밖 본문의 진행, 완료, 취소, 오류 처리를 검증"""
-
-    def test_success_reports_progress_and_loads_cached_results(self) -> None:
-        events: list[object] = []
-        service = _FakeService()
-        run_frame_analysis_body(cast("FrameAnalysisService", service), [], threading.Event(), events.append)
-        self.assertIsInstance(events[0], FrameAnalysisStageProgress)
-        self.assertTrue(any(isinstance(event, FrameAnalysisProgress) for event in events))
-        finished = events[-1]
-        self.assertIsInstance(finished, FrameAnalysisFinished)
-        assert isinstance(finished, FrameAnalysisFinished)
-        self.assertEqual(set(finished.results), {"a.mp4"})
-        self.assertFalse(finished.cancelled)
-
-    def test_stage_text_matches_approved_wording(self) -> None:
-        """하단 세부 단계 문구가 TERMINOLOGY 6.17절 표기와 같은지 검증"""
-        self.assertEqual(frame_analysis_stage_text("scan", 3, 9), "여백 확인")
-        self.assertEqual(frame_analysis_stage_text("ssim", 2, 9), "축소 후보 선별 (2/9)")
-        self.assertEqual(frame_analysis_stage_text("vmaf", 1, 3), "VMAF 정밀 확인 (1/3)")
-        self.assertEqual(frame_analysis_stage_text("unknown", 1, 3), "")
-
-    def test_cancel_and_error_still_finish(self) -> None:
-        cancel = threading.Event()
-        events: list[object] = []
-        run_frame_analysis_body(cast("FrameAnalysisService", _FakeService("cancel")), [], cancel, events.append)
-        finished = events[-1]
-        assert isinstance(finished, FrameAnalysisFinished)
-        self.assertTrue(finished.cancelled)
-        error_events: list[object] = []
-        run_frame_analysis_body(
-            cast("FrameAnalysisService", _FakeService("error")), [], threading.Event(), error_events.append
-        )
-        error_finished = error_events[-1]
-        assert isinstance(error_finished, FrameAnalysisFinished)
-        self.assertIn("boom", error_finished.error)
-
-    def test_exception_without_a_message_reports_its_class_name(self) -> None:
-        """메시지 없는 예외도 오류로 분류되도록 예외 이름을 문구에 담는지 검증"""
-        events: list[object] = []
-        run_frame_analysis_body(
-            cast("FrameAnalysisService", _FakeService("empty_error")),
-            [],
-            threading.Event(),
-            events.append,
-        )
-        finished = events[-1]
-        assert isinstance(finished, FrameAnalysisFinished)
-        self.assertEqual(finished.error, "RuntimeError")
-
-    def test_cache_errors_still_finish_with_the_error_message(self) -> None:
-        """캐시 조회나 결과 읽기가 실패해도 오류 문구를 담은 종료 이벤트를 보내는지 검증"""
-        for behaviour, message in (("count_error", "cache locked"), ("load_error", "cache read failed")):
-            events: list[object] = []
-            run_frame_analysis_body(
-                cast("FrameAnalysisService", _FakeService(behaviour)),
-                [],
-                threading.Event(),
-                events.append,
-            )
-            finished = events[-1]
-            assert isinstance(finished, FrameAnalysisFinished)
-            self.assertIn(message, finished.error)
-
-    def test_body_reports_request_total_and_cache_reuse(self) -> None:
-        """요청 수와 캐시 재사용 수를 실행 전에 재어 종료 이벤트에 담는지 검증"""
-        request = FrameAnalysisRequest(
-            filename="a.mp4",
-            path="a.mp4",
-            width=1920,
-            height=1080,
-            duration_sec=20.0,
-            filesize_bytes=100,
-            mtime_ns=1,
-        )
-        events: list[object] = []
-        service = _FakeService(cached_count=1)
-        run_frame_analysis_body(cast("FrameAnalysisService", service), [request], threading.Event(), events.append)
-        finished = events[-1]
-        assert isinstance(finished, FrameAnalysisFinished)
-        self.assertEqual((finished.total, finished.cached_count), (1, 1))
-
-    def test_crop_only_body_uses_the_crop_cache_and_reports_the_mode(self) -> None:
-        """워커 본문이 감지 전용 여부를 서비스와 종료 이벤트에 그대로 넘기는지 검증"""
-        events: list[object] = []
-        service = _FakeService(cached_count=1)
-        run_frame_analysis_body(
-            cast("FrameAnalysisService", service),
-            [],
-            threading.Event(),
-            events.append,
-            crop_only=True,
-        )
-        self.assertTrue(service.count_crop_only)
-        self.assertTrue(service.crop_only)
-        finished = events[-1]
-        assert isinstance(finished, FrameAnalysisFinished)
-        self.assertTrue(finished.crop_only)
-
-    def test_progress_events_carry_each_finished_result(self) -> None:
-        """워커 본문이 완료된 영상마다 그 영상의 결과를 담아 넘기는지 검증"""
-        events: list[object] = []
-        run_frame_analysis_body(
-            cast("FrameAnalysisService", _FakeService()), [], threading.Event(), events.append
-        )
-        progress = [event for event in events if isinstance(event, FrameAnalysisProgress)]
-        self.assertEqual(len(progress), 1)
-        self.assertEqual(progress[0].filename, "a.mp4")
-        self.assertIsInstance(progress[0].result, FrameAnalysisResult)
-
-    def test_worker_emits_progress_and_completed_signals(self) -> None:
-        worker = FrameAnalysisWorker(cast("FrameAnalysisService", _FakeService()), [], threading.Event())
-        progress: list[tuple[int, int, str]] = []
-        stages: list[tuple[str, int, int]] = []
-        completed: list[object] = []
-        worker.progress.connect(lambda c, t, n: progress.append((c, t, n)))
-        worker.stage_progress.connect(lambda _c, _t, _n, stage, done, total: stages.append((stage, done, total)))
-        worker.completed.connect(completed.append)
-        worker.run()
-        self.assertTrue(progress)
-        self.assertEqual(stages, [("ssim", 2, 9)])
-        self.assertEqual(len(completed), 1)
-        worker.cancel()
 
 
 class ControllerTests(_ControllerCase):
@@ -660,25 +460,11 @@ class ControllerTests(_ControllerCase):
         # - 건너뛴 영상이 없으면 기존 문구를 그대로 씀
         self.assertEqual(completion_status_text(finished), "화질 분석 완료: 4개")
 
-    def test_crop_scan_body_finished_event_carries_failed_scans(self) -> None:
-        """감지 전용 실행 종료 이벤트의 결과가 완료 상태 줄의 감지 실패 수로 이어지는지 검증"""
-        request = FrameAnalysisRequest(
-            filename="a.mp4",
-            path="a.mp4",
-            width=1920,
-            height=1080,
-            duration_sec=20.0,
-            filesize_bytes=100,
-            mtime_ns=1,
+    def test_completion_status_text_mentions_failed_scans_for_a_crop_run(self) -> None:
+        """감지 전용 완료 상태 줄이 감지 실패 수를 함께 알리는지 검증"""
+        finished = FrameAnalysisFinished(
+            {"a.mp4": _failed_crop_result()}, total=1, crop_only=True
         )
-        events: list[object] = []
-        service = _FakeFailedCropService()
-        run_frame_analysis_body(
-            cast("FrameAnalysisService", service), [request], threading.Event(), events.append, crop_only=True
-        )
-        finished = events[-1]
-        self.assertIsInstance(finished, FrameAnalysisFinished)
-        assert isinstance(finished, FrameAnalysisFinished)
         self.assertEqual(
             completion_status_text(finished, label="여백 감지"),
             "여백 감지 완료: 1개 (감지 실패 1개)",
@@ -750,6 +536,91 @@ class ControllerTests(_ControllerCase):
             self.assertEqual(fingerprint.call_count, 1)
         self.assertIsNotNone(controller._worker)
         self.assertIsNone(controller._pending_start)
+        self.assertEqual(
+            [(request.filename, request.fingerprint) for request in controller._requests],
+            [("a.mp4", compute_fingerprint(os.path.join(self.root, "a.mp4"), 5))],
+        )
+
+    def test_start_while_cache_loads_shows_preparing_and_ignores_repeated_clicks(self) -> None:
+        """캐시 적재를 기다리는 시작은 하단 준비 표시로 알리고, 다시 누른 클릭은 무시하는지 검증"""
+        controller = self.make_controller()
+        capability = FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
+        )
+        with mock.patch(
+            "src.gui.controllers.frame_cache_loader.FrameCacheLoadWorker", _DeferredCacheWorker
+        ), mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=capability
+        ), mock.patch(
+            "src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker
+        ):
+            controller.reload_cached()
+            controller.analyze_all()
+            self.assertEqual(self.footer.preparing_calls, 1)
+            self.assertFalse(self.footer.preparing_crop_only)
+            self.assertTrue(controller.is_running)
+            self.assertTrue(self.menu.calls[-1]["running"])
+            pending = controller._pending_start
+            # - 준비 중에 다시 눌러도 실행이 겹치지 않고 기다리던 시작을 그대로 둠
+            controller.analyze_all()
+            controller.detect_crop_all()
+            self.assertEqual(self.footer.preparing_calls, 1)
+            self.assertEqual(controller._pending_start, pending)
+            self.assertIsNone(controller._worker)
+            # - 취소하면 기다리던 시작을 버리고 준비 표시와 메뉴 잠금을 푸는지 확인
+            controller.cancel()
+            self.assertIsNone(controller._pending_start)
+            self.assertFalse(self.footer.preparing)
+            self.assertFalse(controller.is_running)
+            self.assertFalse(self.menu.calls[-1]["running"])
+            self.assertIsNone(controller._worker)
+
+    def test_preparing_state_turns_into_the_run_when_the_load_finishes(self) -> None:
+        """적재가 끝나면 준비 표시를 지우고 같은 요청으로 실행을 시작하는지 검증"""
+        controller = self.make_controller()
+        capability = FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
+        )
+        with mock.patch(
+            "src.gui.controllers.frame_cache_loader.FrameCacheLoadWorker", _DeferredCacheWorker
+        ):
+            controller.reload_cached()
+            self.view.selected = [self.ev]
+            controller.detect_crop_selected()
+            self.assertTrue(self.footer.preparing_crop_only)
+            worker = cast("_DeferredCacheWorker", _SyncCacheWorker.instances[-1])
+            with mock.patch(
+                "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+                return_value=capability,
+            ), mock.patch(
+                "src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker
+            ):
+                worker.finish()
+        self.assertIsNotNone(controller._worker)
+        self.assertIsNone(controller._pending_start)
+        # - 준비 표시가 실행 진행 표시로 바뀌어 준비 문구가 남지 않음
+        self.assertFalse(self.footer.preparing)
+        self.assertTrue(self.footer.crop_only)
+        self.assertTrue(controller.is_running)
+
+    def test_start_after_the_load_reuses_loaded_fingerprints(self) -> None:
+        """적재가 끝난 뒤 같은 폴더에서 시작하면 파일 지문을 다시 계산하지 않는지 검증"""
+        controller = self.make_controller()
+        capability = FfmpegCapability(
+            executable="ffmpeg", version_text="", version=None, filters=frozenset({"libvmaf"}), usable=True
+        )
+        controller.reload_cached()
+        self.assertEqual([request.filename for request in controller._report_requests], ["a.mp4"])
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_targets.compute_fingerprint"
+        ) as fingerprint, mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability", return_value=capability
+        ), mock.patch(
+            "src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker
+        ):
+            controller.analyze_all()
+            fingerprint.assert_not_called()
+        self.assertTrue(controller.is_running)
         self.assertEqual(
             [(request.filename, request.fingerprint) for request in controller._requests],
             [("a.mp4", compute_fingerprint(os.path.join(self.root, "a.mp4"), 5))],

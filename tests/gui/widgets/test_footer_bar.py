@@ -190,6 +190,30 @@ class FooterFrameAnalysisTests(unittest.TestCase):
         self.footer.clear_frame_analysis_progress()
         self.assertEqual(self.footer.progress_bar.toolTip(), "")
 
+    def test_preparing_state_shows_indeterminate_bar_and_cancel(self) -> None:
+        """캐시 적재를 기다리는 동안 준비 문구, 무한 진행 막대, 중단 버튼이 보이는지 검증"""
+        requests: list[bool] = []
+        self.footer.frame_analysis_cancel_requested.connect(lambda: requests.append(True))
+        self.footer.set_frame_analysis_preparing()
+        self.assertEqual(self.footer.lbl_status.text(), "화질 분석 준비 중...")
+        self.assertEqual((self.footer.progress_bar.minimum(), self.footer.progress_bar.maximum()), (0, 0))
+        self.assertEqual(self.footer.progress_bar.format(), "")
+        self.assertFalse(self.footer.progress_bar.isHidden())
+        self.assertFalse(self.footer.btn_frame_cancel.isHidden())
+        self.assertEqual(self.footer.btn_frame_cancel.accessibleName(), "화질 분석 중단")
+        self.footer.btn_frame_cancel.click()
+        self.assertEqual(requests, [True])
+        self.footer.clear_frame_analysis_progress()
+        self.assertTrue(self.footer.progress_bar.isHidden())
+        self.assertEqual(self.footer.lbl_status.text(), "")
+
+    def test_preparing_state_uses_the_crop_scan_wording_and_cancel_name(self) -> None:
+        """감지 전용 준비 표시가 여백 감지 문구와 중단 이름을 쓰는지 검증"""
+        self.footer.set_frame_analysis_preparing(crop_only=True)
+        self.assertEqual(self.footer.lbl_status.text(), "여백 감지 준비 중...")
+        self.assertEqual(self.footer.btn_frame_cancel.accessibleName(), "여백 감지 중단")
+        self.assertEqual(self.footer.btn_frame_cancel.toolTip(), "진행 중인 여백 감지를 중단합니다.")
+
     def test_clear_only_removes_hidden_frame_progress_text(self) -> None:
         self.footer.set_frame_analysis_progress(1, 2, "a.mp4")
         self.footer.clear_frame_analysis_progress()

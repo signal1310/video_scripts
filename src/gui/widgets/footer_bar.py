@@ -49,6 +49,8 @@ _CHIP_GAP_PX: int = 8
 ENCODE_WINDOW_TIP: str = "인코딩 창을 엽니다."
 FRAME_ANALYSIS_STATUS_PREFIX: str = "화질 분석 진행 중..."
 CROP_SCAN_STATUS_PREFIX: str = "여백 감지 진행 중..."
+FRAME_ANALYSIS_PREPARING_TEXT: str = "화질 분석 준비 중..."
+CROP_SCAN_PREPARING_TEXT: str = "여백 감지 준비 중..."
 FRAME_ANALYSIS_CANCEL_TIP: str = "진행 중인 화질 분석을 중단합니다."
 CROP_SCAN_CANCEL_TIP: str = "진행 중인 여백 감지를 중단합니다."
 FRAME_ANALYSIS_CANCEL_NAME: str = "화질 분석 중단"
@@ -363,6 +365,25 @@ class FooterBar(QFrame, ThemeAwareMixin):
         self.progress_bar.setValue(completed)
         self.progress_bar.setFormat(f"%p%, {remaining}" if remaining else "%p%")
         self.progress_bar.setToolTip(tooltip)
+        self.progress_bar.setVisible(True)
+        self.btn_frame_cancel.setAccessibleName(
+            CROP_SCAN_CANCEL_NAME if crop_only else FRAME_ANALYSIS_CANCEL_NAME
+        )
+        self.btn_frame_cancel.setToolTip(CROP_SCAN_CANCEL_TIP if crop_only else FRAME_ANALYSIS_CANCEL_TIP)
+        self.btn_frame_cancel.setVisible(True)
+
+    def set_frame_analysis_preparing(self, *, crop_only: bool = False) -> None:
+        """캐시 적재를 기다리는 동안 준비 중 문구와 무한 진행 막대, 중단 버튼을 표시
+
+        - 아직 대상 수를 알 수 없어 진행 막대를 무한 진행 상태로 두고 퍼센트 문구를 비움
+        - 중단 버튼은 실행 전 대기만 풀 뿐이라 같은 접근성 이름과 툴팁을 씀
+        """
+        text = CROP_SCAN_PREPARING_TEXT if crop_only else FRAME_ANALYSIS_PREPARING_TEXT
+        self._frame_progress_text = text
+        self.set_status_text(text)
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setFormat("")
+        self.progress_bar.setToolTip("")
         self.progress_bar.setVisible(True)
         self.btn_frame_cancel.setAccessibleName(
             CROP_SCAN_CANCEL_NAME if crop_only else FRAME_ANALYSIS_CANCEL_NAME

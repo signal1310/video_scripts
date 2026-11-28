@@ -209,8 +209,9 @@ class VideoTableView(QTableView):
             self._on_sort_indicator_changed
         )
         self.filter_header.sectionResized.connect(self._on_header_section_resized)
-        self.table_model.modelReset.connect(self._on_model_reset)
+        self.table_model.modelReset.connect(self._on_contents_changed)
         self.table_model.config_changed.connect(self._on_config_changed)
+        self.table_model.data_source_changed.connect(self._on_contents_changed)
         # - 여백 확인 필요 칩이 켜져 있으면 표시 집합이 바뀔 때마다 다시 거름
         self.table_model.review_flags_changed.connect(self.proxy_model.refilter)
         # - 시작 직후에는 행이 없다가 분석 결과가 들어오므로 행이 생긴 뒤에 맨 위 복원을 적용
@@ -360,7 +361,11 @@ class VideoTableView(QTableView):
         if vp is not None:
             vp.update()
 
-    def _on_model_reset(self) -> None:
+    def _on_contents_changed(self) -> None:
+        """행 구성이나 값이 바뀌면 내용 기준 열 폭을 다시 재도록 예약
+
+        - 같은 파일명 목록의 제자리 갱신은 이름 열 폭을 기억한 값으로 그대로 씀
+        """
         if self.table_model.name_list_changed:
             self._name_content_width = None
         self._width_timer.start()

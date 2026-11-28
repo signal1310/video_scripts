@@ -18,17 +18,21 @@ def find_previous_discards(
     facts: Mapping[str, DiscardFact],
     encoder: str,
 ) -> frozenset[str]:
-    """인코딩 대상 가운데 이전 폐기 기록과 원본, 인코더, 화질 기준값이 같은 영상의 원본 경로 집합"""
+    """인코딩 대상 가운데 이전 폐기 기록과 원본, 인코더, 화질 기준값이 같은 영상의 원본 경로 집합
+
+    - 기록과 인코더, 화질 기준값, 직접 지정, 키프레임이 이미 어긋난 영상은 원본 상태를 읽지 않고 건너뜀
+    - 원본 크기와 수정 시각까지 같아야 폐기로 보므로, 그 판정은 파일 상태를 읽은 뒤에 맡김
+    """
     if not facts:
         return frozenset()
     excluded: set[str] = set()
     for ev in evaluations:
         if not ev.is_encode_target:
             continue
-        source = resolve_source_filepath(root_dir, ev.video.filename)
-        fact = facts.get(source)
-        if fact is None:
+        fact = facts.get(resolve_source_filepath(root_dir, ev.video.filename))
+        if fact is None or not _fact_can_match(fact, ev, encoder):
             continue
+        source = resolve_source_filepath(root_dir, ev.video.filename)
         try:
             stat = os.stat(source)
         except OSError:
@@ -44,3 +48,13 @@ def find_previous_discards(
         ):
             excluded.add(source)
     return frozenset(excluded)
+
+
+def _fact_can_match(fact: DiscardFact, ev: VideoEvaluation, encoder: str) -> bool:
+    """원본 상태를 읽기 전에 확인할 수 있는 폐기 일치 조건(직접 지정, 키프레임, 인코더, 화질 기준값)"""
+    return (
+        ev.manual_target is None
+        and not ev.is_keyframe_exceeded
+        and fact.encoder == encoder
+        and fact.quality == ev.applied_cq
+    )

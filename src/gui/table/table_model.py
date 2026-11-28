@@ -86,6 +86,8 @@ class VideoTableModel(QAbstractTableModel):
     ACCENT_ROLE = int(Qt.ItemDataRole.UserRole) + 4
 
     config_changed = pyqtSignal()
+    # - 행 초기화 없이 값만 바꿨을 때 알림(행 초기화가 하던 열 폭 재측정을 같은 시점에 다시 하도록)
+    data_source_changed = pyqtSignal()
     # - 데이터의 작업 폴더가 이전과 다를 때만 알림, 첫 적재는 폴더 변경으로 보지 않음
     root_changed = pyqtSignal()
     # - 여백 확인 필요 표시 집합이 바뀌었을 때 알림(프록시가 칩 필터를 다시 평가)
@@ -230,11 +232,7 @@ class VideoTableModel(QAbstractTableModel):
         self._emit_all_headers_changed()
         if crop_changed:
             self._reset_active_frame_cache()
-            if self._evaluations:
-                self.dataChanged.emit(
-                    self.index(0, self.COL_ACTIVE_FRAME),
-                    self.index(len(self._evaluations) - 1, self.COL_ACTIVE_FRAME),
-                )
+            self._emit_rows_changed(self.COL_ACTIVE_FRAME, self.COL_ACTIVE_FRAME)
             if any(col == self.COL_ACTIVE_FRAME for col, _order in self._sort_stack):
                 self.set_sort_stack(self._sort_stack)
         self.config_changed.emit()
@@ -245,15 +243,57 @@ class VideoTableModel(QAbstractTableModel):
         root_dir: str = "",
         config: ClassifierConfig | None = None,
     ) -> None:
-        """평가 결과 리스트와 현재 작업 폴더를 일괄 갱신"""
+        """평가 결과 리스트와 현재 작업 폴더를 일괄 갱신
+
+        - 같은 폴더의 같은 파일명 목록이면 행을 다시 만들지 않고 값만 바꿈
+          (재평가는 행 구성이 같으므로 행 초기화가 부르는 그룹 재구성, 선택 복원, 열 폭 재측정을 건너뜀)
+        """
         if self._root_dir and self._root_dir != root_dir:
             # - 폴더가 바뀌면 이전 폴더 기준의 화면 기억(접힌 그룹 등)을 먼저 놓음
             self.root_changed.emit()
-        self.beginResetModel()
-        self._base_evaluations = list(evaluations)
-        filenames = [ev.video.filename for ev in self._base_evaluations]
-        self._name_list_changed = filenames != self._filenames
+        base = list(evaluations)
+        filenames = [ev.video.filename for ev in base]
+        in_place = bool(self._base_evaluations) and root_dir == self._root_dir and filenames == self._filenames
+        # - 파일명 목록이 같으면 이름 열 폭도 다시 재지 않음
+        self._name_list_changed = not in_place and filenames != self._filenames
+        if not in_place:
+            self.beginResetModel()
+        self._base_evaluations = base
         self._filenames = filenames
+        self._refresh_derived_state(root_dir)
+        cfg_updated = config is not None
+        if config is not None:
+            self._config = config
+        new_order = self._compute_order()
+        if not in_place:
+            self._apply_order(new_order)
+            self.endResetModel()
+        elif new_order == self._order:
+            # - 표시 순서까지 같으면 행 초기화 없이 값 변경만 알림
+            self._apply_order(new_order)
+            self._emit_rows_changed(0, self.columnCount() - 1)
+        else:
+            # - 순서가 바뀌면 영구 인덱스를 옮기는 레이아웃 변경으로 알림(선택 유지)
+            self._reorder_rows(new_order)
+        if in_place:
+            # - 행 초기화가 부르던 열 폭 재측정을 같은 시점에 다시 하도록 알림(설정 표기 폭이 달라질 수 있음)
+            self.data_source_changed.emit()
+        if cfg_updated:
+            self.config_changed.emit()
+
+    def _emit_rows_changed(self, first_col: int, last_col: int, roles: list[int] | None = None) -> None:
+        """모든 행의 지정 열 구간이 바뀌었음을 알림. 행 초기화 대신 보이는 셀만 다시 그림"""
+        if self._evaluations:
+            last = len(self._evaluations) - 1
+            self.dataChanged.emit(self.index(0, first_col), self.index(last, last_col), roles or [])
+
+    def _resolve_previous_discards(self, root_dir: str) -> frozenset[str]:
+        """이전 폐기 기록과 원본이 같아 대상에서 뺄 원본 경로 집합(공급 함수가 없으면 빈 집합)"""
+        provider = self._previous_provider
+        return frozenset() if provider is None else provider(self._base_evaluations, root_dir)
+
+    def _refresh_derived_state(self, root_dir: str) -> None:
+        """행 값에서 파생한 캐시와 모델 상태 표시를 지금 적재한 평가 결과로 다시 채움"""
         self._sort_keys_by_col = {}
         self._rank_by_col = {}
         self._pending_output_tiers = {}
@@ -274,18 +314,9 @@ class VideoTableModel(QAbstractTableModel):
                 if (reason := skip_reason_for_batch_analysis(ev)) is not None
             }
         )
-        self._previous_discards = (
-            frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, root_dir)
-        )
+        self._previous_discards = self._resolve_previous_discards(root_dir)
         self._encode_label_cache.clear()
         self._planned_cache.clear()
-        cfg_updated = config is not None
-        if config is not None:
-            self._config = config
-        self._apply_order(self._compute_order())
-        self.endResetModel()
-        if cfg_updated:
-            self.config_changed.emit()
 
     @property
     def evaluations(self) -> list[VideoEvaluation]:
@@ -353,7 +384,13 @@ class VideoTableModel(QAbstractTableModel):
         - 선택 영역은 같은 영상을 따라가도록 영구 인덱스를 함께 옮김
         """
         self._sort_stack = list(stack)
-        new_order = self._compute_order()
+        self._reorder_rows(self._compute_order())
+
+    def _reorder_rows(self, new_order: list[int]) -> None:
+        """표시 순서가 바뀔 때 행 초기화 대신 레이아웃 변경으로 영구 인덱스를 새 위치로 옮김
+
+        - 초기화는 뷰의 선택과 포커스를 지우므로, 같은 행 집합의 순서 변경은 레이아웃 신호로 알림
+        """
         self.layoutAboutToBeChanged.emit()
         old_persistent = self.persistentIndexList()
         new_row_of_base = [0] * len(new_order)
@@ -451,13 +488,7 @@ class VideoTableModel(QAbstractTableModel):
     def set_pending_output_tiers(self, tiers: Mapping[str, ResolutionTier | None]) -> None:
         """재평가 결과가 오기 전에 출력 해상도 열만 먼저 바꿔 보여 주는 임시 값, 새 평가 결과가 적용되면 사라짐"""
         self._pending_output_tiers = dict(tiers)
-        if self._evaluations:
-            col = self.COL_OUTPUT_RES
-            self.dataChanged.emit(
-                self.index(0, col),
-                self.index(len(self._evaluations) - 1, col),
-                [int(Qt.ItemDataRole.DisplayRole)],
-            )
+        self._emit_rows_changed(self.COL_OUTPUT_RES, self.COL_OUTPUT_RES, [int(Qt.ItemDataRole.DisplayRole)])
 
     @property
     def pending_output_tiers(self) -> dict[str, ResolutionTier | None]:
@@ -469,11 +500,7 @@ class VideoTableModel(QAbstractTableModel):
         self._frame_view.set_results(results)
         self._sort_keys_by_col.clear()
         self._rank_by_col.clear()
-        if self._evaluations:
-            self.dataChanged.emit(
-                self.index(0, self.COL_ACTIVE_FRAME),
-                self.index(len(self._evaluations) - 1, self.COL_QUALITY_METRIC),
-            )
+        self._emit_rows_changed(self.COL_ACTIVE_FRAME, self.COL_QUALITY_METRIC)
         if any(col in FRAME_ANALYSIS_COLUMNS for col, _order in self._sort_stack):
             self.set_sort_stack(self._sort_stack)
 
@@ -508,11 +535,7 @@ class VideoTableModel(QAbstractTableModel):
         """
         self._frame_view.set_crop_excluded(filenames)
         self._reset_active_frame_cache()
-        if self._evaluations:
-            self.dataChanged.emit(
-                self.index(0, self.COL_ACTIVE_FRAME),
-                self.index(len(self._evaluations) - 1, self.COL_ACTIVE_FRAME),
-            )
+        self._emit_rows_changed(self.COL_ACTIVE_FRAME, self.COL_ACTIVE_FRAME)
         if any(col == self.COL_ACTIVE_FRAME for col, _order in self._sort_stack):
             self.set_sort_stack(self._sort_stack)
 
@@ -552,11 +575,8 @@ class VideoTableModel(QAbstractTableModel):
 
     def _emit_flag_columns_changed(self) -> None:
         """이름, 활성 화면 열의 셀 표시를 다시 그리도록 알림"""
-        if not self._evaluations:
-            return
-        last_row = len(self._evaluations) - 1
         for col in (self.COL_NAME, self.COL_ACTIVE_FRAME):
-            self.dataChanged.emit(self.index(0, col), self.index(last_row, col))
+            self._emit_rows_changed(col, col)
 
     def set_frame_action_handlers(
         self,
@@ -659,15 +679,11 @@ class VideoTableModel(QAbstractTableModel):
         - 배치는 결과 파일을 만들거나 같은 이름 충돌을 없애므로 예정 명령 캐시를 비움(파일 존재 확인 결과가 낡지 않게)
         """
         self._encode_book = book
-        self._previous_discards = (
-            frozenset() if self._previous_provider is None else self._previous_provider(self._base_evaluations, self._root_dir)
-        )
+        self._previous_discards = self._resolve_previous_discards(self._root_dir)
         self._encode_label_cache.clear()
         self._planned_cache.clear()
-        if self._evaluations:
-            # - 진행 중 -> 완료 전환은 행 배경도 함께 바꾸므로 상태 열만이 아니라 행 전체를 다시 그림
-            last_row = len(self._evaluations) - 1
-            self.dataChanged.emit(self.index(0, 0), self.index(last_row, self.columnCount() - 1))
+        # - 진행 중 -> 완료 전환은 행 배경도 함께 바꾸므로 상태 열만이 아니라 행 전체를 다시 그림
+        self._emit_rows_changed(0, self.columnCount() - 1)
 
     def _encode_label(self, ev: VideoEvaluation) -> str | None:
         """영상의 인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 배치 전 인코딩 대상이면 대상, 그 밖은 None

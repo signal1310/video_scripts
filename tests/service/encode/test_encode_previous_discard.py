@@ -8,6 +8,7 @@ import os
 import tempfile
 import unittest
 from typing import Any
+from unittest import mock
 
 from src.core.encode.encode_previous_discard import DiscardFact
 from src.core.encode.encode_state import EncodeState
@@ -82,6 +83,35 @@ class PreviousDiscardTests(unittest.TestCase):
         passing = make_eval(make_video(filename=_NAME), smart_action=SmartAction.PASS_OPTIMAL)
         self.assertEqual(self._excluded([passing]), frozenset())
         self.assertEqual(find_previous_discards([self._evaluation()], self.root, {}, _ENCODER), frozenset())
+
+    def _stat_paths(self, evaluations: list[VideoEvaluation], encoder: str = _ENCODER) -> list[str]:
+        """find_previous_discards가 원본 상태를 확인한 경로 목록(작업 폴더 해석용 isdir 확인은 뺌)"""
+        real_stat = os.stat
+
+        def record(path: Any, *args: Any, **kwargs: Any) -> Any:
+            return real_stat(path, *args, **kwargs)
+
+        with mock.patch(
+            "src.service.encode.encode_previous_discard.os.stat", side_effect=record
+        ) as spy:
+            find_previous_discards(evaluations, self.root, self.history.discarded_facts(), encoder)
+        return [str(call.args[0]) for call in spy.call_args_list if str(call.args[0]) != self.root]
+
+    def test_record_that_cannot_match_skips_reading_the_source(self) -> None:
+        """인코더나 화질 기준값, 직접 지정, 키프레임이 어긋난 기록은 원본 상태를 읽지 않는지 검증"""
+        self.assertEqual(self._stat_paths([self._evaluation()], encoder="h264_nvenc"), [])
+        self.assertEqual(self._stat_paths([self._evaluation(output_cq=_CHANGED_QUALITY)]), [])
+        self.assertEqual(self._stat_paths([self._evaluation(manual_target="1080p")]), [])
+        self.assertEqual(self._stat_paths([self._evaluation(is_keyframe_exceeded=True)]), [])
+
+    def test_record_that_can_match_reads_the_source_once(self) -> None:
+        """인코더와 화질 기준값이 같은 기록은 원본 크기와 수정 시각을 한 번만 확인하는지 검증"""
+        self.assertEqual(self._stat_paths([self._evaluation()]), [self.source])
+
+    def test_record_for_another_source_is_skipped_without_reading(self) -> None:
+        """폐기 기록이 없는 다른 원본은 상태 확인 없이 대상으로 남는지 검증"""
+        other = make_eval(make_video(filename="other.mp4"), smart_action=SmartAction.ENCODE_OVER)
+        self.assertEqual(self._stat_paths([other]), [])
 
 
 if __name__ == "__main__":

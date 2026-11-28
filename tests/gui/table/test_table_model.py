@@ -2,6 +2,7 @@
 
 import os
 import unittest
+from dataclasses import replace
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -12,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 
 from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
+from src.core.config import ClassifierConfig
 from src.core.encode.encode_batch_book import EncodeBatchBook
 from src.core.encode.encode_state import EncodeState
 from src.core.models import ActiveFrame
@@ -960,6 +962,94 @@ class FfmpegArgsTooltipTests(unittest.TestCase):
         self.assertEqual(display, NAME_EXISTS)
         self.assertEqual(tip, NAME_EXISTS)
         self.assertNotIn("FFmpeg 인자", action_tip)
+
+class DataSourceUpdateTests(unittest.TestCase):
+    """같은 파일 목록을 다시 적재할 때 행 초기화 없이 값만 바꾸는지 검증"""
+
+    def setUp(self) -> None:
+        self.model = VideoTableModel()
+        self.videos = [make_video(filename=f"{index:02d}.mp4") for index in range(4)]
+        self.rows = [make_eval(video) for video in self.videos]
+        self.model.set_data_source(self.rows, root_dir=_ROOT)
+        self.events: list[str] = []
+        self.model.modelAboutToBeReset.connect(lambda: self.events.append("reset"))
+        self.model.layoutAboutToBeChanged.connect(lambda: self.events.append("layout"))
+        self.model.dataChanged.connect(lambda *_args: self.events.append("data"))
+
+    def test_same_file_list_updates_values_without_resetting_rows(self) -> None:
+        """같은 파일 목록이면 행 초기화 없이 값 변경 신호만 내는지 검증"""
+        replaced = [
+            make_eval(video, smart_action=SmartAction.PASS_OPTIMAL) for video in self.videos
+        ]
+        self.model.set_data_source(replaced, root_dir=_ROOT)
+        self.assertNotIn("reset", self.events)
+        self.assertIn("data", self.events)
+        self.assertEqual(
+            [ev.smart_action for ev in self.model.evaluations],
+            [SmartAction.PASS_OPTIMAL] * 4,
+        )
+        self.assertIsNone(
+            self.model.data(self.model.index(0, VideoTableModel.COL_ENCODE_STATE), _DISPLAY)
+        )
+
+    def test_reordered_base_list_resets_rows(self) -> None:
+        """적재 순서 자체가 바뀌면 종전처럼 행을 다시 만드는지 검증"""
+        replaced = [make_eval(video) for video in reversed(self.videos)]
+        self.model.set_data_source(replaced, root_dir=_ROOT)
+        self.assertIn("reset", self.events)
+
+    def test_in_place_update_notifies_data_source_changed(self) -> None:
+        """제자리 갱신은 행 초기화가 하던 열 폭 재측정을 위해 변경 신호를 내는지 검증"""
+        notices: list[bool] = []
+        self.model.data_source_changed.connect(lambda: notices.append(True))
+        self.model.set_data_source(
+            [make_eval(video) for video in self.videos], root_dir=_ROOT
+        )
+        self.assertEqual(notices, [True])
+        self.assertFalse(self.model.name_list_changed)
+
+    def test_new_values_are_visible_through_the_model(self) -> None:
+        """제자리 갱신 뒤 셀 값과 검색 대상 문자열이 새 평가 결과를 따르는지 검증"""
+        replaced = [
+            make_eval(video, smart_action=SmartAction.PASS_OPTIMAL) for video in self.videos
+        ]
+        self.model.set_data_source(replaced, root_dir=_ROOT)
+        self.assertNotIn("할 일", self.model.get_search_blob(0))
+        self.assertEqual(
+            self.model.data(self.model.index(0, VideoTableModel.COL_ACTION), _DISPLAY),
+            SmartAction.PASS_OPTIMAL.action_label,
+        )
+
+    def test_changed_sort_values_reorder_through_a_layout_change(self) -> None:
+        """정렬 값이 바뀌면 행 초기화 대신 레이아웃 변경으로 순서를 바꾸는지 검증"""
+        self.model.set_sort_stack([(VideoTableModel.COL_BITRATE, Qt.SortOrder.AscendingOrder)])
+        self.events.clear()
+        bumped = [
+            make_eval(make_video(**{**video.to_dict(), "vid_kbps": 9000 - index * 100}))
+            for index, video in enumerate(self.videos)
+        ]
+        self.model.set_data_source(bumped, root_dir=_ROOT)
+        self.assertNotIn("reset", self.events)
+        self.assertIn("layout", self.events)
+        self.assertEqual(
+            [ev.video.vid_kbps for ev in self.model.evaluations],
+            [8700, 8800, 8900, 9000],
+        )
+
+    def test_different_file_list_and_other_folder_still_reset(self) -> None:
+        """파일 목록이 다르거나 작업 폴더가 바뀌면 종전처럼 행을 다시 만드는지 검증"""
+        self.model.set_data_source(self.rows[:2], root_dir=_ROOT)
+        self.assertIn("reset", self.events)
+        self.events.clear()
+        self.model.set_data_source(self.rows, root_dir="other")
+        self.assertIn("reset", self.events)
+
+    def test_set_config_alone_does_not_rebuild_rows(self) -> None:
+        """설정 변경만 있을 때는 행을 다시 만들지 않는지 검증"""
+        base = ClassifierConfig()
+        self.model.set_config(replace(base, thresholds=replace(base.thresholds, over_bitrate_ratio=3.0)))
+        self.assertEqual(self.events, [])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -688,8 +688,8 @@ class _FilterBarStub:
     def set_row_group(self, group_by: str, *, label: str, count: int) -> None:
         self.button = (group_by, label, count)
 
-    def clear_review_filter(self) -> None:
-        """여백 확인 필요 칩 해제 기록"""
+    def clear_chip_filters(self) -> None:
+        """두 필터 칩 해제 기록"""
         self.review_filter_cleared = True
 
 

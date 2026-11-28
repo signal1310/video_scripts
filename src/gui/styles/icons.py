@@ -3,9 +3,9 @@
 import logging
 import os
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
-from PyQt6.QtCore import QByteArray, QRectF, QSize, QStandardPaths, Qt
+from PyQt6.QtCore import QByteArray, QRect, QRectF, QSize, QStandardPaths, Qt
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QApplication, QPushButton, QWidget
@@ -47,6 +47,8 @@ SVG_TEMPLATES: dict[str, str] = {
     "moon": '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
     "monitor": '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
     "compare": '<rect x="2" y="5" width="9" height="14" rx="1.5"/><rect x="13" y="5" width="9" height="14" rx="1.5"/><line x1="12" y1="3" x2="12" y2="21"/>',
+    # - 구간별 여백 차이: 바깥 프레임과 안쪽 점선 프레임이 구간마다 달라진 여백 자리를 뜻함
+    "margins-vary": '<rect x="2.5" y="4" width="19" height="16" rx="2"/><rect x="5.5" y="8" width="13" height="8" rx="1" stroke-dasharray="2.5 2"/>',
     "check": '<polyline points="20 6 9 17 4 12"/>',
     "x": '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
     "square": '<rect x="5" y="5" width="14" height="14" rx="2"/>',
@@ -167,6 +169,41 @@ def get_icon(
     if disabled_color is not None:
         for pixmap in _render_icon_pixmaps(name, disabled_color, size, pad_right):
             icon.addPixmap(pixmap, QIcon.Mode.Disabled)
+    return icon
+
+
+def get_stacked_icon(
+    specs: Sequence[tuple[str, str]],
+    *,
+    size: int = 16,
+    palette: ThemePalette | None = None,
+) -> QIcon:
+    """여러 (아이콘 이름, 색)을 왼쪽부터 나란히 그린 한 QIcon
+
+    - 표 한 칸에 표시가 겹칠 때 아이콘을 하나만 쓸 수 있는 DecorationRole에 담기 위해 씀
+    - 각 아이콘은 같은 정사각 크기로 그려 전체 폭은 `size * len(specs)`
+    """
+    icons = [
+        get_icon(name, color=color, size=size, palette=palette) for name, color in specs
+    ]
+    icon = QIcon()
+    span = size * len(icons)
+    for scale in (1, 2):
+        pixmap = QPixmap(QSize(span * scale, size * scale))
+        pixmap.fill(QColor(0, 0, 0, 0))
+        painter = QPainter(pixmap)
+        for position, part in enumerate(icons):
+            part.paint(
+                painter,
+                QRect(
+                    position * size * scale,
+                    0,
+                    size * scale,
+                    size * scale,
+                ),
+            )
+        painter.end()
+        icon.addPixmap(pixmap, QIcon.Mode.Normal)
     return icon
 
 

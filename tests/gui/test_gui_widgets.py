@@ -1345,12 +1345,12 @@ class TestGUIWidgetsModule(GuiTestCase):
 
     def test_filter_bar_review_chip_visibility_count_and_toggle(self) -> None:
         """여백 확인 필요 칩이 개수가 있을 때만 보이고, 누르면 시그널을 내보내는지 검증"""
-        from src.gui.widgets.filter_bar import REVIEW_CHIP_LABEL, REVIEW_CHIP_TOOLTIP
+        from src.gui.widgets.filter_bar_chips import REVIEW_CHIP_LABEL, REVIEW_CHIP_TOOLTIP
 
         bar = FilterTuningBar()
         self.addCleanup(bar.close)
-        events: list[bool] = []
-        bar.review_filter_toggled.connect(events.append)
+        events: list[tuple[bool, bool]] = []
+        bar.chip_filters_changed.connect(lambda review, vary: events.append((review, vary)))
         self.assertTrue(bar.btn_review_filter.isHidden())
 
         bar.set_review_flagged_count(3)
@@ -1362,13 +1362,13 @@ class TestGUIWidgetsModule(GuiTestCase):
 
         bar.btn_review_filter.click()
         self.assertTrue(bar.review_filter_enabled)
-        self.assertEqual(events, [True])
+        self.assertEqual(events, [(True, False)])
 
         # 초기화는 켜짐만 풀고 칩은 개수가 남아 있는 동안 그대로 둠
-        bar.clear_review_filter()
+        bar.clear_chip_filters()
         self.assertFalse(bar.review_filter_enabled)
         self.assertFalse(bar.btn_review_filter.isHidden())
-        self.assertEqual(events, [True])
+        self.assertEqual(events, [(True, False)])
 
         bar.set_review_flagged_count(0)
         self.assertTrue(bar.btn_review_filter.isHidden())

@@ -20,12 +20,16 @@ from PyQt6.QtWidgets import (
 )
 
 from src.gui.styles.palettes import ThemePalette
+from src.gui.table.frame_analysis_cells import CELL_ICON_SIZE_PX
 from src.gui.theme import ThemeManager
 
 # - 표 뷰가 검색 강조 대상을 담아 두는 속성 이름, 델리게이트는 이 값을 읽어 강조를 그림
 SEARCH_QUERY_ATTRIBUTE: str = "search_highlight_query"
+# - 한 칸에 아이콘을 여러 개 나란히 그릴 때 아이콘 그림의 가로 폭(기본 아이콘 폭의 배수).
+#   이 역할이 없으면 기본 12px 정사각 하나로 그림
+CELL_ICON_WIDTH_ROLE: int = int(Qt.ItemDataRole.UserRole) + 5
 # - 셀 아이콘과 글자 사이 간격, 글자 좌우 여백. 표 델리게이트와 같은 값을 씀
-_CELL_ICON_PX: int = 12
+_CELL_ICON_PX: int = CELL_ICON_SIZE_PX
 _CELL_ICON_GAP_PX: int = 4
 _CELL_H_PADDING_PX: int = 4
 
@@ -34,6 +38,12 @@ def search_query_of(widget: QWidget | None) -> str:
     """뷰가 들고 있는 지금 검색어, 강조가 없으면 빈 문자열"""
     value = getattr(widget, SEARCH_QUERY_ATTRIBUTE, "")
     return value if isinstance(value, str) else ""
+
+
+def icon_width_of(index: QModelIndex, base_px: int) -> int:
+    """셀 아이콘 그림의 가로 폭. 여러 아이콘을 나란히 담은 셀은 그 배수만큼 넓힘"""
+    width = index.data(CELL_ICON_WIDTH_ROLE)
+    return width if isinstance(width, int) and width > 0 else base_px
 
 
 def split_search_segments(text: str, query: str) -> list[tuple[str, bool]]:
@@ -183,14 +193,15 @@ def paint_plain_cell_with_icon(
     rect = QRectF(option.rect)
     icon = index.data(Qt.ItemDataRole.DecorationRole)
     if isinstance(icon, QIcon) and not icon.isNull():
+        icon_w = icon_width_of(index, _CELL_ICON_PX)
         icon_rect = QRect(
             option.rect.x() + _CELL_H_PADDING_PX,
             option.rect.y() + (option.rect.height() - _CELL_ICON_PX) // 2,
-            _CELL_ICON_PX,
+            icon_w,
             _CELL_ICON_PX,
         )
         icon.paint(painter, icon_rect)
-        rect.setLeft(rect.left() + _CELL_ICON_PX + _CELL_ICON_GAP_PX)
+        rect.setLeft(rect.left() + icon_w + _CELL_ICON_GAP_PX)
     rect = rect.adjusted(_CELL_H_PADDING_PX, 0, -_CELL_H_PADDING_PX, 0)
 
     align_val = index.data(Qt.ItemDataRole.TextAlignmentRole)

@@ -14,6 +14,7 @@ from src.gui.constants import (
     FONT_UI_PT,
 )
 from src.gui.styles.palettes import ThemePalette
+from src.gui.table.frame_analysis_cells import CELL_ICON_SIZE_PX
 from src.gui.table.frame_analysis_columns import (
     ACTIVE_FRAME_HDR_TEXT,
     ACTIVE_FRAME_KEEP_FULL_TEXT,
@@ -23,6 +24,7 @@ from src.gui.table.frame_analysis_columns import (
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.table_search_highlight import (
     draw_cell_text,
+    icon_width_of,
     paint_plain_cell_with_icon,
     paint_plain_cell_with_search,
     paint_search_cell,
@@ -31,7 +33,7 @@ from src.gui.table.table_search_highlight import (
 from src.gui.theme import ThemeManager
 
 _ICON_TEXT_GAP_PX: int = 4
-_CELL_ICON_PX: int = 12
+_CELL_ICON_PX: int = CELL_ICON_SIZE_PX
 _CELL_H_PADDING_PX: int = 4
 _BADGE_PAD_X_PX: int = 10
 _BADGE_MARGIN_PX: int = 8
@@ -465,17 +467,18 @@ class IconTextDelegate(_PaletteDelegateBase):
         painter.setPen(fg_color)
 
         fm = painter.fontMetrics()
-        max_text_w = max(option.rect.width() - _CELL_ICON_PX - _ICON_TEXT_GAP_PX - _CELL_H_PADDING_PX * 2, 0)
+        icon_w = icon_width_of(index, _CELL_ICON_PX)
+        max_text_w = max(option.rect.width() - icon_w - _ICON_TEXT_GAP_PX - _CELL_H_PADDING_PX * 2, 0)
         elided_text = fm.elidedText(text, Qt.TextElideMode.ElideRight, max_text_w)
         text_w = fm.horizontalAdvance(elided_text)
-        total_w = _CELL_ICON_PX + _ICON_TEXT_GAP_PX + text_w
+        total_w = icon_w + _ICON_TEXT_GAP_PX + text_w
 
         start_x = option.rect.x() + max((option.rect.width() - total_w) // 2, _CELL_H_PADDING_PX)
         icon_y = option.rect.y() + (option.rect.height() - _CELL_ICON_PX) // 2
-        icon.paint(painter, QRect(start_x, icon_y, _CELL_ICON_PX, _CELL_ICON_PX))
+        icon.paint(painter, QRect(start_x, icon_y, icon_w, _CELL_ICON_PX))
 
         text_rect = QRect(
-            start_x + _CELL_ICON_PX + _ICON_TEXT_GAP_PX,
+            start_x + icon_w + _ICON_TEXT_GAP_PX,
             option.rect.y(),
             text_w,
             option.rect.height(),

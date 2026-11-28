@@ -32,7 +32,7 @@ FRAME_ANALYSIS_WORK_DIR: str = os.path.join(tempfile.gettempdir(), "video_script
 
 @dataclass(frozen=True, slots=True)
 class FrameCacheSnapshot:
-    """표에 반영할 화질 분석 캐시 한 벌: 요청, 결과, 영상별 지정, 여백 확인 필요 표시"""
+    """표에 반영할 화질 분석 캐시 한 벌: 요청, 결과, 영상별 지정, 여백 확인과 구간별 여백 차이 표시"""
 
     root_dir: str
     requests: list[FrameAnalysisRequest]
@@ -41,6 +41,7 @@ class FrameCacheSnapshot:
     crop_excluded: frozenset[str]
     manual_frames: dict[str, ActiveFrame]
     review_flagged: frozenset[str]
+    vary_flagged: frozenset[str]
 
 
 def frame_cache_service(
@@ -139,7 +140,8 @@ def run_frame_cache_load(
         manual_vr=names_for_paths(evaluations, root_dir, overrides),
         crop_excluded=names_for_paths(evaluations, root_dir, exclusions),
         manual_frames=frames,
-        review_flagged=frozenset(flagged),
+        review_flagged=frozenset(name for name, status in flagged.items() if status.flagged),
+        vary_flagged=frozenset(name for name, status in flagged.items() if status.margins_vary),
     )
 
 

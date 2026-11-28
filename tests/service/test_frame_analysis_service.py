@@ -409,6 +409,26 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertEqual(set(moved), {"flagged.mp4"})
         self.assertTrue(moved["flagged.mp4"].hold_applies)
 
+    def test_crop_review_statuses_report_margins_vary_rows(self) -> None:
+        """구간별 여백 차이가 있는 영상도 표시 대상으로 남고 확인하거나 잘라내기를 끄면 빠지는지 검증"""
+        service = self.make_service(FakeStderrRunner())
+        varying = replace(make_frame_record("vary.mp4"), margins_vary=True)
+        plain = make_frame_record("plain.mp4")
+        self.store.save(varying)
+        self.store.save(plain)
+        requests = [_request("vary.mp4"), _request("plain.mp4")]
+
+        statuses = service.crop_review_statuses(requests)
+        self.assertEqual(set(statuses), {"vary.mp4"})
+        self.assertTrue(statuses["vary.mp4"].margins_vary)
+        # - 구간별 여백 차이는 안내만 하고 자동 잘라내기를 보류하지 않음
+        self.assertFalse(statuses["vary.mp4"].flagged)
+        self.assertFalse(statuses["vary.mp4"].hold_applies)
+
+        self.assertEqual(service.crop_review_statuses(requests, crop_enabled=False), {})
+        self.store.set_crop_review_acknowledged("vary.mp4", varying.active_region)
+        self.assertEqual(service.crop_review_statuses(requests), {})
+
     def test_crop_review_ack_is_dropped_for_a_changed_region_or_changed_file(self) -> None:
         """저장한 영역과 다른 분석 결과나 바뀐 파일은 확인 표시를 버리는지 검증"""
         service = self.make_service(FakeStderrRunner())

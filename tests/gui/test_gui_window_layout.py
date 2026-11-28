@@ -159,6 +159,44 @@ class TestGUIWindowLayout(GuiWindowTestCase):
         self.assertTrue(mw.filter_bar.btn_reset_filters.isHidden())
         self.assertFalse(view.empty_overlay.isVisible())
 
+    def test_vary_chip_toggle_joins_the_review_chip_or_filter(self) -> None:
+        """구간별 여백 차이 칩도 표를 걸러 필터 요약과 초기화 버튼을 함께 갱신하는지 검증"""
+        mw, _ = self._loaded_window()
+        mw.filter_bar.set_vary_flagged_count(1)
+
+        mw.filter_bar.btn_vary_filter.click()
+        self.assertTrue(mw.proxy_model.vary_only)
+        self.assertFalse(mw.filter_bar.btn_reset_filters.isHidden())
+
+        mw.filter_bar.btn_review_filter.click()
+        self.assertTrue(mw.proxy_model.review_only)
+        self.assertTrue(mw.proxy_model.vary_only)
+
+        mw.filter_bar.btn_vary_filter.click()
+        self.assertTrue(mw.proxy_model.review_only)
+        self.assertFalse(mw.proxy_model.vary_only)
+
+        mw.filter_bar.btn_review_filter.click()
+        self.assertFalse(mw.proxy_model.review_only)
+        self.assertTrue(mw.filter_bar.btn_reset_filters.isHidden())
+
+    def test_reset_filters_clears_both_chips_and_sticky_rows(self) -> None:
+        """필터 초기화가 두 칩과 칩 필터 안 확인 행 고정을 함께 푸는지 검증"""
+        mw, _ = self._loaded_window()
+        mw.filter_bar.set_review_flagged_count(1)
+        mw.filter_bar.set_vary_flagged_count(1)
+        mw.filter_bar.btn_review_filter.click()
+        mw.proxy_model.add_sticky({"a.mp4": "manual"})
+        self.assertEqual(mw.proxy_model.sticky_acknowledged(), {"a.mp4": "manual"})
+
+        mw.filter_bar.reset_filters_requested.emit()
+        _APP.processEvents()
+        self.assertFalse(mw.proxy_model.review_only)
+        self.assertFalse(mw.proxy_model.vary_only)
+        self.assertEqual(mw.proxy_model.sticky_acknowledged(), {})
+        self.assertFalse(mw.filter_bar.review_filter_enabled)
+        self.assertFalse(mw.filter_bar.vary_filter_enabled)
+
     def test_footer_summary_follows_selection(self) -> None:
         """선택이 없으면 푸터 요약이 숨겨지고, 원본 보존 행 선택은 참고 표기 없이 구간 합계만, 다중 선택은 개수와 길이를 표시함을 검증"""
         mw, _ = self._loaded_window()

@@ -310,6 +310,14 @@ def needs_crop_review(region: ActiveRegion) -> bool:
     return region.has_black_bars and region.dark_outliers_ignored
 
 
+def needs_margins_vary_review(region: ActiveRegion) -> bool:
+    """구간마다 여백이 달라 합집합으로만 잡힌 영상인지(사람 확인 권장)
+
+    - 전체 프레임이면 잡은 여백 자체가 없으므로 대상이 아님
+    """
+    return region.has_black_bars and region.margins_vary
+
+
 def review_holds_automatic_crop(
     region: ActiveRegion,
     *,

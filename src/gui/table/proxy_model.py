@@ -1,5 +1,6 @@
 """검색어, 동적 열 필터링 및 자연 정렬 지원 프록시 모델 모듈"""
 
+from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from typing import Any
 
@@ -27,6 +28,8 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
 
     column_filters_changed = pyqtSignal()
     sort_keys_changed = pyqtSignal()
+    # - 칩 필터 안에 고정한 확인 행이나 그 확인 방법이 바뀌면 알림(표가 흐린 확인 아이콘을 다시 그림)
+    sticky_changed = pyqtSignal()
     # - 표 셀 검색 강조가 따라갈 지금 검색어, 강조를 그리는 델리게이트가 이 신호로 다시 그림
     search_text_changed = pyqtSignal(str)
     # - 재평가 한 번의 시작과 끝, 그룹 프록시가 이 사이의 행 변경 신호를 모아 한 번만 다시 만듦
@@ -38,20 +41,92 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         self._search_text: str = DEFAULT_FILTER_SEARCH
         self._search_display: str = ""
         self._column_filters: dict[int, ColumnFilterRule] = {}
-        # - 여백 확인 필요 칩이 켜지면 보류 영상만 남김. 열 필터와 별개로 저장하지 않음
+        # - 칩 필터(여백 확인 필요, 구간별 여백 차이)는 OR로 합침. 열 필터와 별개로 저장하지 않음
         self._review_only: bool = False
+        self._vary_only: bool = False
+        # - 칩 필터가 켜진 동안 확인 처리해 표에 남긴 파일명과 확인 방법(manual/reset/full).
+        #   칩을 끄거나 폴더를 다시 읽으면 비움
+        self._sticky: dict[str, str] = {}
+        # - 마지막으로 본 파일 이름 목록. 목록이 바뀌면 고정을 풀어 다른 폴더의 행이 남지 않게 함
+        self._source_names: set[str] = set()
         self.setDynamicSortFilter(True)
 
     def is_any_filter_active(self) -> bool:
-        """검색어, 열 헤더 필터, 여백 확인 필요 칩 중 하나라도 활성화되었는지 반환"""
-        return bool(self._search_text or self._column_filters or self._review_only)
+        """검색어, 열 헤더 필터, 칩 필터 중 하나라도 활성화되었는지 반환"""
+        return bool(self._search_text or self._column_filters or self._review_only or self._vary_only)
+
+    @property
+    def chip_filter_active(self) -> bool:
+        """칩 필터(여백 확인 필요, 구간별 여백 차이)가 하나라도 켜져 있는지"""
+        return self._review_only or self._vary_only
+
+    def set_chip_filters(self, *, review: bool, vary: bool) -> None:
+        """두 칩 필터 상태를 적용하고, 모두 꺼지면 고정 행을 풂
+
+        - 칩이 하나라도 켜져 있는 동안 확인한 행은 고정 목록에 남겨 표에서 사라지지 않게 함
+        """
+        if self._review_only == review and self._vary_only == vary:
+            return
+        self._review_only = review
+        self._vary_only = vary
+        had_sticky = bool(self._sticky)
+        if not (review or vary):
+            self._sticky.clear()
+        self._refilter()
+        if had_sticky and not self._sticky:
+            self.sticky_changed.emit()
 
     def set_review_only(self, enabled: bool) -> None:
         """여백 확인 필요 영상만 보기 칩 상태를 적용하고 필터 재평가"""
-        if self._review_only == enabled:
+        self.set_chip_filters(review=enabled, vary=self._vary_only)
+
+    def sticky_acknowledged(self) -> dict[str, str]:
+        """지금 칩 필터 안에 고정된 확인 행의 파일명과 확인 방법 사본"""
+        return dict(self._sticky)
+
+    def add_sticky(self, kinds: Mapping[str, str]) -> None:
+        """칩 필터가 켜져 있는 동안 확인한 행을 그 확인 방법과 함께 표에 고정"""
+        if not self.chip_filter_active:
             return
-        self._review_only = enabled
+        before = dict(self._sticky)
+        self._sticky.update({name: kind for name, kind in kinds.items() if name})
+        if self._sticky == before:
+            return
         self._refilter()
+        self.sticky_changed.emit()
+
+    def discard_sticky(self, names: Iterable[str], *, kind: str) -> None:
+        """확인 방법이 kind인 고정 행만 풀어 표시 대상으로 되돌림
+
+        - 확인 취소처럼 확인한 조치가 더 이상 유효하지 않을 때, 다른 방법으로 확인한 행은 그대로 둠
+        """
+        stale = {name for name in names if self._sticky.get(name) == kind}
+        if not stale:
+            return
+        for name in stale:
+            del self._sticky[name]
+        self._refilter()
+        self.sticky_changed.emit()
+
+    def clear_sticky(self) -> None:
+        """고정 목록을 비워 확인한 행을 표에서 다시 뺌"""
+        if not self._sticky:
+            return
+        self._sticky.clear()
+        self._refilter()
+        self.sticky_changed.emit()
+
+    def reset_chip_filters(self) -> None:
+        """필터 초기화에서 두 칩 필터와 고정 목록을 함께 끔"""
+        if not (self._review_only or self._vary_only or self._sticky):
+            return
+        had_sticky = bool(self._sticky)
+        self._review_only = False
+        self._vary_only = False
+        self._sticky.clear()
+        self._refilter()
+        if had_sticky:
+            self.sticky_changed.emit()
 
     def refilter(self) -> None:
         """표시 값이 바뀐 뒤 필터를 다시 평가"""
@@ -61,6 +136,11 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
     def review_only(self) -> bool:
         """여백 확인 필요 영상만 보는 중인지"""
         return self._review_only
+
+    @property
+    def vary_only(self) -> bool:
+        """구간별 여백 차이 영상만 보는 중인지"""
+        return self._vary_only
 
     def iter_visible_evaluations(self) -> list[VideoEvaluation]:
         """현재 필터 조건을 통과해 화면에 표시 중인 VideoEvaluation 목록 반환"""
@@ -107,9 +187,34 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         if isinstance(prev, VideoTableModel):
             with suppress(TypeError):
                 prev.config_changed.disconnect(self._on_source_config_changed)
+            with suppress(TypeError):
+                prev.root_changed.disconnect(self._on_source_root_changed)
+            with suppress(TypeError):
+                prev.modelReset.disconnect(self._on_source_reset)
         super().setSourceModel(sourceModel)
         if isinstance(sourceModel, VideoTableModel):
             sourceModel.config_changed.connect(self._on_source_config_changed)
+            # - 폴더를 다시 읽으면 이전 폴더에서 고정한 확인 행이 남지 않게 비움
+            sourceModel.root_changed.connect(self._on_source_root_changed)
+            sourceModel.modelReset.connect(self._on_source_reset)
+
+    def _on_source_root_changed(self) -> None:
+        """작업 폴더가 바뀌면 칩 필터 안 확인 행 고정을 풂"""
+        self.clear_sticky()
+
+    def _on_source_reset(self) -> None:
+        """파일 목록을 다시 읽어 이름 목록이 바뀌면 칩 필터 안 확인 행 고정을 풂
+
+        - 재평가처럼 같은 목록을 다시 반영할 때는 고정을 그대로 둠
+        """
+        model = self.sourceModel()
+        if not isinstance(model, VideoTableModel):
+            return
+        names = {ev.video.filename for ev in model.evaluations}
+        if names == self._source_names:
+            return
+        self._source_names = names
+        self.clear_sticky()
 
     def _on_source_config_changed(self) -> None:
         # - 설정이 바뀌면 수치 구간 키가 새로 만들어지므로, 사라진 키를 먼저 버려야 필터가 표를 비우지 않음
@@ -222,9 +327,16 @@ class VideoSortFilterProxyModel(QSortFilterProxyModel):
         ):
             return False
 
-        # 2. 여백 확인 필요 칩
-        if self._review_only and not model.is_review_flagged(ev.video.filename):
-            return False
+        # 2. 칩 필터(여백 확인 필요, 구간별 여백 차이). 두 칩이 함께 켜지면 OR로 합침
+        if self.chip_filter_active:
+            filename = ev.video.filename
+            # - 이번 칩 필터 세션에서 확인한 행은 문제가 풀렸어도 표에 남김
+            if filename not in self._sticky:
+                flagged = (self._review_only and model.is_review_flagged(filename)) or (
+                    self._vary_only and model.is_vary_flagged(filename)
+                )
+                if not flagged:
+                    return False
 
         # 3. 열 데이터 타입 기반 동적 필터 (AND 결합)
         cfg = model.config

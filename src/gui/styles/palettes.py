@@ -72,6 +72,10 @@ class ThemePalette:
     badge_pending: tuple[str, str, str]
     badge_exception: tuple[str, str, str]
     badge_encode_running: tuple[str, str, str]
+    # 구간별 여백 차이 강조: (배경색, 글자색, 테두리색)
+    badge_vary: tuple[str, str, str]
+    # 구간별 여백 차이 아이콘 색
+    fg_vary_icon: str
 
     # 인코딩 진행 행 강조: 행 배경색과 파일명 열 왼쪽 띠 색
     row_running_bg: str
@@ -175,6 +179,8 @@ DARK_PALETTE = ThemePalette(
     badge_pending=("#362409", "#FBBF24", "#B45309"),
     badge_exception=("#1E1B4B", "#A5B4FC", "#4338CA"),
     badge_encode_running=("#123829", "#6EE7B7", "#10B981"),
+    badge_vary=("#352C22", "#DFCBB2", "#8C7357"),
+    fg_vary_icon="#CFAF88",
     row_running_bg="#123829",
     row_running_accent="#10B981",
     row_paused_bg="#3D2B0D",
@@ -241,6 +247,8 @@ LIGHT_PALETTE = ThemePalette(
     badge_pending=("#FEF3C7", "#92400E", "#F59E0B"),
     badge_exception=("#E0E7FF", "#3730A3", "#818CF8"),
     badge_encode_running=("#D1FAE5", "#065F46", "#059669"),
+    badge_vary=("#EDE4D8", "#523F2D", "#AD9377"),
+    fg_vary_icon="#7A5C3E",
     row_running_bg="#D1FAE5",
     row_running_accent="#059669",
     row_paused_bg="#FDE68A",

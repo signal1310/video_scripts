@@ -16,6 +16,7 @@ from src.gui.styles.icons import (
     create_icon_button,
     get_active_palette,
     get_icon,
+    get_stacked_icon,
     resolve_qss_icon_path,
     set_active_palette,
     set_button_icon,
@@ -75,6 +76,33 @@ class SvgTests(unittest.TestCase):
         for palette in (LIGHT_PALETTE, DARK_PALETTE):
             icon = get_icon("crop-off", color=palette.media_fg, size=16)
             self.assertFalse(icon.pixmap(16, 16).toImage().isNull())
+
+
+    def test_margins_vary_icon_is_registered_and_renders_in_both_themes(self) -> None:
+        """구간별 여백 차이 아이콘이 바깥 프레임과 점선 프레임으로 등록되고 두 테마에서 그려지는지 검증"""
+        template = module.SVG_TEMPLATES["margins-vary"]
+        self.assertIn('stroke-dasharray="2.5 2"', template)
+        self.assertEqual(2, template.count("<rect"))
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            icon = get_icon("margins-vary", color=palette.fg_vary_icon, size=12, palette=palette)
+            self.assertFalse(icon.pixmap(12, 12).toImage().isNull())
+
+    def test_stacked_icon_doubles_the_width_and_keeps_the_first_color(self) -> None:
+        """두 아이콘을 나란히 담은 아이콘이 두 배 폭이고 왼쪽에 첫 아이콘 색을 남기는지 검증"""
+        specs = [
+            ("alert-triangle", DARK_PALETTE.badge_pending[1]),
+            ("margins-vary", DARK_PALETTE.fg_vary_icon),
+        ]
+        icon = get_stacked_icon(specs, size=12, palette=DARK_PALETTE)
+        self.assertEqual(QSize(24, 12), icon.availableSizes()[0])
+        image = icon.pixmap(24, 12).toImage()
+        left_colors = {
+            image.pixelColor(x, y).name().lower()
+            for x in range(12)
+            for y in range(image.height())
+            if image.pixelColor(x, y).alpha() == 255
+        }
+        self.assertIn(DARK_PALETTE.badge_pending[1].lower(), left_colors)
 
 
 class PaletteTests(unittest.TestCase):

@@ -6,14 +6,12 @@ from PyQt6.QtCore import QEvent, QObject, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QActionGroup,
-    QFontMetrics,
     QResizeEvent,
     QShowEvent,
 )
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
-    QLabel,
     QLayout,
     QLineEdit,
     QMenu,
@@ -38,6 +36,18 @@ from src.gui.styles.icons import (
 )
 from src.gui.styles.palettes import ThemePalette
 from src.gui.theme import ThemeAwareMixin
+from src.gui.widgets.filter_bar_chips import (
+    CHIP_REVIEW,
+    CHIP_SPECS,
+    CHIP_VARY,
+    COUNT_BADGE_OFFSET_PX,
+    REVIEW_CHIP_LABEL,
+    REVIEW_CHIP_TOOLTIP,
+    VARY_CHIP_LABEL,
+    VARY_CHIP_TOOLTIP,
+    FilterBarCountBadge,
+    count_badge_style,
+)
 
 __all__ = ["FilterTuningBar"]
 
@@ -55,9 +65,6 @@ SEARCH_DEBOUNCE_MS: int = 150
 COMPACT_TOOLTIP: str = "셀 여백과 행 높이를 줄여 한 화면에 더 많은 영상을 표시합니다."
 ROW_GROUP_TOOLTIP: str = "영상을 폴더나 범주형 열 값으로 묶어 접을 수 있는 그룹 머리글을 표시합니다."
 COLUMN_PRESET_TOOLTIP_TEMPLATE: str = "표에 표시할 열 묶음을 고릅니다. {labels} 중에서 선택합니다."
-# - 여백 확인 필요 칩: 이름은 TERMINOLOGY 4.5절 표준어, 개수는 결과 상태 필터와 같은 `이름 N` 형식
-REVIEW_CHIP_LABEL: str = "여백 확인 필요"
-REVIEW_CHIP_TOOLTIP: str = "자동 잘라내기를 보류한 영상만 봅니다."
 # - 좁은 창 단계별 접힘: 1단계 필터 초기화/칩, 2단계 열/그룹 드롭다운. 좁게 보기와 예외 규칙은 늘 아이콘만 씀
 COLLAPSE_LEVEL_FULL: int = 0
 COLLAPSE_LEVEL_CHIPS: int = 1
@@ -67,54 +74,10 @@ SEARCH_MIN_WIDTH_PX: int = 220
 SEARCH_COMPACT_MIN_WIDTH_PX: int = 140
 # - 글자 폭 합계가 가용 폭과 같아지는 경계에서 잘리지 않도록 남기는 여유
 COLLAPSE_SAFETY_MARGIN_PX: int = 6
-COUNT_BADGE_OFFSET_PX: int = 2
-COUNT_BADGE_HEIGHT_PX: int = 14
-COUNT_BADGE_PADDING_X_PX: int = 2
 BAR_ICON_SIZE_PX: int = 14
 # - 예외 규칙 배지는 아이콘 오른쪽에 붙이므로 아이콘 그림에 배지 폭과 사이 여백을 더함
 EXCEPTION_BADGE_GAP_PX: int = 4
 CURRENT_VALUE_TOOLTIP_TEMPLATE: str = "{base}\n현재 값: {value}"
-
-
-def _count_badge_style(palette: ThemePalette, tone: str) -> str:
-    """접힌 칩 배지의 배경, 글자색. 여백 확인 칩은 경고색, 열 필터 칩은 액센트색"""
-    if tone == "review":
-        background, foreground = palette.badge_pending[2], palette.text_on_accent
-    else:
-        background, foreground = palette.accent_blue, palette.text_on_accent
-    return (
-        f"QLabel#FilterBarCountBadge {{ background-color: {background};"
-        f" color: {foreground}; border-radius: 7px;"
-        f" padding: 0px {COUNT_BADGE_PADDING_X_PX}px; font-size: 8pt; font-weight: 700; }}"
-    )
-
-
-class FilterBarCountBadge(QLabel):
-    """접힌 칩 버튼 오른쪽 위에 개수를 겹쳐 보여 주는 작은 배지"""
-
-    def __init__(self, parent: QWidget) -> None:
-        super().__init__(parent)
-        self.setObjectName("FilterBarCountBadge")
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # - 배지는 표시 전용이므로 클릭은 부모 버튼이 그대로 받음
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setFixedHeight(COUNT_BADGE_HEIGHT_PX)
-        self._count: int = 0
-        self.setVisible(False)
-
-    @property
-    def count(self) -> int:
-        """배지에 그려진 개수"""
-        return self._count
-
-    def set_count(self, count: int) -> None:
-        """배지에 그릴 개수를 바꾸고 자릿수에 맞춰 폭을 다시 계산"""
-        self._count = max(0, count)
-        text = str(self._count)
-        self.setText(text)
-        metrics = QFontMetrics(self.font())
-        width = metrics.horizontalAdvance(text) + COUNT_BADGE_PADDING_X_PX * 2
-        self.setFixedWidth(max(width, COUNT_BADGE_HEIGHT_PX))
 
 
 class FilterTuningBar(QFrame, ThemeAwareMixin):
@@ -135,8 +98,8 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
     row_group_menu_opening = pyqtSignal()
     expand_all_groups_requested = pyqtSignal()
     collapse_all_groups_requested = pyqtSignal()
-    # - 여백 확인 필요 칩 켜짐 여부
-    review_filter_toggled = pyqtSignal(bool)
+    # - 두 필터 칩(여백 확인 필요, 구간별 여백 차이)의 켜짐 상태를 한 번에 알림
+    chip_filters_changed = pyqtSignal(bool, bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -153,6 +116,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self._collapse_groups_action: QAction | None = None
         self._row_group_emitting: bool = False
         self._review_flagged_count: int = 0
+        self._vary_flagged_count: int = 0
         self._column_filter_count: int = 0
         # - 접힘 단계(0..3)와 재진입 방지, 프리셋 키와 묶기 값은 접힌 뒤 툴팁에 다시 쓰기 위해 기억
         self._collapse_level: int = COLLAPSE_LEVEL_FULL
@@ -206,16 +170,9 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         self.btn_clear_col_filters.clicked.connect(self.clear_column_filters_requested.emit)
         self._clear_col_filters_badge = FilterBarCountBadge(self.btn_clear_col_filters)
 
-        # - 여백 확인 필요 영상이 있을 때만 보이는 누름 상태 칩. 검색창 바로 오른쪽에 둠
-        self.btn_review_filter = QPushButton("", self)
-        self.btn_review_filter.setObjectName("ReviewFilterChip")
-        self.btn_review_filter.setCheckable(True)
-        self.btn_review_filter.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_review_filter.setToolTip(REVIEW_CHIP_TOOLTIP)
-        self.btn_review_filter.setAccessibleName(REVIEW_CHIP_LABEL)
-        self.btn_review_filter.setVisible(False)
-        self.btn_review_filter.toggled.connect(self._on_review_filter_toggled)
-        self._review_filter_badge = FilterBarCountBadge(self.btn_review_filter)
+        # - 여백 확인 필요, 구간별 여백 차이 영상이 있을 때만 보이는 누름 상태 칩. 검색창 바로 오른쪽에 둠
+        self.btn_review_filter, self._review_filter_badge = self._create_chip(CHIP_SPECS[0])
+        self.btn_vary_filter, self._vary_filter_badge = self._create_chip(CHIP_SPECS[1])
 
         self.btn_reset_filters = QPushButton(RESET_BUTTON_TEXT, self)
         self.btn_reset_filters.setObjectName("ClearAllFiltersButton")
@@ -319,6 +276,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
 
         row.addWidget(self.search_edit, stretch=1)
         row.addWidget(self.btn_review_filter)
+        row.addWidget(self.btn_vary_filter)
         row.addWidget(self.btn_clear_col_filters)
         row.addWidget(self.btn_reset_filters)
         row.addWidget(divider)
@@ -329,10 +287,11 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         row.addWidget(self.btn_auto_fit)
         row.addWidget(self.btn_compact)
 
-        # - 여백 확인 필요 칩은 글자에 개수가 붙어도 접근성 이름은 이름 그대로 유지
+        # - 칩은 글자에 개수가 붙어도 접근성 이름은 이름 그대로 유지
         self._accessible_names = {
             self.btn_clear_col_filters: "열 필터 해제",
             self.btn_review_filter: REVIEW_CHIP_LABEL,
+            self.btn_vary_filter: VARY_CHIP_LABEL,
         }
         # - 좁게 보기와 예외 규칙은 늘 아이콘만 쓰므로 접힐 문구가 없음
         self._full_labels = {
@@ -352,17 +311,36 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self.btn_reset_filters: ("refresh-cw", 0),
             self.btn_clear_col_filters: ("filter", 0),
             self.btn_review_filter: ("alert-triangle", 0),
+            self.btn_vary_filter: ("margins-vary", 0),
         }
         self._icon_pads = {button: pad for button, (_name, pad) in self._icon_specs.items()}
         self._preset_base_tooltip = self.btn_column_preset.toolTip()
         # - 예외 규칙 툴팁과 배지는 규칙 수에 따라 바뀌므로 아이콘 준비 뒤에 계산
         self._refresh_exception_button()
-        for chip in (self.btn_clear_col_filters, self.btn_review_filter):
+        for chip in (self.btn_clear_col_filters, self.btn_review_filter, self.btn_vary_filter):
             chip.installEventFilter(self)
         self.btn_edit_exceptions.installEventFilter(self)
         # - 여기서부터 접힘 판단이 유효해져 최소 크기 질의가 접힌 폭 기준으로 답해짐
         self._collapse_ready = True
         self.init_theme_listener()
+
+    def _create_chip(
+        self, spec: tuple[str, str, str, str, str, str]
+    ) -> tuple[QPushButton, FilterBarCountBadge]:
+        """칩 명세로 누름 상태 칩과 그 개수 배지를 만듦
+
+        - 아이콘은 테마 반영 때 `_icon_specs`로 함께 다시 그림
+        """
+        _key, object_name, label, tooltip, _icon, _badge_tone = spec
+        button = QPushButton("", self)
+        button.setObjectName(object_name)
+        button.setCheckable(True)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip(tooltip)
+        button.setAccessibleName(label)
+        button.setVisible(False)
+        button.toggled.connect(self._on_chip_toggled)
+        return button, FilterBarCountBadge(button)
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
         """개수 배지를 겹쳐 둔 버튼의 폭이 바뀌면 배지 위치를 다시 잡음"""
@@ -371,6 +349,8 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
                 self._place_badge(self.btn_clear_col_filters, self._clear_col_filters_badge)
             elif a0 is self.btn_review_filter:
                 self._place_badge(self.btn_review_filter, self._review_filter_badge)
+            elif a0 is self.btn_vary_filter:
+                self._place_badge(self.btn_vary_filter, self._vary_filter_badge)
             elif a0 is self.btn_edit_exceptions:
                 self._place_exception_badge()
         return super().eventFilter(a0, a1)
@@ -413,6 +393,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self.btn_reset_filters: COLLAPSE_LEVEL_CHIPS,
             self.btn_clear_col_filters: COLLAPSE_LEVEL_CHIPS,
             self.btn_review_filter: COLLAPSE_LEVEL_CHIPS,
+            self.btn_vary_filter: COLLAPSE_LEVEL_CHIPS,
             self.btn_column_preset: COLLAPSE_LEVEL_DROPDOWNS,
             self.btn_row_group: COLLAPSE_LEVEL_DROPDOWNS,
         }
@@ -435,6 +416,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         return [
             self.search_edit,
             self.btn_review_filter,
+            self.btn_vary_filter,
             self.btn_clear_col_filters,
             self.btn_reset_filters,
             self._row_divider,
@@ -524,6 +506,12 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
             self._review_flagged_count,
             chips_collapsed,
         )
+        self._update_badge(
+            self.btn_vary_filter,
+            self._vary_filter_badge,
+            self._vary_flagged_count,
+            chips_collapsed,
+        )
         self._sync_icon_padding()
         self._refresh_collapsed_tooltips()
 
@@ -599,6 +587,13 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
                 COLLAPSE_LEVEL_CHIPS,
             )
         )
+        self.btn_vary_filter.setToolTip(
+            self._tooltip_with_value(
+                VARY_CHIP_TOOLTIP,
+                f"{VARY_CHIP_LABEL} {self._vary_flagged_count}",
+                COLLAPSE_LEVEL_CHIPS,
+            )
+        )
 
     def _tooltip_with_value(self, base: str, value: str, step: int) -> str:
         """이 버튼이 접힌 단계면 기본 툴팁 아래에 현재 값을 덧붙임"""
@@ -623,14 +618,26 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         - 0이 아닌 동안에는 칩이 필터 해제 뒤에도 남아 다시 켤 수 있음
         """
         self._review_flagged_count = max(0, count)
-        if self._review_flagged_count <= 0:
-            # - 칩을 숨기기 전에 꺼짐을 알려 프록시의 보기 필터도 함께 풀리게 함
-            self.btn_review_filter.setChecked(False)
-            self.btn_review_filter.setVisible(False)
+        self._apply_chip_visibility(
+            self.btn_review_filter, REVIEW_CHIP_LABEL, self._review_flagged_count
+        )
+
+    def set_vary_flagged_count(self, count: int) -> None:
+        """구간별 여백 차이 영상 수를 칩 라벨에 반영하고, 0이면 칩을 숨김"""
+        self._vary_flagged_count = max(0, count)
+        self._apply_chip_visibility(
+            self.btn_vary_filter, VARY_CHIP_LABEL, self._vary_flagged_count
+        )
+
+    def _apply_chip_visibility(self, button: QPushButton, label: str, count: int) -> None:
+        """칩 개수 문구와 노출을 맞추고, 0이면 켜짐을 먼저 풀어 프록시 필터도 함께 풀리게 함"""
+        if count <= 0:
+            button.setChecked(False)
+            button.setVisible(False)
             self._evaluate_collapse()
             return
-        self._set_button_label(self.btn_review_filter, f"{REVIEW_CHIP_LABEL} {self._review_flagged_count}")
-        self.btn_review_filter.setVisible(True)
+        self._set_button_label(button, f"{label} {count}")
+        button.setVisible(True)
         self._evaluate_collapse()
 
     @property
@@ -638,18 +645,26 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
         """여백 확인 필요 칩이 켜져 있는지 반환"""
         return self.btn_review_filter.isChecked()
 
-    def clear_review_filter(self) -> None:
-        """필터 초기화에서 여백 확인 필요 칩을 시그널 없이 끔(칩은 개수가 있는 동안 남음)"""
+    @property
+    def vary_filter_enabled(self) -> bool:
+        """구간별 여백 차이 칩이 켜져 있는지 반환"""
+        return self.btn_vary_filter.isChecked()
+
+    def clear_chip_filters(self) -> None:
+        """필터 초기화에서 두 칩을 시그널 없이 끔(칩은 개수가 있는 동안 남음)"""
         self._updating = True
         try:
             self.btn_review_filter.setChecked(False)
+            self.btn_vary_filter.setChecked(False)
         finally:
             self._updating = False
 
-    def _on_review_filter_toggled(self, checked: bool) -> None:
-        """칩 변화를 복원 중이 아닐 때만 알림"""
+    def _on_chip_toggled(self, _checked: bool) -> None:
+        """칩 변화를 복원 중이 아닐 때만 두 칩 상태를 한 번에 알림"""
         if not self._updating:
-            self.review_filter_toggled.emit(checked)
+            self.chip_filters_changed.emit(
+                self.btn_review_filter.isChecked(), self.btn_vary_filter.isChecked()
+            )
 
     def _on_preset_action(self, preset_key: str) -> None:
         """프리셋 메뉴 항목 선택을 라벨에 반영하고 시그널로 알림"""
@@ -938,6 +953,7 @@ class FilterTuningBar(QFrame, ThemeAwareMixin):
 
     def _style_count_badges(self, palette: ThemePalette) -> None:
         """개수 배지를 현재 테마 팔레트 색으로 다시 칠함"""
-        self._clear_col_filters_badge.setStyleSheet(_count_badge_style(palette, "clear"))
-        self._review_filter_badge.setStyleSheet(_count_badge_style(palette, "review"))
-        self._exception_badge.setStyleSheet(_count_badge_style(palette, "clear"))
+        self._clear_col_filters_badge.setStyleSheet(count_badge_style(palette, "clear"))
+        self._review_filter_badge.setStyleSheet(count_badge_style(palette, CHIP_REVIEW))
+        self._vary_filter_badge.setStyleSheet(count_badge_style(palette, CHIP_VARY))
+        self._exception_badge.setStyleSheet(count_badge_style(palette, "clear"))

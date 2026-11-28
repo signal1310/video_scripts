@@ -39,6 +39,7 @@ from src.gui.controllers.frame_cache_loader import (
 from src.gui.controllers.frame_progress_buffer import frame_analysis_stage_text
 from src.gui.frame_analysis_skip import SkipKind, skip_reason_for_batch_analysis
 from src.gui.menus.menu_bar import MainMenuController
+from src.gui.table.frame_analysis_columns import ACK_FULL, ACK_MANUAL, ACK_RESET
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
@@ -77,6 +78,7 @@ class _FakeModel:
         self.crop_excluded: frozenset[str] = frozenset()
         self.manual_frames: dict[str, object] = {}
         self.review_flagged: frozenset[str] = frozenset()
+        self.vary_flagged: frozenset[str] = frozenset()
         self.handlers: dict[str, object] = {}
 
     def set_frame_analysis_results(self, results: dict[str, FrameAnalysisResult]) -> None:
@@ -98,6 +100,9 @@ class _FakeModel:
     def set_review_flagged(self, names: Iterable[str]) -> None:
         self.review_flagged = frozenset(names)
 
+    def set_vary_flagged(self, names: Iterable[str]) -> None:
+        self.vary_flagged = frozenset(names)
+
     def is_manual_vr(self, filename: str) -> bool:
         return filename in self.manual_vr
 
@@ -108,10 +113,25 @@ class _FakeModel:
         return {"a.mp4": "720p"}
 
 
+class _FakeProxy:
+    def __init__(self) -> None:
+        self.sticky: dict[str, str] = {}
+        self.active: bool = False
+
+    def add_sticky(self, kinds: dict[str, str]) -> None:
+        self.sticky.update(kinds)
+
+    def discard_sticky(self, names: Iterable[str], *, kind: str) -> None:
+        for name in list(names):
+            if self.sticky.get(name) == kind:
+                del self.sticky[name]
+
+
 class _FakeView:
     def __init__(self) -> None:
         self.selection_changed = _Signal()
         self.table_model = _FakeModel()
+        self.proxy_model = _FakeProxy()
         self.selected: list[VideoEvaluation] = []
         self.hidden: set[int] = set()
 
@@ -897,6 +917,51 @@ class ControllerTests(_ControllerCase):
         controller.reload_cached()
         self.assertEqual(self.view.table_model.manual_frames, {"a.mp4": manual})
 
+    def test_set_manual_active_frame_pins_the_row_while_a_chip_filter_is_active(self) -> None:
+        """칩 필터가 켜진 동안 확인한 영상은 확인 방법과 함께 고정 목록에 담기는지 검증"""
+        controller = self.make_controller()
+        controller._flags.set(frozenset({"a.mp4"}), frozenset())
+        manual = ActiveFrame(1280, 720, 0, 180)
+
+        controller.set_manual_active_frame([self.ev], manual)
+        self.assertEqual(self.view.proxy_model.sticky, {"a.mp4": ACK_MANUAL})
+
+        controller._flags.set(frozenset(), frozenset({"a.mp4"}))
+        controller.set_manual_active_frame([self.ev], None)
+        self.assertEqual(self.view.proxy_model.sticky["a.mp4"], ACK_RESET)
+
+    def test_toggle_crop_exclusion_pins_flagged_rows_on_enable(self) -> None:
+        """잘라내기 제외를 켜면 표시 대상이던 영상을 전체 화면 유지로 고정하는지 검증"""
+        controller = self.make_controller()
+        controller._flags.set(frozenset({"a.mp4"}), frozenset({"a.mp4"}))
+
+        controller.toggle_crop_exclusion([self.ev], True)
+        self.assertEqual(self.view.proxy_model.sticky, {"a.mp4": ACK_FULL})
+
+    def test_toggle_crop_exclusion_unpins_full_acknowledged_rows_on_disable(self) -> None:
+        """제외를 끄면 전체 화면 유지로 고정한 행을 풀어 다시 표시 대상이 되게 하는지 검증"""
+        controller = self.make_controller()
+        controller._flags.set(frozenset({"a.mp4"}), frozenset({"a.mp4"}))
+        controller.toggle_crop_exclusion([self.ev], True)
+        self.assertEqual(self.view.proxy_model.sticky, {"a.mp4": ACK_FULL})
+
+        controller.toggle_crop_exclusion([self.ev], False)
+        self.assertEqual(self.view.proxy_model.sticky, {})
+
+    def test_toggle_crop_exclusion_keeps_manual_acknowledgement_on_disable(self) -> None:
+        """직접 지정으로 확인한 고정 행은 제외를 꺼도 그대로 남는지 검증"""
+        controller = self.make_controller()
+        self.view.proxy_model.add_sticky({"a.mp4": ACK_MANUAL})
+
+        controller.toggle_crop_exclusion([self.ev], False)
+        self.assertEqual(self.view.proxy_model.sticky, {"a.mp4": ACK_MANUAL})
+
+    def test_ignore_untracked_rows_when_pinning(self) -> None:
+        """표시 대상이 아니던 영상은 확인 처리해도 고정하지 않는지 검증"""
+        controller = self.make_controller()
+        controller.set_manual_active_frame([self.ev], ActiveFrame(1280, 720))
+        self.assertEqual(self.view.proxy_model.sticky, {})
+
     def test_apply_candidates_delegates_to_host(self) -> None:
         controller = self.make_controller()
         controller.apply_candidates([self.ev])
@@ -1285,13 +1350,17 @@ class _FakeHeader:
 
 
 class _FakeFilterBar:
-    """필터 바 대역: 여백 확인 필요 칩 개수 반영만 기록"""
+    """필터 바 대역: 두 칩 개수 반영만 기록"""
 
     def __init__(self) -> None:
         self.review_count: int = 0
+        self.vary_count: int = 0
 
     def set_review_flagged_count(self, count: int) -> None:
         self.review_count = count
+
+    def set_vary_flagged_count(self, count: int) -> None:
+        self.vary_count = count
 
 
 class _FakeWindow:

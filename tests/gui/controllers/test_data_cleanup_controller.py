@@ -175,6 +175,10 @@ class _ProxyModel:
         self.review_only = enabled
         self.review_calls.append(enabled)
 
+    def reset_chip_filters(self) -> None:
+        """두 칩 필터와 고정 행을 함께 끔"""
+        self.review_only = False
+
 
 class _FilterBar:
     """필터 바 대역"""
@@ -185,11 +189,11 @@ class _FilterBar:
         self.exception_tokens: list[str] = []
         self.disabled_exception_count: int = -1
         self.row_group: tuple[str, str, int] | None = None
-        self.review_filter_cleared: int = 0
+        self.chip_filters_cleared: int = 0
 
-    def clear_review_filter(self) -> None:
-        """여백 확인 필요 칩 해제 횟수 기록"""
-        self.review_filter_cleared += 1
+    def clear_chip_filters(self) -> None:
+        """두 필터 칩 해제 횟수 기록"""
+        self.chip_filters_cleared += 1
 
     def set_row_group(self, group_by: str, *, label: str, count: int) -> None:
         """행 묶기 버튼 글자 반영"""
@@ -958,8 +962,8 @@ class UiResetsTest(unittest.TestCase):
         self.assertEqual(self.window.table_view.group_model.expanded, 1)
         self.assertEqual(self.window.filter_bar.row_group, ("", "", 0))
         self.assertEqual(self.window.proxy_model.cleared, 1)
-        # - 칩은 시그널 없이 꺼지므로 프록시 보기 필터도 함께 풀려야 표가 걸러진 채 남지 않음
-        self.assertEqual(self.window.filter_bar.review_filter_cleared, 1)
+        # - 칩은 시그널 없이 꺼지므로 프록시 보기 필터와 고정 행도 함께 풀려야 표가 걸러진 채 남지 않음
+        self.assertEqual(self.window.filter_bar.chip_filters_cleared, 1)
         self.assertFalse(self.window.proxy_model.review_only)
         self.assertFalse(self.controller._sort_group_changed())
         self.assertEqual(self.window.filter_bar.search_edit.text(), "")

@@ -70,8 +70,21 @@ class TestQssWidgets(unittest.TestCase):
             self.assertEqual(_hex_colors(pressed), [palette.bg_selected])
 
             # - 칩은 필터 상태 표시이므로 평면 규칙보다 구체적인 선택자로 기존 칩 배색을 유지
-            for chip in ("ClearColumnFiltersButton", "ClearAllFiltersButton", "ReviewFilterChip"):
+            for chip in (
+                "ClearColumnFiltersButton",
+                "ClearAllFiltersButton",
+                "ReviewFilterChip",
+                "VaryFilterChip",
+            ):
                 self.assertIn(f"QFrame#FilterBar QPushButton#{chip} ", qss)
             review = _rule_body(qss, "QFrame#FilterBar QPushButton#ReviewFilterChip")
             self.assertIn(f"background-color: {palette.badge_pending[0]};", review)
             self.assertIn(f"border: 1px solid {palette.badge_pending[1]};", review)
+
+            vary = _rule_body(qss, "QFrame#FilterBar QPushButton#VaryFilterChip")
+            self.assertIn(f"background-color: {palette.badge_vary[0]};", vary)
+            self.assertIn(f"color: {palette.badge_vary[1]};", vary)
+            self.assertIn(f"border: 1px solid {palette.badge_vary[1]};", vary)
+            vary_checked = _rule_body(qss, "QFrame#FilterBar QPushButton#VaryFilterChip:checked")
+            self.assertIn(f"background-color: {palette.badge_vary[0]};", vary_checked)
+            self.assertIn(f"border: 2px solid {palette.badge_vary[2]};", vary_checked)

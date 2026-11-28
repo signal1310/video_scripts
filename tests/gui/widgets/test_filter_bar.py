@@ -27,17 +27,21 @@ from src.gui.widgets.filter_bar import (
     ROW_GROUP_TOOLTIP,
     SEARCH_COMPACT_MIN_WIDTH_PX,
     SEARCH_MIN_WIDTH_PX,
+    VARY_CHIP_LABEL,
+    VARY_CHIP_TOOLTIP,
     FilterTuningBar,
 )
+from src.gui.widgets.filter_bar_chips import CHIP_REVIEW, CHIP_VARY, count_badge_style
 from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
-# - 접힘 대상 다섯 버튼을 접힘 단계 순서대로 나열한 (속성 이름, 단계)
+# - 접힘 대상 여섯 버튼을 접힘 단계 순서대로 나열한 (속성 이름, 단계)
 COLLAPSE_STEPS: tuple[tuple[str, int], ...] = (
     ("btn_reset_filters", COLLAPSE_LEVEL_CHIPS),
     ("btn_clear_col_filters", COLLAPSE_LEVEL_CHIPS),
     ("btn_review_filter", COLLAPSE_LEVEL_CHIPS),
+    ("btn_vary_filter", COLLAPSE_LEVEL_CHIPS),
     ("btn_column_preset", COLLAPSE_LEVEL_DROPDOWNS),
     ("btn_row_group", COLLAPSE_LEVEL_DROPDOWNS),
 )
@@ -58,6 +62,7 @@ def _make_bar() -> FilterTuningBar:
     bar.set_any_filter_active(True)
     bar.set_active_column_filter_count(2)
     bar.set_review_flagged_count(3)
+    bar.set_vary_flagged_count(1)
     bar.set_exception_tokens(["alpha", "beta"])
     bar.set_row_group("column:4", label="코덱", count=12)
     return bar
@@ -90,10 +95,12 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertEqual(bar.btn_reset_filters.text(), "필터 초기화")
         self.assertEqual(bar.btn_clear_col_filters.text(), "열 필터 2개 ×")
         self.assertEqual(bar.btn_review_filter.text(), f"{REVIEW_CHIP_LABEL} 3")
+        self.assertEqual(bar.btn_vary_filter.text(), f"{VARY_CHIP_LABEL} 1")
         self.assertEqual(bar.btn_column_preset.text(), "열: 기본")
         self.assertEqual(bar.btn_row_group.text(), "그룹: 코덱 (12)")
         self.assertFalse(bar._clear_col_filters_badge.isVisible())
         self.assertFalse(bar._review_filter_badge.isVisible())
+        self.assertFalse(bar._vary_filter_badge.isVisible())
         # - 예외 규칙 개수는 넓은 폭에서도 배지로 보임
         self.assertTrue(bar._exception_badge.isVisible())
         self.assertEqual(bar._exception_badge.count, 2)
@@ -151,6 +158,7 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertEqual(bar.btn_reset_filters.accessibleName(), "필터 초기화")
         self.assertEqual(bar.btn_clear_col_filters.accessibleName(), "열 필터 해제")
         self.assertEqual(bar.btn_review_filter.accessibleName(), REVIEW_CHIP_LABEL)
+        self.assertEqual(bar.btn_vary_filter.accessibleName(), VARY_CHIP_LABEL)
         self.assertEqual(bar.btn_column_preset.accessibleName(), "열: 기본")
         self.assertEqual(bar.btn_row_group.accessibleName(), "그룹: 코덱 (12)")
         for name, _step in COLLAPSE_STEPS:
@@ -171,15 +179,18 @@ class TestFilterBarCollapse(GuiTestCase):
         self.assertNotIn("현재 값", bar.btn_column_preset.toolTip())
         self.assertEqual(bar.btn_row_group.toolTip(), ROW_GROUP_TOOLTIP)
         self.assertEqual(bar.btn_review_filter.toolTip(), REVIEW_CHIP_TOOLTIP)
+        self.assertEqual(bar.btn_vary_filter.toolTip(), VARY_CHIP_TOOLTIP)
 
     def test_chip_badges_show_the_count_only_while_collapsed(self) -> None:
-        """열 필터 칩과 여백 확인 칩이 접힌 동안에만 개수 배지를 보이는지 검증"""
-        bar = self._shown_bar(width=900)
-        self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_CHIPS)
+        """열 필터 칩과 두 필터 칩이 접힌 동안에만 개수 배지를 보이는지 검증"""
+        bar = self._shown_bar()
+        self._at_level(bar, COLLAPSE_LEVEL_CHIPS)
         self.assertTrue(bar._clear_col_filters_badge.isVisible())
         self.assertTrue(bar._review_filter_badge.isVisible())
+        self.assertTrue(bar._vary_filter_badge.isVisible())
         self.assertEqual(bar._clear_col_filters_badge.count, 2)
         self.assertEqual(bar._review_filter_badge.count, 3)
+        self.assertEqual(bar._vary_filter_badge.count, 1)
 
         bar.set_active_column_filter_count(0)
         _APP.processEvents()
@@ -188,18 +199,15 @@ class TestFilterBarCollapse(GuiTestCase):
         bar.resize(WIDE_WIDTH_PX, 44)
         _APP.processEvents()
         self.assertFalse(bar._review_filter_badge.isVisible())
+        self.assertFalse(bar._vary_filter_badge.isVisible())
 
     def test_search_keeps_its_minimum_width_until_the_last_step(self) -> None:
         """검색창이 마지막 단계 전까지 기본 최소 폭을 지키고 마지막에만 더 줄어드는지 검증"""
         bar = self._shown_bar()
-        bar.resize(900, 44)
-        _APP.processEvents()
-        self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_CHIPS)
+        self._at_level(bar, COLLAPSE_LEVEL_CHIPS)
         self.assertEqual(bar.search_edit.minimumWidth(), SEARCH_MIN_WIDTH_PX)
 
-        bar.resize(620, 44)
-        _APP.processEvents()
-        self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_DROPDOWNS)
+        self._at_level(bar, COLLAPSE_LEVEL_DROPDOWNS)
         self.assertEqual(bar.search_edit.minimumWidth(), SEARCH_COMPACT_MIN_WIDTH_PX)
 
     def test_longer_exception_label_recollapses_at_the_wide_boundary(self) -> None:
@@ -330,6 +338,77 @@ class TestFilterBarCollapse(GuiTestCase):
             self.assertIn(palette.badge_pending[0].lower(), filled)
             self.assertIn(palette.badge_pending[1].lower(), filled)
 
+    def test_vary_chip_border_and_fill_use_the_taupe_tokens(self) -> None:
+        """구간별 여백 차이 칩이 갈색 팔레트 토큰으로 테두리와 배경을 유지하는지 검증"""
+        from src.gui.styles.stylesheet import build_stylesheet
+
+        for palette in (LIGHT_PALETTE, DARK_PALETTE):
+            bar = _make_bar()
+            self.addCleanup(bar.close)
+            bar.setStyleSheet(build_stylesheet(palette))
+            bar.show()
+            bar.resize(WIDE_WIDTH_PX, 44)
+            _APP.processEvents()
+            image = bar.btn_vary_filter.grab().toImage()
+            filled = {
+                image.pixelColor(x, image.height() // 2).name()
+                for x in range(image.width())
+            }
+            self.assertIn(palette.badge_vary[0].lower(), filled)
+            self.assertIn(palette.badge_vary[1].lower(), filled)
+
+    def test_vary_chip_count_visibility_and_collapse(self) -> None:
+        """구간별 여백 차이 칩이 개수 0이면 숨고, 개수가 있으면 접힘 때 배지로만 남는지 검증"""
+        bar = _make_bar()
+        self.addCleanup(bar.close)
+        self.addCleanup(bar.hide)
+        self.assertEqual(bar.btn_vary_filter.text(), f"{VARY_CHIP_LABEL} 1")
+        self.assertEqual(bar.btn_vary_filter.accessibleName(), VARY_CHIP_LABEL)
+        self.assertEqual(bar.btn_vary_filter.objectName(), "VaryFilterChip")
+
+        bar.show()
+        self._at_level(bar, COLLAPSE_LEVEL_CHIPS)
+        self.assertEqual(bar.btn_vary_filter.text(), "")
+        self.assertTrue(bar._vary_filter_badge.isVisible())
+        self.assertEqual(bar._vary_filter_badge.count, 1)
+
+        bar.set_vary_flagged_count(0)
+        self.assertTrue(bar.btn_vary_filter.isHidden())
+
+        bar.set_vary_flagged_count(2)
+        self.assertFalse(bar.btn_vary_filter.isHidden())
+        self._at_level(bar, COLLAPSE_LEVEL_FULL)
+        self.assertEqual(bar.btn_vary_filter.text(), f"{VARY_CHIP_LABEL} 2")
+
+    def test_chip_filters_changed_reports_both_chips(self) -> None:
+        """두 칩 중 하나를 눌러도 두 칩의 켜짐 상태가 한 번에 알려지는지 검증"""
+        bar = FilterTuningBar()
+        self.addCleanup(bar.close)
+        bar.set_review_flagged_count(1)
+        bar.set_vary_flagged_count(1)
+        events: list[tuple[bool, bool]] = []
+        bar.chip_filters_changed.connect(lambda review, vary: events.append((review, vary)))
+
+        bar.btn_vary_filter.click()
+        bar.btn_review_filter.click()
+        self.assertEqual(events, [(False, True), (True, True)])
+
+        # - 초기화는 시그널 없이 두 칩을 함께 끔
+        bar.clear_chip_filters()
+        self.assertFalse(bar.review_filter_enabled)
+        self.assertFalse(bar.vary_filter_enabled)
+        self.assertEqual(events, [(False, True), (True, True)])
+
+    def test_chip_badge_styles_use_their_own_palette_tokens(self) -> None:
+        """두 칩 접힘 배지가 각자의 팔레트 토큰을 쓰는지 검증"""
+        review_css = count_badge_style(DARK_PALETTE, CHIP_REVIEW)
+        vary_css = count_badge_style(DARK_PALETTE, CHIP_VARY)
+        clear_css = count_badge_style(DARK_PALETTE, "clear")
+        self.assertIn(DARK_PALETTE.badge_pending[2], review_css)
+        self.assertIn(DARK_PALETTE.badge_vary[2], vary_css)
+        self.assertIn(DARK_PALETTE.accent_blue, clear_css)
+        self.assertIn(f"padding: 0px {2}px;", review_css)
+
     def test_compact_checked_state_survives_collapse(self) -> None:
         """좁게 보기 버튼이 아이콘만으로도 켜짐 상태를 유지하고 접근성 이름을 지키는지 검증"""
         bar = self._shown_bar()
@@ -427,13 +506,15 @@ class TestFilterBarCollapse(GuiTestCase):
 
     def test_apply_theme_recolors_icons_and_badges(self) -> None:
         """테마를 바꾸면 접힌 상태를 유지한 채 아이콘과 배지 색이 새 팔레트를 따르는지 검증"""
-        bar = self._shown_bar(width=900)
+        bar = self._shown_bar()
+        self._at_level(bar, COLLAPSE_LEVEL_CHIPS)
         for palette in (DARK_PALETTE, LIGHT_PALETTE):
             bar.apply_theme(palette)
             self.assertFalse(bar.btn_column_preset.icon().isNull())
             self.assertFalse(bar.btn_clear_col_filters.icon().isNull())
             self.assertIn(palette.accent_blue, bar._clear_col_filters_badge.styleSheet())
             self.assertIn(palette.badge_pending[2], bar._review_filter_badge.styleSheet())
+            self.assertIn(palette.badge_vary[2], bar._vary_filter_badge.styleSheet())
             self.assertIn(palette.accent_blue, bar._exception_badge.styleSheet())
             self.assertEqual(bar.btn_edit_exceptions.text(), "")
         self.assertEqual(bar.collapse_level, COLLAPSE_LEVEL_CHIPS)

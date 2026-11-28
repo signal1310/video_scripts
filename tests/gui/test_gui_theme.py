@@ -282,6 +282,20 @@ class TestGUIThemeModule(GuiTestCase):
                 with self.subTest(theme=pal.name, surface=surface):
                     self.assertGreaterEqual(_contrast(pal.text_muted, surface), 4.5)
 
+    def test_vary_badge_tokens_are_distinct_warm_taupe_in_both_themes(self) -> None:
+        """구간별 여백 차이 배지 토큰이 두 테마에서 각자 정의되고 따뜻한 갈색 계열인지 검증"""
+        for pal in (DARK_PALETTE, LIGHT_PALETTE):
+            background, foreground, border = pal.badge_vary
+            self.assertEqual(3, len({background, foreground, border}), pal.name)
+            # - 배경, 글자, 테두리 모두 빨강이 파랑보다 큰 따뜻한 색
+            for token in (background, foreground, border, pal.fg_vary_icon):
+                color = QColor(token)
+                with self.subTest(theme=pal.name, token=token):
+                    self.assertGreater(color.red(), color.blue())
+        # - 두 테마의 같은 토큰이 서로 다른 값이어야 밝기 전환이 실제로 일어남
+        self.assertNotEqual(DARK_PALETTE.badge_vary, LIGHT_PALETTE.badge_vary)
+        self.assertNotEqual(DARK_PALETTE.fg_vary_icon, LIGHT_PALETTE.fg_vary_icon)
+
     def test_stylesheet_uses_palette_tokens_for_overlay_colors(self) -> None:
         """드롭 오버레이, 분할 버튼 구분선 색상이 팔레트 토큰에서 오고 QSS 소스에 rgba 리터럴이 없음을 검증"""
         for pal in (DARK_PALETTE, LIGHT_PALETTE):

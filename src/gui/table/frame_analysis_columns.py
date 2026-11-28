@@ -152,6 +152,33 @@ def tier_display(tier_key: str) -> str:
     return tier.display if tier is not None else tier_key
 
 
+# - 구간별 여백 차이 표시 아이콘 이름. 화질 비교의 compare와 다른 전용 아이콘을 씀
+MARGINS_VARY_ICON_NAME: str = "margins-vary"
+# - 확인 처리로 고정된 행에 보이는 흐린 확인 아이콘
+ACK_ICON_NAME: str = "check"
+# - 확인한 방법별 안내. 칩 필터 안에 고정된 행의 아이콘 툴팁과 접근성에 씀
+ACK_MANUAL_TIP: str = "확인함: 직접 지정한 활성 화면을 쓰기로 했습니다."
+ACK_RESET_TIP: str = "확인함: 자동 감지 결과를 그대로 쓰기로 했습니다."
+ACK_FULL_TIP: str = "확인함: 전체 화면을 그대로 쓰기로 했습니다."
+ACK_MANUAL: str = "manual"
+ACK_RESET: str = "reset"
+ACK_FULL: str = "full"
+ACK_TIPS: dict[str, str] = {
+    ACK_MANUAL: ACK_MANUAL_TIP,
+    ACK_RESET: ACK_RESET_TIP,
+    ACK_FULL: ACK_FULL_TIP,
+}
+
+
+def acknowledged_tooltip(kind: str) -> str:
+    """확인한 방법(직접 지정/자동 감지로 되돌리기/전체 화면 유지)의 안내 문구"""
+    return ACK_TIPS.get(kind, ACK_MANUAL_TIP)
+
+
+def margins_vary_tooltip() -> str:
+    """구간별 여백 차이 아이콘과 셀의 안내 문구"""
+    return _ACTIVE_FRAME_MARGINS_VARY_TIP
+
 
 def result_summary_text(result: FrameAnalysisResult | None) -> str:
     """표 열 세 개가 보여 주는 문구를 합친 한 줄 요약(빈 값은 뺌)"""
@@ -396,10 +423,10 @@ def quality_metric_sort_value(result: FrameAnalysisResult | None) -> tuple[int, 
 
 
 class FrameAnalysisResults:
-    """파일명별 화질 분석 결과, 수동 VR 보호, 잘라내기 제외, 활성 화면, 여백 확인 필요 표시 보관
+    """파일명별 화질 분석 결과, 수동 VR 보호, 잘라내기 제외, 활성 화면, 여백 확인 필요와 구간별 여백 차이 표시 보관
 
     - 사용자 지정 활성 화면은 자동 감지 결과를 덮어쓰므로 셀 값도 지정 크기로 보여 줌
-    - 여백 확인 필요 표시는 서비스가 정한 자동 크롭 보류 영상 파일명만 담음
+    - 여백 확인 필요와 구간별 여백 차이 표시는 서비스가 정한 미확인 영상 파일명만 담음
     """
 
     def __init__(self) -> None:
@@ -408,6 +435,7 @@ class FrameAnalysisResults:
         self._crop_excluded: frozenset[str] = frozenset()
         self._manual_frames: dict[str, ActiveFrame] = {}
         self._review_flagged: frozenset[str] = frozenset()
+        self._vary_flagged: frozenset[str] = frozenset()
         self._skip_reasons: dict[str, SkipKind] = {}
 
     def set_results(self, results: Mapping[str, FrameAnalysisResult]) -> None:
@@ -446,6 +474,14 @@ class FrameAnalysisResults:
     def review_flagged_count(self) -> int:
         """여백 확인 필요 영상 수"""
         return len(self._review_flagged)
+
+    def set_vary_flagged(self, filenames: Iterable[str]) -> None:
+        """구간별 여백 차이 표시를 보일 파일명 집합 교체"""
+        self._vary_flagged = frozenset(filenames)
+
+    def is_vary_flagged(self, filename: str) -> bool:
+        """파일명이 구간별 여백 차이 표시 대상인지 여부"""
+        return filename in self._vary_flagged
 
     def result(self, filename: str) -> FrameAnalysisResult | None:
         """파일명의 화질 분석 결과, 없으면 None"""

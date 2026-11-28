@@ -547,9 +547,9 @@ class DataCleanupController:
         deps.table_view.group_model.set_group_by(GROUP_BY_NONE)
         deps.filter_bar.set_row_group(GROUP_BY_NONE, label="", count=0)
         deps.proxy_model.clear_all_column_filters()
-        # - 칩은 시그널 없이 끄므로 프록시의 보기 필터도 함께 풀어야 표가 걸러진 채 남지 않음
-        deps.filter_bar.clear_review_filter()
-        deps.proxy_model.set_review_only(False)
+        # - 칩은 시그널 없이 끄므로 프록시의 보기 필터와 고정 행도 함께 풀어야 표가 걸러진 채 남지 않음
+        deps.filter_bar.clear_chip_filters()
+        deps.proxy_model.reset_chip_filters()
         deps.filter_bar.search_edit.clear()
         filters = deps.session.state.ui.filters
         filters.search = ""

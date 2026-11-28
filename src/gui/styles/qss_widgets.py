@@ -345,4 +345,22 @@ QFrame#FilterBar QPushButton#ReviewFilterChip:checked {{
     color: {p.badge_pending[1]};
     border: 2px solid {p.badge_pending[1]};
 }}
+QFrame#FilterBar QPushButton#VaryFilterChip {{
+    background-color: {p.badge_vary[0]};
+    color: {p.badge_vary[1]};
+    border: 1px solid {p.badge_vary[1]};
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    min-height: 20px;
+}}
+QFrame#FilterBar QPushButton#VaryFilterChip:hover {{
+    background-color: {p.bg_hover};
+}}
+QFrame#FilterBar QPushButton#VaryFilterChip:checked {{
+    background-color: {p.badge_vary[0]};
+    color: {p.badge_vary[1]};
+    border: 2px solid {p.badge_vary[2]};
+}}
 """

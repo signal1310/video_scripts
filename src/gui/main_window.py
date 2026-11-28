@@ -28,6 +28,7 @@ from src.core.settings.shortcuts import resolve_shortcuts
 from src.core.settings.undo_history import UndoableSnapshot
 from src.core.workspace_paths import format_root_dirs, parse_root_dirs, primary_root_dir
 from src.gui.constants import WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH, browse_directory, call_later
+from src.gui.controllers.chip_filter_sync import attach_chip_filters
 from src.gui.controllers.data_cleanup_controller import DataCleanupController
 from src.gui.controllers.dialog_coordinator import DialogCoordinator
 from src.gui.controllers.encode_coordinator import EncodeCoordinator
@@ -160,8 +161,8 @@ class MainWindow(QMainWindow):
         )
         self.manual_targets = ManualTargetController(self._build_manual_target_host())
         self.filter_bar.clear_column_filters_requested.connect(self.proxy_model.clear_all_column_filters)
-        # - 여백 확인 필요 칩은 열 필터와 별개로 프록시의 보기 필터를 켜고 끔
-        self.filter_bar.review_filter_toggled.connect(self._on_review_filter_toggled)
+        # - 여백 확인 필요, 구간별 여백 차이 칩은 열 필터와 별개로 프록시의 보기 필터를 켜고 끔
+        attach_chip_filters(self, self._refresh_filter_summary)
         self.proxy_model.column_filters_changed.connect(self._on_column_filters_updated)
         self.proxy_model.sort_keys_changed.connect(lambda: self._session.sync_sort_keys(self.proxy_model))
 
@@ -604,11 +605,6 @@ class MainWindow(QMainWindow):
         self._refresh_filter_summary()
         self._session.sync_column_filters(self.proxy_model)
 
-    def _on_review_filter_toggled(self, enabled: bool) -> None:
-        """여백 확인 필요 칩 변화를 보기 필터와 필터 요약에 함께 반영"""
-        self.proxy_model.set_review_only(enabled)
-        self._refresh_filter_summary()
-
     def _on_filter_changed(self) -> None:
         self._apply_proxy_filters_from_ui()
         self._session.sync_filters_to_state(self.filter_bar)
@@ -616,8 +612,8 @@ class MainWindow(QMainWindow):
     def _on_reset_filters(self) -> None:
         self.filter_bar.search_edit.clear()
         # - 칩은 개수가 남아 있는 동안 화면에 두고 켜짐만 풀어 다시 켤 수 있게 함
-        self.filter_bar.clear_review_filter()
-        self.proxy_model.set_review_only(False)
+        self.filter_bar.clear_chip_filters()
+        self.proxy_model.reset_chip_filters()
         self.proxy_model.clear_all_column_filters()
         self._refresh_filter_summary()
 

@@ -201,6 +201,7 @@ class FrameCacheLoaderTests(_LoaderCase):
             crop_excluded=frozenset(),
             manual_frames={},
             review_flagged=frozenset(),
+            vary_flagged=frozenset(),
         )
 
     def test_only_the_latest_load_is_delivered(self) -> None:

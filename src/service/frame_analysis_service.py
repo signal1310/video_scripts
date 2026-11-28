@@ -33,6 +33,7 @@ from src.core.analysis.frame_analysis import (
     is_failed_crop_scan,
     is_usable_analysis_version,
     is_vr_protected,
+    needs_margins_vary_review,
     rejudge_candidate_tier,
     resolve_crop_frame,
     review_holds_automatic_crop,
@@ -76,10 +77,12 @@ class CropReviewStatus:
 
     - flagged: 사용자가 아직 확인하지 않아 여백 확인 필요 표시를 보여야 하는지
     - hold_applies: 자동 크롭을 보류해 전체 화면으로 인코딩하는지(잘라내기 설정 끔, VR 보호, 영상별 제외면 거짓)
+    - margins_vary: 사용자가 아직 확인하지 않아 구간별 여백 차이 표시를 보여야 하는지
     """
 
     flagged: bool
     hold_applies: bool
+    margins_vary: bool = False
 
 
 def crop_review_status(
@@ -91,7 +94,7 @@ def crop_review_status(
     acknowledged: bool = False,
     excluded: bool = False,
 ) -> CropReviewStatus:
-    """영상 한 개의 여백 확인 필요 표시와 자동 크롭 보류 상태
+    """영상 한 개의 여백 확인 필요, 구간별 여백 차이 표시와 자동 크롭 보류 상태
 
     - 직접 지정을 저장했거나, 자동 감지로 되돌리기나 전체 화면 유지를 골라 확인 표시를 남겼거나,
       영상별 잘라내기 제외로 이미 전체 화면을 쓰는 영상은 확인한 것으로 보고 표시와 보류를 모두 품
@@ -107,7 +110,14 @@ def crop_review_status(
         manual_frame=manual_frame,
         acknowledged=acknowledged,
     )
-    return CropReviewStatus(flagged=hold, hold_applies=hold)
+    vary = (
+        needs_margins_vary_review(region)
+        and manual_frame is None
+        and not acknowledged
+        and crop_enabled
+        and not is_vr_protected
+    )
+    return CropReviewStatus(flagged=hold, hold_applies=hold, margins_vary=vary)
 
 
 def _utc_now_iso() -> str:
@@ -645,7 +655,7 @@ class FrameAnalysisService:
                 acknowledged=request.path in acknowledged,
                 excluded=request.path in excluded,
             )
-            if status.flagged:
+            if status.flagged or status.margins_vary:
                 statuses[request.filename] = status
         return statuses
 

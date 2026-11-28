@@ -221,6 +221,101 @@ class ProxyModelTests(unittest.TestCase):
         )
 
 
+class ProxyModelChipFilterTests(unittest.TestCase):
+    """두 칩 OR 필터, 고정 행 수명, 확인 행 표시 수명 검증"""
+
+    def setUp(self) -> None:
+        self.model = VideoTableModel(config=ClassifierConfig())
+        self.model.set_data_source(
+            [
+                make_eval(video=make_video(filename="review.mp4")),
+                make_eval(video=make_video(filename="vary.mp4")),
+                make_eval(video=make_video(filename="both.mp4")),
+                make_eval(video=make_video(filename="plain.mp4")),
+            ],
+            root_dir="C:/work",
+        )
+        self.model.set_review_flagged(["review.mp4", "both.mp4"])
+        self.model.set_vary_flagged(["vary.mp4", "both.mp4"])
+        self.proxy = VideoSortFilterProxyModel()
+        self.proxy.setSourceModel(self.model)
+
+    def _visible(self) -> list[str]:
+        return [ev.video.filename for ev in self.proxy.iter_visible_evaluations()]
+
+    def test_two_chips_union_their_rows(self) -> None:
+        self.proxy.set_chip_filters(review=True, vary=False)
+        self.assertEqual(self._visible(), ["review.mp4", "both.mp4"])
+        self.proxy.set_chip_filters(review=False, vary=True)
+        self.assertEqual(self._visible(), ["vary.mp4", "both.mp4"])
+        self.proxy.set_chip_filters(review=True, vary=True)
+        self.assertEqual(self._visible(), ["review.mp4", "vary.mp4", "both.mp4"])
+
+    def test_sticky_rows_stay_while_a_chip_is_active(self) -> None:
+        self.proxy.set_chip_filters(review=True, vary=False)
+        self.model.set_review_flagged(["both.mp4"])
+        self.assertEqual(self._visible(), ["both.mp4"])
+
+        self.proxy.add_sticky({"review.mp4": "manual"})
+        self.assertEqual(self._visible(), ["review.mp4", "both.mp4"])
+        self.assertEqual(self.proxy.sticky_acknowledged(), {"review.mp4": "manual"})
+
+        # - 다른 칩으로 바꿔도 이번 세션의 확인 행은 남음
+        self.proxy.set_chip_filters(review=False, vary=True)
+        self.assertIn("review.mp4", self._visible())
+
+    def test_discard_sticky_drops_only_the_matching_acknowledgement_kind(self) -> None:
+        self.proxy.set_chip_filters(review=True, vary=False)
+        self.proxy.add_sticky({"review.mp4": "full", "both.mp4": "manual"})
+
+        events: list[int] = []
+        self.proxy.sticky_changed.connect(lambda: events.append(1))
+        self.proxy.discard_sticky(["review.mp4", "both.mp4"], kind="full")
+        self.assertEqual(self.proxy.sticky_acknowledged(), {"both.mp4": "manual"})
+        self.assertEqual(events, [1])
+
+        # - 맞는 고정이 없으면 다시 평가하지 않고 알리지도 않음
+        self.proxy.discard_sticky(["review.mp4"], kind="full")
+        self.assertEqual(events, [1])
+
+    def test_sticky_rows_clear_on_chip_off_and_reset(self) -> None:
+        self.proxy.set_chip_filters(review=True, vary=False)
+        self.proxy.add_sticky({"review.mp4": "reset"})
+        self.assertEqual(self.proxy.sticky_acknowledged(), {"review.mp4": "reset"})
+
+        events: list[int] = []
+        self.proxy.sticky_changed.connect(lambda: events.append(1))
+        self.proxy.set_chip_filters(review=False, vary=False)
+        self.assertEqual(self.proxy.sticky_acknowledged(), {})
+        self.assertEqual(events, [1])
+
+        self.proxy.set_chip_filters(review=True, vary=False)
+        self.proxy.add_sticky({"both.mp4": "full"})
+        self.proxy.reset_chip_filters()
+        self.assertEqual(self.proxy.sticky_acknowledged(), {})
+        self.assertFalse(self.proxy.chip_filter_active)
+        # - 고정 추가 알림까지 세어 고정이 바뀌는 세 시점에만 알림
+        self.assertEqual(len(events), 3)
+
+    def test_sticky_rows_clear_when_the_file_list_changes(self) -> None:
+        self.proxy.set_chip_filters(review=True, vary=False)
+        self.proxy.add_sticky({"review.mp4": "manual"})
+        self.model.set_data_source(
+            [make_eval(video=make_video(filename="other.mp4"))], root_dir="C:/work"
+        )
+        self.assertEqual(self.proxy.sticky_acknowledged(), {})
+
+    def test_add_sticky_is_ignored_while_no_chip_is_active(self) -> None:
+        self.proxy.add_sticky({"review.mp4": "manual"})
+        self.assertEqual(self.proxy.sticky_acknowledged(), {})
+
+    def test_acknowledged_kind_only_shows_outside_the_chip_filter_is_none(self) -> None:
+        self.model.set_chip_filters({"review.mp4": "manual"}, active=False)
+        self.assertIsNone(self.model.acknowledged_kind("review.mp4"))
+        self.model.set_chip_filters({"review.mp4": "manual"}, active=True)
+        self.assertEqual(self.model.acknowledged_kind("review.mp4"), "manual")
+
+
 class ProxyModelFilterHintTests(unittest.TestCase):
     """필터 활성 여부가 검색, 열 필터, 여백 확인 필요 칩을 모두 반영하는지 검증"""
 

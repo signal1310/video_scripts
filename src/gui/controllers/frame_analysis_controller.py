@@ -35,6 +35,7 @@ from src.gui.controllers.frame_analysis_events import (
     FrameAnalysisStageProgress,
     completion_status_text,
 )
+from src.gui.controllers.frame_analysis_min_tier import attach_frame_min_tier
 from src.gui.controllers.frame_analysis_targets import (
     NO_CROP_TARGETS_TEXT,
     NO_FRAME_TARGETS_TEXT,
@@ -57,6 +58,11 @@ from src.gui.controllers.frame_progress_buffer import (
     StageProgress,
     frame_analysis_stage_text,
 )
+from src.gui.controllers.frame_review_flags import (
+    ACK_FULL,
+    ReviewFlags,
+    acknowledgement_kind,
+)
 from src.gui.controllers.manual_target_controller import ManualTargetController
 from src.gui.frame_analysis_skip import (
     SkipKind,
@@ -73,7 +79,6 @@ from src.gui.table.frame_analysis_columns import (
     result_summary_text,
 )
 from src.gui.table.table_context_menu import set_row_frame_analysis_opener
-from src.gui.table.table_empty_overlay import TableEmptyOverlay
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.filter_bar import FilterTuningBar
 from src.gui.widgets.footer_bar import FooterBar
@@ -266,8 +271,8 @@ class FrameAnalysisController:
         self._pending_start: tuple[list[VideoEvaluation], bool, bool] | None = None
         # - 적재한 리포트 전체 요청의 작업 폴더. 다른 폴더의 요청을 실행 시작에 재사용하지 않으려고 기억
         self._report_root: str = ""
-        # - 마지막으로 계산한 여백 확인 필요 표시. 결과를 적용할 때마다 다시 조회하지 않도록 보관
-        self._review_flagged: frozenset[str] = frozenset()
+        # - 마지막으로 계산한 여백 확인 필요와 구간별 여백 차이 표시. 결과를 적용할 때마다 다시 조회하지 않도록 보관
+        self._flags = ReviewFlags()
         host.table_view.selection_changed.connect(lambda _count: self.refresh_actions())
         host.table_view.table_model.modelReset.connect(self.reload_cached)
         self.refresh_actions()
@@ -311,17 +316,15 @@ class FrameAnalysisController:
         self.refresh_actions()
 
     def _clear_cached_state(self) -> None:
-        """표에 반영했던 캐시 결과와 영상별 지정을 지움"""
+        """표에 반영했던 캐시 결과와 영상별 지정을 지움(칩 개수는 표 반영 뒤의 갱신에 맡김)"""
         self._requests = []
         self._report_requests = []
         self._report_root = ""
         self._results = {}
-        self._review_flagged = frozenset()
+        self._flags.clear()
         self._host.table_view.table_model.set_manual_vr_overrides(())
         self._host.table_view.table_model.set_crop_exclusions(())
         self._host.table_view.table_model.set_manual_active_frames({})
-        self._host.table_view.table_model.set_review_flagged(())
-        self._host.filter_bar.set_review_flagged_count(0)
 
     def _apply_snapshot(self, snapshot: FrameCacheSnapshot | None) -> None:
         """워커 스레드가 읽은 캐시 결과와 영상별 지정을 표에 반영. 적재 실패면 기다리던 시작만 잇게 함"""
@@ -335,7 +338,7 @@ class FrameAnalysisController:
         self._report_root = snapshot.root_dir
         self._requests = list(snapshot.requests)
         self._results = snapshot.results
-        self._review_flagged = snapshot.review_flagged
+        self._flags.set(snapshot.review_flagged, snapshot.vary_flagged)
         self._host.table_view.table_model.set_manual_vr_overrides(snapshot.manual_vr)
         self._host.table_view.table_model.set_crop_exclusions(snapshot.crop_excluded)
         self._host.table_view.table_model.set_manual_active_frames(snapshot.manual_frames)
@@ -488,9 +491,20 @@ class FrameAnalysisController:
         report = self._host.report_provider()
         if report is None or not evals:
             return
+        # - 전체 화면 유지로 확인해 고정한 행은 제외를 끄면 다시 표시 대상이 되므로 고정을 풂
+        if excluded:
+            pinned = self._flags.pinned(
+                (ev.video.filename for ev in evals), kind=ACK_FULL
+            )
+        else:
+            pinned = {}
+            self._host.table_view.proxy_model.discard_sticky(
+                (ev.video.filename for ev in evals), kind=ACK_FULL
+            )
         for ev in evals:
             path = resolve_source_filepath(report.root_dir, ev.video.filename)
             self._store.set_crop_exclusion(path, excluded)
+        self._pin_acknowledged(pinned)
         self._host.table_view.table_model.set_crop_exclusions(
             load_crop_exclusion_names(self._store, report.evaluations, report.root_dir)
         )
@@ -516,6 +530,8 @@ class FrameAnalysisController:
         report = self._host.report_provider()
         if report is None or not evals:
             return
+        kind = acknowledgement_kind(frame)
+        pinned = self._flags.pinned((ev.video.filename for ev in evals), kind=kind)
         for ev in evals:
             path = resolve_source_filepath(report.root_dir, ev.video.filename)
             self._acknowledge_review(path, ev.video.filename)
@@ -525,6 +541,7 @@ class FrameAnalysisController:
                 frame_width=ev.video.width,
                 frame_height=ev.video.height,
             )
+        self._pin_acknowledged(pinned)
         self._host.table_view.table_model.set_manual_active_frames(
             load_manual_frame_names(self._store, report.evaluations, report.root_dir)
         )
@@ -822,27 +839,39 @@ class FrameAnalysisController:
         if status.flagged:
             self._store.set_crop_review_acknowledged(path, result.active_region)
 
+    def _pin_acknowledged(self, kinds: dict[str, str]) -> None:
+        """칩 필터가 켜져 있으면 확인한 행을 확인 방법과 함께 표에 고정
+
+        - 칩이 모두 꺼져 있으면 고정하지 않아 확인한 행이 바로 표에서 빠짐
+        """
+        if not kinds:
+            return
+        self._host.table_view.proxy_model.add_sticky(kinds)
+
     def _apply_review_flags(self) -> None:
-        """여백 확인 필요 표시 집합과 필터 칩 개수를 마지막으로 계산한 값으로 반영"""
-        self._host.table_view.table_model.set_review_flagged(self._review_flagged)
-        self._host.filter_bar.set_review_flagged_count(len(self._review_flagged))
+        """여백 확인 필요, 구간별 여백 차이 표시 집합과 필터 칩 개수를 마지막으로 계산한 값으로 반영"""
+        self._host.table_view.table_model.set_review_flagged(self._flags.review)
+        self._host.table_view.table_model.set_vary_flagged(self._flags.vary)
+        self._host.filter_bar.set_review_flagged_count(len(self._flags.review))
+        self._host.filter_bar.set_vary_flagged_count(len(self._flags.vary))
 
     def _refresh_review_flags(self) -> None:
-        """여백 확인 필요 표시를 지금 캐시와 설정으로 다시 계산
+        """여백 확인 필요와 구간별 여백 차이 표시를 지금 캐시와 설정으로 다시 계산
 
         - 적재한 요청의 내용 지문을 그대로 써 캐시 조회만 하고 파일을 다시 읽지 않음
         - 실행 대상이 일부만 분석돼도 표의 나머지 영상 표시가 사라지지 않도록 적재한 리포트 전체를 기준으로 셈
+        - 확인 처리로 풀린 표시는 두 집합에서 함께 빠져 두 칩 개수가 같은 시점에 줄어듦
         """
         report = self._host.report_provider()
         config = self._host.config_provider()
         if report is None or not self._report_requests or report.root_dir != self._report_root:
-            self._review_flagged = frozenset()
+            self._flags.clear()
         else:
             statuses = frame_cache_service(self._store, config).crop_review_statuses(
                 self._report_requests,
                 crop_enabled=config.encode.crop_black_bars,
             )
-            self._review_flagged = frozenset(statuses)
+            self._flags.replace(statuses)
         self._apply_review_flags()
 
     def _apply_results(self, *, show_columns: bool = True, crop_only: bool = False) -> None:
@@ -951,28 +980,13 @@ def attach_frame_analysis(
     window.menu.act_crop_selected.triggered.connect(controller.detect_crop_selected)
     window.menu.act_crop_all.triggered.connect(controller.detect_crop_all)
     window.menu.act_cancel.triggered.connect(controller.cancel)
-    header = window.header_bar
-    empty_overlay = getattr(window.table_view, "empty_overlay", None)
-    min_tier = config_provider().encode.frame_analysis_min_tier
-
-    def _min_tier_provider() -> str:
-        return config_provider().encode.frame_analysis_min_tier
-
-    def _on_min_tier_changed(tier_key: str) -> None:
-        window.manual_targets.set_frame_analysis_min_tier(tier_key)
-        header.set_frame_min_tier(tier_key)
-        if isinstance(empty_overlay, TableEmptyOverlay):
-            empty_overlay.set_frame_min_tier(tier_key)
-
-    header.split_analyze.set_estimate_provider(controller.analysis_estimate_text)
-    header.set_min_tier_provider(_min_tier_provider)
-    header.set_frame_min_tier(min_tier)
-    header.frame_min_tier_changed.connect(_on_min_tier_changed)
-    if isinstance(empty_overlay, TableEmptyOverlay):
-        empty_overlay.set_estimate_provider(controller.analysis_estimate_text)
-        empty_overlay.set_min_tier_provider(_min_tier_provider)
-        empty_overlay.set_frame_min_tier(min_tier)
-        empty_overlay.frame_min_tier_changed.connect(_on_min_tier_changed)
+    attach_frame_min_tier(
+        window.header_bar,
+        getattr(window.table_view, "empty_overlay", None),
+        window.manual_targets,
+        config_tier=lambda: config_provider().encode.frame_analysis_min_tier,
+        estimate_text=controller.analysis_estimate_text,
+    )
     set_row_frame_analysis_opener(controller.analyze_evaluations)
     window.footer_bar.frame_analysis_cancel_requested.connect(controller.cancel)
     window.footer_bar.destroyed.connect(controller.shutdown)

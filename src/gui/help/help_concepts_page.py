@@ -17,6 +17,12 @@ from src.core.analysis.frame_analysis import (
     VR_ASPECT_RATIO_MIN,
     VR_MIN_LONG_SIDE,
 )
+from src.core.analysis.frame_margins import (
+    NON_DARK_LEVEL_TOLERANCE,
+    NON_DARK_MIN_LINES,
+    NON_DARK_SPREAD_LIMIT,
+    NON_DARK_STEP_MIN,
+)
 from src.core.analysis.frame_scan import (
     BLACK_EDGE_MEAN_THRESHOLD,
     BLACK_FRAME_PIXEL_RATIO,
@@ -802,7 +808,9 @@ def _frame_analysis_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
     rows = (
         (
             "1. 화면 여백, 검은 화면 확인",
-            "키프레임 최대 9지점의 휘도(Y)를 읽어 고정된 화면 여백과 검은 화면을 찾습니다.",
+            "키프레임 최대 9지점의 휘도(Y)를 읽어 고정된 화면 여백과 검은 화면을 찾습니다. "
+            "여백은 어두운 여백뿐 아니라 회색, 흰색 같은 단색 여백도 줄 안 편차와 그림과의 경계 계단으로 찾고, "
+            "지점마다 같은 두께, 같은 밝기여야 인정합니다.",
             f"같은 지점이 {BLACK_FRAME_PIXEL_RATIO:.0%} 이상 어두우면 검은 화면으로 봅니다",
         ),
         (
@@ -844,7 +852,13 @@ def _frame_analysis_html(p: ThemePalette, cfg: ClassifierConfig) -> str:
             f"<li><b>화면 여백 무시 면적 상한</b>: 활성 화면이 원본 면적의 "
             f"{enc.active_area_no_bars_ratio:.0%} 이상이면 화면 여백이 없다고 보고 잘라내지 않습니다.</li>",
             f"<li><b>가장자리 미세 여백 무시</b>: 면마다 {EDGE_SNAP_RATIO:.0%} 또는 {EDGE_SNAP_MIN_PX}px 미만의 "
-            "어두운 가장자리는 노이즈로 보고 잘라내지 않습니다.</li>",
+            "어두운 가장자리는 노이즈로 보고 잘라내지 않습니다. 단색 여백 규칙이 9지점 합의로 자른 면은 "
+            "이 무시 기준을 적용하지 않습니다.</li>",
+            f"<li><b>단색 여백 판정</b>: 어두운 여백에 더해 회색, 흰색, 컬러 단색 여백은 줄 안 편차 "
+            f"{NON_DARK_SPREAD_LIMIT:.1f} 이하, 그림과의 경계 계단 {NON_DARK_STEP_MIN:.0f} 이상, "
+            f"지점 간 밝기 차 {NON_DARK_LEVEL_TOLERANCE:.0f} 이하, 3지점 이상이면서 상자를 낸 지점의 4분의 3 이상이 같은 두께를 "
+            f"모두 넘어야 {NON_DARK_MIN_LINES}줄 이상일 때 잘라냅니다. 한 지점에서만 나타나는 "
+            "평탄 구간이나 경계 계단이 없는 평탄한 그림 구간은 잘라내지 않습니다.</li>",
             "<li><b>VR 보호</b>: 구면, 입체 정보가 있는 영상은 화면 여백을 잘라내지 않습니다. "
             "축소 후보는 정상으로 측정합니다.</li>",
             "<li><b>사용자 지정 활성 화면</b>: 미리 보기의 여백 미리 보기에서 손잡이를 끌면 그 영역을 "

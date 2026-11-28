@@ -13,11 +13,19 @@ import logging
 import threading
 import uuid
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, cast
 
 from src.core.analysis.frame_analysis import CropBox, EdgeDarkness
+from src.core.analysis.frame_margins import (
+    EMPTY_FLAT_SIDES,
+    FlatSides,
+    fix_bright_overshoot,
+    measure_flat_sides,
+    transpose_flat_sides,
+)
 from src.core.analysis.hdr_tone_map import (
     TONEMAP_UNAVAILABLE_REASON,
     ToneMapUnavailableError,
@@ -40,8 +48,25 @@ ScanCommandRunner = Callable[[list[str], str], tuple[int, str]]
 PointCallback = Callable[[int, int], None]
 LineStats = tuple[float, float]
 LineProbe = Callable[[int], LineStats]
+
+
+@dataclass(frozen=True, slots=True)
+class LumaPointStats:
+    """Y 평면 한 장의 검은 화면 비율, 여백 상자, 면별 어두운 두께, 네 면 평탄 여백 요약
+
+    - 상자는 밝은 과충격 줄 보정까지 마친 값이라 지점 상자를 그대로 합집합에 넣을 수 있음
+    - 평탄 여백 요약은 지점 하나로는 자를 수 없어 합집합 단계에서 9지점 합의로 씀
+    """
+
+    box: CropBox | None
+    black_ratio: float
+    edges: EdgeDarkness
+    flat_sides: FlatSides
+
+
 # - Y 평면 한 장의 판정 함수. 서비스가 프로세스 풀로 넘겨 GUI 프로세스의 GIL 점유를 없앰
-FrameStatsRunner = Callable[[bytes, int, int, int], tuple[CropBox | None, float, EdgeDarkness]]
+FrameStatsRunner = Callable[[bytes, int, int, int], LumaPointStats]
+
 
 # - 검은 프레임 판정: Y < 26 픽셀 비율 98% 이상(12.19절), 여백 줄, 열 평균 24 이하
 BLACK_LUMA_THRESHOLD: int = 26
@@ -96,9 +121,9 @@ class ScanDecodeError(RuntimeError):
 
 
 class KeyframeScanResult:
-    """9지점 스캔에서 찾은 검은 여백 상자와 검은 화면 지점, 실패 지점, 지점별 어두운 면 두께"""
+    """9지점 스캔에서 찾은 검은 여백 상자와 검은 화면 지점, 실패 지점, 지점별 어두운 면 두께, 지점별 평탄 여백 요약"""
 
-    __slots__ = ("black_points", "boxes", "darkness", "failed_points")
+    __slots__ = ("black_points", "boxes", "darkness", "failed_points", "flat_sides")
 
     def __init__(
         self,
@@ -106,6 +131,7 @@ class KeyframeScanResult:
         black_points: Sequence[int],
         darkness: Sequence[EdgeDarkness | None] | None = None,
         failed_points: Sequence[int] = (),
+        flat_sides: Sequence[FlatSides] | None = None,
     ) -> None:
         self.boxes: tuple[CropBox, ...] = tuple(boxes)
         self.black_points: frozenset[int] = frozenset(black_points)
@@ -114,6 +140,11 @@ class KeyframeScanResult:
         self.darkness: tuple[EdgeDarkness | None, ...] = (
             tuple(darkness) if darkness is not None else (None,) * len(self.boxes)
         )
+        # - 지점별 네 면 평탄 여백 요약. 9지점 합의로 비검은 여백을 자를 근거이며 `boxes`와 같은 순서
+        self.flat_sides: tuple[FlatSides, ...] = (
+            tuple(flat_sides) if flat_sides is not None else (EMPTY_FLAT_SIDES,) * len(self.boxes)
+        )
+
 
 
 def build_scan_command(
@@ -434,22 +465,23 @@ def _bar_scan(
         offset = _residual_margin_end(offset, axis_length, probe, line_index)
 
 
-def luma_frame_stats(
-    data: bytes, line_size: int, width: int, height: int
-) -> tuple[CropBox | None, float, EdgeDarkness]:
-    """Y 평면 한 장에서 검은 픽셀 비율, 검은 여백 상자, 면별 어두운 구간 두께 계산
+def luma_frame_stats(data: bytes, line_size: int, width: int, height: int) -> LumaPointStats:
+    """Y 평면 한 장에서 검은 픽셀 비율, 검은 여백 상자, 면별 어두운 구간 두께, 네 면 평탄 여백 요약 계산
 
     - 검은 픽셀 비율이 기준 이상이면 검은 화면으로 보고 상자를 내지 않음
     - 상/하 줄과 좌/우 열이 어둡고 평탄하며 그림과의 경계가 계단일 때만 여백으로 봄
     - 어두운 장면의 완만한 비네트는 줄 안 편차가 크고 경계 계단이 없어 여백으로 보지 않음
     - 띠 안에 박힌 자막 줄은 얇은 섬으로 보고 건너뛰어, 자막 아래의 띠 경계를 씀
     - 면별 어두운 두께는 띠 줄 조건(어둡고 평탄)으로 잰 구간이라, 띠로 인정되지 않은 어두운 그림 구간은 근거가 되지 않음
+    - 검은 띠가 끝난 뒤 첫 유지 줄이 압축 링잉으로 밝으면 한 줄 안쪽으로 옮겨 그림 경계가 남지 않게 함
+    - 평탄 여백 요약은 검은 띠 판정과 별개로 재며, 자를지는 지점 상자를 합치는 쪽이 9지점 합의로 정함
     """
+    empty_edges = EdgeDarkness(0, 0, 0, 0)
     if width <= 0 or height <= 0 or line_size < width:
-        return (None, 1.0, EdgeDarkness(0, 0, 0, 0))
+        return LumaPointStats(box=None, black_ratio=1.0, edges=empty_edges, flat_sides=EMPTY_FLAT_SIDES)
     plane = bytes(data)
     if len(plane) < line_size * height:
-        return (None, 1.0, EdgeDarkness(0, 0, 0, 0))
+        return LumaPointStats(box=None, black_ratio=1.0, edges=empty_edges, flat_sides=EMPTY_FLAT_SIDES)
     translated = plane.translate(_BLACK_LUMA_TABLE)
     black_pixels = 0
     for row_index in range(height):
@@ -458,7 +490,7 @@ def luma_frame_stats(
         black_pixels += translated.count(1, offset, offset + width)
     black_ratio = black_pixels / (width * height)
     if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
-        return (None, black_ratio, EdgeDarkness(0, 0, 0, 0))
+        return LumaPointStats(box=None, black_ratio=black_ratio, edges=empty_edges, flat_sides=EMPTY_FLAT_SIDES)
 
     def row_probe(index: int) -> LineStats:
         return _row_stats(plane, index * line_size, width)
@@ -467,7 +499,7 @@ def luma_frame_stats(
     top, top_dark = _bar_scan(height, row_probe, from_end=False, island_max_lines=row_island_lines)
     bottom_count, bottom_dark = _bar_scan(height, row_probe, from_end=True, island_max_lines=row_island_lines)
     if top + bottom_count >= height:
-        return (None, black_ratio, EdgeDarkness(0, 0, 0, 0))
+        return LumaPointStats(box=None, black_ratio=black_ratio, edges=empty_edges, flat_sides=EMPTY_FLAT_SIDES)
     bottom = height - bottom_count
 
     def column_probe(index: int) -> LineStats:
@@ -479,11 +511,26 @@ def luma_frame_stats(
         width, column_probe, from_end=True, island_max_lines=column_island_lines
     )
     if left + right_count >= width:
-        return (None, black_ratio, EdgeDarkness(0, 0, 0, 0))
+        return LumaPointStats(box=None, black_ratio=black_ratio, edges=empty_edges, flat_sides=EMPTY_FLAT_SIDES)
     right = width - right_count
     darkness = EdgeDarkness(top=top_dark, bottom=bottom_dark, left=left_dark, right=right_dark)
-    box = CropBox(width=right - left, height=bottom - top, x=left, y=top)
-    return (box, black_ratio, darkness)
+    box = fix_bright_overshoot(
+        plane,
+        line_size,
+        width,
+        height,
+        CropBox(width=right - left, height=bottom - top, x=left, y=top),
+    )
+    flat_sides = measure_flat_sides(
+        plane,
+        line_size,
+        width,
+        height,
+        box,
+        dark_limit=BLACK_EDGE_MEAN_THRESHOLD,
+    )
+    return LumaPointStats(box=box, black_ratio=black_ratio, edges=darkness, flat_sides=flat_sides)
+
 
 
 def _declared_rotation(stream: VideoStream) -> int:
@@ -628,6 +675,7 @@ def _scan_with_pyav(
         seconds_per_tick = FALLBACK_TIME_BASE_SEC if time_base is None else float(time_base)
         boxes: list[CropBox] = []
         darkness: list[EdgeDarkness] = []
+        flat_sides: list[FlatSides] = []
         black_points: list[int] = []
         total = len(points)
         for index, start_sec in enumerate(points):
@@ -642,16 +690,18 @@ def _scan_with_pyav(
             # - 톤 매핑 결과는 회전 메타데이터가 없는 새 프레임이므로 회전은 디코딩한 프레임에서 읽음
             luma_frame = _tonemapped_gray_frame(frame) if tonemap else frame
             data, line_size, width, height = _luma_bytes(luma_frame)
-            box, black_ratio, edges = stats_runner(data, line_size, width, height)
-            if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
+            point = stats_runner(data, line_size, width, height)
+            if point.black_ratio >= BLACK_FRAME_PIXEL_RATIO:
                 black_points.append(index)
-            elif box is not None:
+            elif point.box is not None:
                 rotation = _frame_rotation(frame, stream)
-                boxes.append(transpose_crop_box(box, width, height, rotation))
-                darkness.append(transpose_edge_darkness(edges, rotation))
+                boxes.append(transpose_crop_box(point.box, width, height, rotation))
+                darkness.append(transpose_edge_darkness(point.edges, rotation))
+                flat_sides.append(transpose_flat_sides(point.flat_sides, rotation))
             if on_point is not None:
                 on_point(index + 1, total)
-        return KeyframeScanResult(boxes, black_points, darkness)
+        return KeyframeScanResult(boxes, black_points, darkness, flat_sides=flat_sides)
+
     finally:
         if container is not None:
             container.close()
@@ -724,6 +774,7 @@ def scan_with_cli(
     """
     boxes: list[CropBox] = []
     darkness: list[EdgeDarkness] = []
+    flat_sides: list[FlatSides] = []
     black_points: list[int] = []
     failed_points: list[int] = []
     total = len(points)
@@ -743,15 +794,17 @@ def scan_with_cli(
             failed_points.append(index)
         else:
             data, width, height = frame
-            box, black_ratio, edges = stats_runner(data, width, width, height)
-            if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
+            point = stats_runner(data, width, width, height)
+            if point.black_ratio >= BLACK_FRAME_PIXEL_RATIO:
                 black_points.append(index)
-            elif box is not None:
-                boxes.append(box)
-                darkness.append(edges)
+            elif point.box is not None:
+                boxes.append(point.box)
+                darkness.append(point.edges)
+                flat_sides.append(point.flat_sides)
         if on_point is not None:
             on_point(index + 1, total)
-    return KeyframeScanResult(boxes, black_points, darkness, failed_points)
+    return KeyframeScanResult(boxes, black_points, darkness, failed_points, flat_sides)
+
 
 
 def scan_keyframe_points(
@@ -803,9 +856,10 @@ def scan_keyframe_points(
     )
 
 
-def luma_stats_task(payload: tuple[bytes, int, int, int]) -> tuple[CropBox | None, float, EdgeDarkness]:
+def luma_stats_task(payload: tuple[bytes, int, int, int]) -> LumaPointStats:
     """프로세스 풀 워커가 부르는 Y 평면 판정. 모듈 수준이어야 spawn 자식이 pickle로 복원할 수 있음"""
     return luma_frame_stats(*payload)
+
 
 
 def _check_cancel(cancel_event: threading.Event | None) -> None:

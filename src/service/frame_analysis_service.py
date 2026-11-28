@@ -25,8 +25,6 @@ from multiprocessing import get_context
 from src.core.analysis.frame_analysis import (
     DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     ActiveRegion,
-    CropBox,
-    EdgeDarkness,
     FrameAnalysisThresholds,
     analysis_version_for_mode,
     apply_no_bars_ratio,
@@ -45,7 +43,7 @@ from src.core.analysis.frame_analysis_runner import (
     StderrCommandRunner,
     analyze_frames,
 )
-from src.core.analysis.frame_scan import FrameStatsRunner, luma_frame_stats, luma_stats_task
+from src.core.analysis.frame_scan import FrameStatsRunner, LumaPointStats, luma_frame_stats, luma_stats_task
 from src.core.config import DEFAULT_FRAME_ANALYSIS_MODE
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
 from src.core.models import ActiveFrame
@@ -282,15 +280,11 @@ class _ScanStatsPool:
         self._executor: ProcessPoolExecutor | None = None
         self._lock: threading.Lock = threading.Lock()
 
-    def __call__(
-        self, data: bytes, line_size: int, width: int, height: int
-    ) -> tuple[CropBox | None, float, EdgeDarkness]:
+    def __call__(self, data: bytes, line_size: int, width: int, height: int) -> LumaPointStats:
         """Y 평면 한 장의 판정을 자식 프로세스에 맡기고 결과를 기다림"""
         _check_cancel(self._cancel_event)
         executor = self._live_executor()
-        future: Future[tuple[CropBox | None, float, EdgeDarkness]] = executor.submit(
-            luma_stats_task, (data, line_size, width, height)
-        )
+        future = executor.submit(luma_stats_task, (data, line_size, width, height))
         return self._wait(future)
 
     def close(self) -> None:
@@ -309,14 +303,13 @@ class _ScanStatsPool:
                 )
             return self._executor
 
-    def _wait(self, future: Future[tuple[CropBox | None, float, EdgeDarkness]]) -> tuple[
-        CropBox | None, float, EdgeDarkness
-    ]:
+    def _wait(self, future: Future[LumaPointStats]) -> LumaPointStats:
         while True:
             try:
                 return future.result(timeout=POOL_POLL_INTERVAL_SEC)
             except FutureTimeoutError:
                 _check_cancel(self._cancel_event)
+
 
 
 def _check_cancel(cancel_event: threading.Event | None) -> None:

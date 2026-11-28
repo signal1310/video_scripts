@@ -83,15 +83,15 @@ class TestApprovedConstants(unittest.TestCase):
         self.assertEqual(EDGE_SNAP_RATIO, 0.02)
         self.assertEqual(EDGE_SNAP_MIN_PX, 8)
         self.assertEqual(MANUAL_FRAME_MIN_SIZE_PX, 32)
-        self.assertEqual(FRAME_ANALYSIS_VERSION, 455)
-        self.assertEqual(analysis_version_for_mode("fast"), 454)
-        self.assertEqual(analysis_version_for_mode("balanced"), 455)
-        self.assertEqual(analysis_version_for_mode("precise"), 456)
-        self.assertEqual(analysis_version_for_mode("fast", "lanczos"), 524)
-        self.assertEqual(analysis_version_for_mode("precise", "spline"), 536)
+        self.assertEqual(FRAME_ANALYSIS_VERSION, 558)
+        self.assertEqual(analysis_version_for_mode("fast"), 557)
+        self.assertEqual(analysis_version_for_mode("balanced"), 558)
+        self.assertEqual(analysis_version_for_mode("precise"), 559)
+        self.assertEqual(analysis_version_for_mode("fast", "lanczos"), 627)
+        self.assertEqual(analysis_version_for_mode("precise", "spline"), 639)
         self.assertNotIn(CROP_SCAN_VERSION, _all_mode_versions())
-        self.assertNotIn(336, _all_mode_versions())
-        self.assertEqual(analysis_version_for_mode("unknown"), 455)
+        self.assertNotIn(337, _all_mode_versions())
+        self.assertEqual(analysis_version_for_mode("unknown"), 558)
         self.assertEqual(SSIM_CONFIRMED_PASS_SCORE, 0.998)
         self.assertEqual(SSIM_CONFIRMED_FAIL_SCORE, 0.995)
         self.assertEqual(VMAF_CONFIRMED_PASS_SCORE, 99.5)
@@ -208,6 +208,24 @@ class TestCropUnionEdges(unittest.TestCase):
     def test_snapped_union_aligns_start_and_size_to_even_pixels(self) -> None:
         region = merge_crop_union([CropBox(1441, 1001, 261, 41)], 1920, 1080)
         self.assertEqual(region, ActiveRegion(1442, 1002, 260, 40, True))
+
+    def test_flat_faces_skip_the_dark_only_noise_snap(self) -> None:
+        """평탄 규칙이 합의로 자른 면은 2% 노이즈 스냅을 건너뛰어 4K의 얇은 회색 여백도 남김"""
+        width, height, margin = 3840, 2160, 40
+        thresholds = FrameAnalysisThresholds(active_area_no_bars_ratio=0.99)
+        boxes = [CropBox(width - margin, height, margin, 0)] * 9
+        kept = merge_crop_union(boxes, width, height, thresholds=thresholds, flat_faces=("left",))
+        snapped = merge_crop_union(boxes, width, height, thresholds=thresholds)
+        self.assertEqual(kept, ActiveRegion(width - margin, height, margin, 0, True))
+        self.assertEqual(snapped, ActiveRegion(width, height, 0, 0, False))
+
+    def test_flat_face_names_only_protect_their_own_side(self) -> None:
+        """합의한 면 이름에 없는 다른 면은 기존 어두운 노이즈 스냅을 그대로 씀"""
+        width, height, margin = 3840, 2160, 40
+        thresholds = FrameAnalysisThresholds(active_area_no_bars_ratio=0.99)
+        boxes = [CropBox(width - margin, height, margin, 0)] * 9
+        region = merge_crop_union(boxes, width, height, thresholds=thresholds, flat_faces=("top",))
+        self.assertEqual(region, ActiveRegion(width, height, 0, 0, False))
 
 
 class MarginVaryTests(unittest.TestCase):
@@ -597,16 +615,16 @@ class CropScanVersionTests(unittest.TestCase):
     """여백 감지 전용 버전과 캐시 유효성 기준 검증"""
 
     def test_crop_only_result_is_recognized_by_its_version(self) -> None:
-        self.assertEqual(CROP_SCAN_VERSION, 336)
+        self.assertEqual(CROP_SCAN_VERSION, 337)
         self.assertEqual(METRIC_CROP_ONLY, "")
         self.assertTrue(is_crop_only_result(_Versioned(CROP_SCAN_VERSION)))
         self.assertFalse(is_crop_only_result(_Versioned(FRAME_ANALYSIS_VERSION)))
 
     def test_crop_version_stays_usable_across_quality_modes(self) -> None:
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 454))
-        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 456))
-        self.assertTrue(is_usable_analysis_version(455, 455))
-        self.assertFalse(is_usable_analysis_version(233, 455))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 557))
+        self.assertTrue(is_usable_analysis_version(CROP_SCAN_VERSION, 559))
+        self.assertTrue(is_usable_analysis_version(558, 558))
+        self.assertFalse(is_usable_analysis_version(233, 558))
 
     def test_failed_crop_scan_reads_the_stored_flag_for_every_version(self) -> None:
         """감지 실패 판정이 저장한 플래그를 먼저 보고, 플래그가 없는 감지 전용 행은 측정 불가로 판정"""

@@ -235,7 +235,8 @@ def print_edge_window(
 def trace_point(index: int, plane: Plane) -> dict[str, object]:
     """지점 한 개의 상자, 위아래 범위, 좌우 판정 근거를 계산해 출력"""
     data, line_size, width, height, rotation = plane
-    box, black_ratio, edges = luma_frame_stats(data, line_size, width, height)
+    stats = luma_frame_stats(data, line_size, width, height)
+    box, black_ratio, edges = stats.box, stats.black_ratio, stats.edges
     print(f"\n  지점 {index + 1}: {width}x{height} 회전={rotation} 검은픽셀={black_ratio:.3f} 상자={box}")
     if box is None:
         return {"point": index + 1, "box": None}

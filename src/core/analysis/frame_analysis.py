@@ -7,7 +7,7 @@
 
 import json
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -97,19 +97,19 @@ _MODE_PARAMS: dict[str, FrameAnalysisParams] = {
         mode=FRAME_ANALYSIS_MODE_FAST,
         segment_duration_sec=0.5,
         fast_keyframe_seek=True,
-        analysis_version=454,
+        analysis_version=557,
     ),
     FRAME_ANALYSIS_MODE_BALANCED: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_BALANCED,
         segment_duration_sec=1.0,
         fast_keyframe_seek=True,
-        analysis_version=455,
+        analysis_version=558,
     ),
     FRAME_ANALYSIS_MODE_PRECISE: FrameAnalysisParams(
         mode=FRAME_ANALYSIS_MODE_PRECISE,
         segment_duration_sec=2.0,
         fast_keyframe_seek=False,
-        analysis_version=456,
+        analysis_version=559,
     ),
 }
 FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis_version
@@ -117,10 +117,10 @@ FRAME_ANALYSIS_VERSION: int = _MODE_PARAMS[DEFAULT_FRAME_ANALYSIS_MODE].analysis
 SCALE_ALGORITHM_VERSION_STRIDE: int = 10
 # - 검은 여백만 감지한 캐시 행의 전용 버전과 측정 지표 자리. 화질 분석 방식과 무관하게 유효함
 # - 스캔 규칙이나 실패 판정이 바뀌면 올려 이전 규칙으로 저장한 감지 전용 행을 다시 잼
-# - `analysis_version_for_mode`는 방식 버전(454-456)에 보간 방식 오프셋(-20~80)을 더해 434-536 사이 10 간격의
+# - `analysis_version_for_mode`는 방식 버전(557-559)에 보간 방식 오프셋(-20~80)을 더해 537-639 사이 10 간격의
 #   세 연속 번호를 만든다. 방식 버전을 올릴 때는 새 최솟값(기준값 - 20)이 이전에 배포한 기준값 + 80보다 커야
-#   캐시 행이 다른 측정 조건으로 재사용되지 않으며, 새 전용 버전도 그 집합에 들지 않는 번호(현재 336)인지 확인
-CROP_SCAN_VERSION: int = 336
+#   캐시 행이 다른 측정 조건으로 재사용되지 않으며, 새 전용 버전도 그 집합에 들지 않는 번호(현재 337)인지 확인
+CROP_SCAN_VERSION: int = 337
 METRIC_CROP_ONLY: str = ""
 
 
@@ -520,6 +520,7 @@ def merge_crop_union(
     is_vr: bool = False,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     darkness: Sequence[EdgeDarkness | None] | None = None,
+    flat_faces: Collection[str] = (),
 ) -> ActiveRegion:
     """검출 사각형 전체를 포함하는 합집합 영역을 활성 화면으로 확정
 
@@ -530,6 +531,8 @@ def merge_crop_union(
     - 합집합으로 확정한 영역에는 구간별 여백 차이 여부를 함께 기록(판정은 바꾸지 않음)
     - `darkness`는 `boxes`와 같은 순서의 지점별 어두운 면 두께. 다수 두께와 어긋나는 지점을 무시하려면
       그 지점의 어두운 구간이 채택 경계까지 이어져야 함
+    - `flat_faces`는 평탄 여백 규칙이 합의로 자른 면 이름. 그 면은 노이즈 스냅을 건너뛰어 4K에서 2% 미만의
+      합의된 여백도 버리지 않음
     - 어두운 근거로 지점을 무시한 사실은 채택한 영역의 `dark_outliers_ignored`에만 남기고 판정에는 쓰지 않음.
       전체 프레임으로 되돌리면 안쪽 경계를 채택하지 않았으므로 세우지 않음
     """
@@ -572,13 +575,13 @@ def merge_crop_union(
         False,
         margins_vary=vary,
     )
-    if _edge_is_noise(left, frame_width):
+    if "left" not in flat_faces and _edge_is_noise(left, frame_width):
         left = 0
-    if _edge_is_noise(frame_width - right, frame_width):
+    if "right" not in flat_faces and _edge_is_noise(frame_width - right, frame_width):
         right = frame_width
-    if _edge_is_noise(top, frame_height):
+    if "top" not in flat_faces and _edge_is_noise(top, frame_height):
         top = 0
-    if _edge_is_noise(frame_height - bottom, frame_height):
+    if "bottom" not in flat_faces and _edge_is_noise(frame_height - bottom, frame_height):
         bottom = frame_height
     left = _even_floor(left)
     top = _even_floor(top)

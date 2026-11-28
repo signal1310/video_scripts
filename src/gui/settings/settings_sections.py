@@ -226,7 +226,8 @@ def build_resolution_page(
         EncodeConfig,
         "crop_black_bars",
         "화면 여백 잘라내기",
-        "상하(레터박스), 좌우(필러박스), 4면의 고정된 여백을 자동으로 감지해 잘라냅니다.",
+        "상하(레터박스), 좌우(필러박스), 4면의 고정된 여백을 자동으로 감지해 잘라냅니다. "
+        "어두운 여백뿐 아니라 회색, 흰색 같은 단색 여백도 9지점 휘도로 확인해 자릅니다.",
         _ON_OFF_CHOICES,
         row_key="analysis.encode.crop_black_bars",
     )

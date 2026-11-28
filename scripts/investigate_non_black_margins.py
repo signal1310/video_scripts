@@ -486,7 +486,8 @@ def product_boxes(
     for plane in planes:
         data, line_size, plane_width, plane_height, rotation = plane
         width, height = plane_width, plane_height
-        box, _ratio, edge = luma_frame_stats(data, line_size, plane_width, plane_height)
+        stats = luma_frame_stats(data, line_size, plane_width, plane_height)
+        box, edge = stats.box, stats.edges
         if box is None:
             per_point.append(None)
             per_point_edges.append(None)

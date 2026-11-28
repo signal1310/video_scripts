@@ -49,6 +49,7 @@ from src.core.analysis.frame_fast_metrics import (
     ssim_log_name,
     vmaf_log_name,
 )
+from src.core.analysis.frame_margins import apply_flat_margin_cuts, margin_cuts
 from src.core.analysis.frame_scan import FrameStatsRunner, luma_frame_stats, scan_keyframe_points
 from src.core.analysis.hdr_tone_map import (
     TONEMAP_UNAVAILABLE_REASON,
@@ -568,13 +569,16 @@ def analyze_frames(
             reason=str(error),
             is_hdr=is_hdr,
         )
+    flat_sides = list(scan.flat_sides)
+    flat_cuts = margin_cuts(flat_sides, width, height)
     active_region = merge_crop_union(
-        list(scan.boxes),
+        apply_flat_margin_cuts(list(scan.boxes), flat_sides, width, height, cuts=flat_cuts),
         width,
         height,
         is_vr=vr_protected,
         thresholds=thresholds,
         darkness=list(scan.darkness),
+        flat_faces=tuple(flat_cuts),
     )
     failed_points = scan.failed_points
     # - 프레임을 받은 지점은 검은 화면이어도 읽은 것이라 감지 성공 여부는 이 집합으로 정함

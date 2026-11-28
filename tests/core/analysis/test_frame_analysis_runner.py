@@ -12,6 +12,8 @@ from src.core.analysis.frame_analysis import (
     CROP_SCAN_VERSION,
     METRIC_CROP_ONLY,
     ActiveRegion,
+    CropBox,
+    EdgeDarkness,
     candidate_tiers_for,
 )
 from src.core.analysis.frame_analysis_runner import (
@@ -22,12 +24,19 @@ from src.core.analysis.frame_analysis_runner import (
     ProcessStderrRunner,
     analyze_frames,
 )
+from src.core.analysis.frame_margins import NON_DARK_MIN_LINES, FlatSide, FlatSides
+from src.core.analysis.frame_scan import LumaPointStats
 from src.core.analysis.hdr_tone_map import tonemap_filter_chain
 from src.core.quality_probe import VMAF_MODEL_4K, VMAF_MODEL_DEFAULT, ssim_db_from_score
 from tests._frame_analysis_fakes import FakeStderrRunner
 
 _DURATION_SEC: float = 20.0
 _SEGMENT_COUNT: int = 9
+
+
+def _side(run: int, *, step: float = 20.0) -> FlatSide:
+    """지점 한 면 평탄 요약. 기본은 모든 조건을 넉넉히 넘는 값"""
+    return FlatSide(run=run, mean=50.0, median=48.0, spread=1.0, step=step, blend=0)
 
 
 def _tier_scores_text(text: str) -> dict[str, str]:
@@ -106,13 +115,13 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.tier_scores[-1].vmaf, 99.0)
         self.assertEqual(result.valid_segment_count, 1)
         self.assertEqual(result.total_segment_count, _SEGMENT_COUNT)
-        self.assertEqual(result.analysis_version, 455)
+        self.assertEqual(result.analysis_version, 558)
         self.assertEqual(runner.count_commands("pgm"), _SEGMENT_COUNT)
 
     def test_fast_mode_uses_half_second_segments_and_fast_seek(self) -> None:
         runner = FakeStderrRunner()
         result = self.analyze(runner, mode="fast")
-        self.assertEqual(result.analysis_version, 454)
+        self.assertEqual(result.analysis_version, 557)
         self.assertIn("-noaccurate_seek", runner.commands[0])
         metric = next(args for args in runner.commands if "-filter_complex" in args)
         self.assertEqual(metric[metric.index("-t") + 1], "0.500")
@@ -120,7 +129,7 @@ class TestAnalyzeFrames(_RunnerTestCase):
     def test_precise_mode_uses_two_second_segments_and_accurate_seek(self) -> None:
         runner = FakeStderrRunner()
         result = self.analyze(runner, mode="precise")
-        self.assertEqual(result.analysis_version, 456)
+        self.assertEqual(result.analysis_version, 559)
         self.assertNotIn("-noaccurate_seek", runner.commands[0])
         metric = next(args for args in runner.commands if "-filter_complex" in args)
         self.assertEqual(metric[metric.index("-t") + 1], "2.000")
@@ -357,6 +366,42 @@ class TestAnalyzeFrames(_RunnerTestCase):
         result = self.analyze(runner, width=1920, height=1080)
         self.assertEqual(result.active_region, ActiveRegion(720, 1080, 600, 0, True))
         self.assertFalse(result.is_vr_protected)
+
+    def test_grey_margin_agreed_by_eight_points_survives_one_short_point(self) -> None:
+        """8지점이 같은 회색 여백을 보고 1지점만 짧게 보면 3/4 합의가 그 면을 잘라 냄
+
+        - 예전에는 짧은 지점 상자가 프레임 끝에 남아 합집합이 그 면을 다시 넓혔음
+        """
+        width, height, margin = 480, 360, 48
+        short = NON_DARK_MIN_LINES - 1
+        agreed = FlatSides(
+            top=_side(0), bottom=_side(0), left=_side(margin), right=_side(0)
+        )
+        outlier = FlatSides(
+            top=_side(0), bottom=_side(0), left=_side(short), right=_side(0)
+        )
+        counts: list[int] = []
+
+        def fake_stats(data: bytes, line_size: int, _width: int, _height: int) -> LumaPointStats:
+            del data, line_size, _width, _height
+            counts.append(1)
+            sides = outlier if len(counts) == 1 else agreed
+            return LumaPointStats(CropBox(width, height, 0, 0), 0.1, EdgeDarkness(0, 0, 0, 0), sides)
+
+        result = analyze_frames(
+            source_path="movie.mp4",
+            width=width,
+            height=height,
+            duration_sec=_DURATION_SEC,
+            work_dir=self.work_dir,
+            runner=FakeStderrRunner(frame_size=(width, height)),
+            ffmpeg_executable="ffmpeg",
+            has_vmaf=False,
+            crop_only=True,
+            scan_stats_runner=fake_stats,
+        )
+        self.assertEqual(result.active_region, ActiveRegion(width - margin, height, margin, 0, True))
+        self.assertFalse(result.active_region.margins_vary)
 
     def test_crop_only_scan_runs_no_metric_commands_and_keeps_only_crop_fields(self) -> None:
         """여백 감지 전용 실행이 1단계 스캔만 하고 축소 후보와 지표를 비우는지 검증"""

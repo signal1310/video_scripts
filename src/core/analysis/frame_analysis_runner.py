@@ -50,6 +50,11 @@ from src.core.analysis.frame_fast_metrics import (
     vmaf_log_name,
 )
 from src.core.analysis.frame_scan import FrameStatsRunner, luma_frame_stats, scan_keyframe_points
+from src.core.analysis.hdr_tone_map import (
+    TONEMAP_UNAVAILABLE_REASON,
+    ToneMapUnavailableError,
+    is_tonemap_filter_error,
+)
 from src.core.command_history import (
     STAGE_FRAME_ANALYSIS,
     command_scope,
@@ -167,11 +172,48 @@ class FrameAnalysisResult:
     # - 검은 여백 감지를 하나도 읽지 못했는지. 측정 불가와 달리 활성 화면 확정 자체가 실패한 상태임
     crop_scan_failed: bool = False
     analysis_version: int = FRAME_ANALYSIS_VERSION
+    # - 소스가 HDR이라 톤 매핑을 거쳐 쟀는지. 캐시 재사용과 표시가 이 표식으로 HDR 결과를 구분
+    hdr_tonemapped: bool = False
+    # - 측정하지 못한 이유(톤 매핑 필터 없음 등). 측정 불가 표시와 함께 안내에 씀
+    unmeasurable_reason: str = ""
 
 
 def _check_cancel(cancel_event: threading.Event | None) -> None:
     if cancel_event is not None and cancel_event.is_set():
         raise InterruptedError(_CANCEL_MESSAGE)
+
+
+def _unavailable_result(
+    width: int,
+    height: int,
+    segment_count: int,
+    *,
+    vr_protected: bool,
+    crop_only: bool,
+    analysis_version: int,
+    reason: str,
+    is_hdr: bool,
+) -> FrameAnalysisResult:
+    """톤 매핑 필터를 쓸 수 없을 때의 측정 불가 결과
+
+    - PQ 값을 SDR 지표로 재면 판정이 틀리므로 일부 지점만 잰 결과도 쓰지 않음
+    - 활성 화면도 확정하지 못했으므로 감지 실패로 세워 다음 실행에서 다시 시도하게 함
+    """
+    return FrameAnalysisResult(
+        active_region=ActiveRegion(width, height, 0, 0, False),
+        metric_used=METRIC_CROP_ONLY if crop_only else "",
+        vmaf_model="",
+        tier_scores=(),
+        candidate_tier=None,
+        valid_segment_count=0,
+        total_segment_count=segment_count,
+        unmeasurable=True,
+        is_vr_protected=vr_protected,
+        crop_scan_failed=True,
+        analysis_version=analysis_version,
+        hdr_tonemapped=is_hdr,
+        unmeasurable_reason=reason,
+    )
 
 
 def _median(values: Sequence[float]) -> float | None:
@@ -217,6 +259,7 @@ def _measure_ssim_point(
     fast_keyframe_seek: bool,
     cancel_event: threading.Event | None,
     algorithm: str = DEFAULT_SCALE_ALGORITHM,
+    tonemap: bool = False,
 ) -> dict[str, SsimStats] | None:
     """구간 한 지점의 대상 규격 전체 SSIM 점수와 dB. 명령이 실패하면 None"""
     _check_cancel(cancel_event)
@@ -233,13 +276,16 @@ def _measure_ssim_point(
         log_names=log_names,
         fast_keyframe_seek=fast_keyframe_seek,
         algorithm=algorithm,
+        tonemap=tonemap,
     )
     with command_scope(
         STAGE_FRAME_ANALYSIS, args, target=source_path, source_path=source_path
     ) as handle:
-        returncode, _stderr = runner(args, work_dir)
+        returncode, stderr = runner(args, work_dir)
         handle.exit_code = returncode
     if returncode != 0:
+        if tonemap and is_tonemap_filter_error(stderr):
+            raise ToneMapUnavailableError(TONEMAP_UNAVAILABLE_REASON)
         return None
     scores = parse_ssim_logs(work_dir, log_names)
     return scores or None
@@ -260,6 +306,7 @@ def _measure_vmaf_point(
     fast_keyframe_seek: bool,
     cancel_event: threading.Event | None,
     algorithm: str = DEFAULT_SCALE_ALGORITHM,
+    tonemap: bool = False,
 ) -> float | None:
     """구간 한 지점의 규격 VMAF 점수. 명령이 실패하거나 로그가 없으면 None"""
     _check_cancel(cancel_event)
@@ -279,13 +326,16 @@ def _measure_vmaf_point(
         fast_keyframe_seek=fast_keyframe_seek,
         n_subsample=VMAF_SUBSAMPLE,
         algorithm=algorithm,
+        tonemap=tonemap,
     )
     with command_scope(
         COMMAND_STAGE_VMAF, args, target=source_path, source_path=source_path
     ) as handle:
-        returncode, _stderr = runner(args, work_dir)
+        returncode, stderr = runner(args, work_dir)
         handle.exit_code = returncode
     if returncode != 0:
+        if tonemap and is_tonemap_filter_error(stderr):
+            raise ToneMapUnavailableError(TONEMAP_UNAVAILABLE_REASON)
         return None
     log_path = Path(work_dir, log_name)
     if not log_path.is_file():
@@ -310,6 +360,7 @@ def _run_ssim_stage(
     on_stage: StageCallback | None,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     algorithm: str = DEFAULT_SCALE_ALGORITHM,
+    tonemap: bool = False,
 ) -> tuple[dict[str, float | None], set[int], set[int]]:
     """적응형 라운드로 규격별 SSIM 누적 중앙값과 측정 유효 지점, 단색 지점을 반환"""
     tier_keys = [tier.key for tier in candidates]
@@ -338,6 +389,7 @@ def _run_ssim_stage(
                 fast_keyframe_seek=fast_keyframe_seek,
                 cancel_event=cancel_event,
                 algorithm=algorithm,
+                tonemap=tonemap,
             )
             for index in targets
         ]
@@ -385,6 +437,7 @@ def _run_vmaf_stage(
     on_stage: StageCallback | None,
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     algorithm: str = DEFAULT_SCALE_ALGORITHM,
+    tonemap: bool = False,
 ) -> float | None:
     """규격 한 개의 VMAF를 적응형 라운드로 재고 누적 중앙값 반환"""
     usable_points = valid_points - flat_points
@@ -411,6 +464,7 @@ def _run_vmaf_stage(
                 fast_keyframe_seek=fast_keyframe_seek,
                 cancel_event=cancel_event,
                 algorithm=algorithm,
+                tonemap=tonemap,
             )
             for index in targets
         ]
@@ -456,10 +510,13 @@ def analyze_frames(
     thresholds: FrameAnalysisThresholds = DEFAULT_FRAME_ANALYSIS_THRESHOLDS,
     scale_algorithm: str = DEFAULT_SCALE_ALGORITHM,
     scan_stats_runner: FrameStatsRunner = luma_frame_stats,
+    is_hdr: bool = False,
 ) -> FrameAnalysisResult:
     """영상 한 개의 활성 화면과 축소 후보 규격을 고속 측정
 
     - 실행기를 주입하지 않으면 PyAV 9지점 스캔을 쓰고, 주입하면 CLI 9지점 스캔으로 폴백
+    - is_hdr이면 스캔과 지표 명령 모두 SDR 톤 매핑을 거쳐 PQ 휘도와 지표를 SDR과 같은 기준으로 잼
+    - 톤 매핑 필터가 없는 빌드면 PQ 값을 그대로 재지 않고 측정 불가와 사유를 남김
     - crop_only면 1단계 스캔과 검은 여백 합집합만 남기고 SSIM/VMAF 단계를 실행하지 않음
     - 읽은 지점이 하나도 없으면 두 경로 모두 `crop_scan_failed`를 세워 감지 실패를 표시와 캐시 재사용에 씀
     - 감지 전용 실행의 측정 불가는 스캔 실패로만 세움(모든 지점이 검은 화면이면 감지는 성공)
@@ -486,18 +543,31 @@ def analyze_frames(
         if on_stage is not None:
             on_stage(STAGE_SCAN, done, total)
 
-    scan = scan_keyframe_points(
-        source_path=source_path,
-        points=[start for start, _duration in segments],
-        ffmpeg_executable=ffmpeg_executable,
-        runner=exec_runner,
-        work_dir=work_dir,
-        fast_keyframe_seek=params.fast_keyframe_seek,
-        cancel_event=cancel_event,
-        on_point=_on_scan_point,
-        prefer_pyav=use_pyav,
-        stats_runner=scan_stats_runner,
-    )
+    try:
+        scan = scan_keyframe_points(
+            source_path=source_path,
+            points=[start for start, _duration in segments],
+            ffmpeg_executable=ffmpeg_executable,
+            runner=exec_runner,
+            work_dir=work_dir,
+            fast_keyframe_seek=params.fast_keyframe_seek,
+            cancel_event=cancel_event,
+            on_point=_on_scan_point,
+            prefer_pyav=use_pyav,
+            tonemap=is_hdr,
+            stats_runner=scan_stats_runner,
+        )
+    except ToneMapUnavailableError as error:
+        return _unavailable_result(
+            width,
+            height,
+            len(segments),
+            vr_protected=vr_protected,
+            crop_only=crop_only,
+            analysis_version=CROP_SCAN_VERSION if crop_only else analysis_version,
+            reason=str(error),
+            is_hdr=is_hdr,
+        )
     active_region = merge_crop_union(
         list(scan.boxes),
         width,
@@ -526,6 +596,7 @@ def analyze_frames(
             is_vr_protected=vr_protected,
             crop_scan_failed=scan_failed,
             analysis_version=CROP_SCAN_VERSION,
+            hdr_tonemapped=is_hdr,
         )
     model = vmaf_model_for(active_region.width, active_region.height)
     metric_used = resolve_metric_name(has_vmaf)
@@ -549,6 +620,7 @@ def analyze_frames(
             is_vr_protected=vr_protected,
             crop_scan_failed=scan_failed,
             analysis_version=analysis_version,
+            hdr_tonemapped=is_hdr,
         )
 
     candidates = candidate_tiers_for(active_region.width, active_region.height)
@@ -557,23 +629,39 @@ def analyze_frames(
     if not valid_points:
         return _result(tier_scores=(), candidate_tier=None, valid_count=0, unmeasurable=True)
 
-    ssim_medians, used_points, flat_points = _run_ssim_stage(
-        points=segments,
-        valid_points=valid_points,
-        candidates=candidates,
-        source_path=source_path,
-        work_dir=work_dir,
-        runner=exec_runner,
-        ffmpeg_executable=ffmpeg_executable,
-        active_region=active_region,
-        log_prefix=log_prefix,
-        fast_keyframe_seek=params.fast_keyframe_seek,
-        cancel_event=cancel_event,
-        inner_workers=inner_workers,
-        on_stage=on_stage,
-        thresholds=thresholds,
-        algorithm=scale_algorithm,
-    )
+    def _tonemap_failure(error: ToneMapUnavailableError) -> FrameAnalysisResult:
+        return _unavailable_result(
+            width,
+            height,
+            len(segments),
+            vr_protected=vr_protected,
+            crop_only=False,
+            analysis_version=analysis_version,
+            reason=str(error),
+            is_hdr=is_hdr,
+        )
+
+    try:
+        ssim_medians, used_points, flat_points = _run_ssim_stage(
+            points=segments,
+            valid_points=valid_points,
+            candidates=candidates,
+            source_path=source_path,
+            work_dir=work_dir,
+            runner=exec_runner,
+            ffmpeg_executable=ffmpeg_executable,
+            active_region=active_region,
+            log_prefix=log_prefix,
+            fast_keyframe_seek=params.fast_keyframe_seek,
+            cancel_event=cancel_event,
+            inner_workers=inner_workers,
+            on_stage=on_stage,
+            thresholds=thresholds,
+            algorithm=scale_algorithm,
+            tonemap=is_hdr,
+        )
+    except ToneMapUnavailableError as error:
+        return _tonemap_failure(error)
     if not used_points:
         return _result(tier_scores=(), candidate_tier=None, valid_count=0, unmeasurable=True)
 
@@ -590,25 +678,29 @@ def analyze_frames(
         prefix = candidates[: candidate_keys.index(ssim_candidate) + 1]
         for tier in reversed(prefix):
             _check_cancel(cancel_event)
-            median = _run_vmaf_stage(
-                points=segments,
-                valid_points=valid_points,
-                flat_points=flat_points,
-                tier=tier,
-                source_path=source_path,
-                work_dir=work_dir,
-                runner=exec_runner,
-                ffmpeg_executable=ffmpeg_executable,
-                active_region=active_region,
-                model=model,
-                log_prefix=log_prefix,
-                fast_keyframe_seek=params.fast_keyframe_seek,
-                cancel_event=cancel_event,
-                inner_workers=inner_workers,
-                on_stage=on_stage,
-                thresholds=thresholds,
-                algorithm=scale_algorithm,
-            )
+            try:
+                median = _run_vmaf_stage(
+                    points=segments,
+                    valid_points=valid_points,
+                    flat_points=flat_points,
+                    tier=tier,
+                    source_path=source_path,
+                    work_dir=work_dir,
+                    runner=exec_runner,
+                    ffmpeg_executable=ffmpeg_executable,
+                    active_region=active_region,
+                    model=model,
+                    log_prefix=log_prefix,
+                    fast_keyframe_seek=params.fast_keyframe_seek,
+                    cancel_event=cancel_event,
+                    inner_workers=inner_workers,
+                    on_stage=on_stage,
+                    thresholds=thresholds,
+                    algorithm=scale_algorithm,
+                    tonemap=is_hdr,
+                )
+            except ToneMapUnavailableError as error:
+                return _tonemap_failure(error)
             vmaf_medians[tier.key] = median
             if median is not None and median >= thresholds.vmaf:
                 candidate_tier = tier.key

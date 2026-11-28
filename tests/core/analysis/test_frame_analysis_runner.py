@@ -6,6 +6,7 @@ import tempfile
 import threading
 import unittest
 from collections.abc import Callable
+from unittest import mock
 
 from src.core.analysis.frame_analysis import (
     CROP_SCAN_VERSION,
@@ -21,6 +22,7 @@ from src.core.analysis.frame_analysis_runner import (
     ProcessStderrRunner,
     analyze_frames,
 )
+from src.core.analysis.hdr_tone_map import tonemap_filter_chain
 from src.core.quality_probe import VMAF_MODEL_4K, VMAF_MODEL_DEFAULT, ssim_db_from_score
 from tests._frame_analysis_fakes import FakeStderrRunner
 
@@ -65,6 +67,7 @@ class _RunnerTestCase(unittest.TestCase):
         on_stage: Callable[[str, int, int], None] | None = None,
         crop_only: bool = False,
         duration_sec: float = _DURATION_SEC,
+        is_hdr: bool = False,
     ) -> FrameAnalysisResult:
         # - 대역이 만드는 회색조 프레임을 분석 대상 크기와 맞춰, 스캔이 같은 크기를 보게 함
         runner.frame_size = (width, height)
@@ -84,6 +87,7 @@ class _RunnerTestCase(unittest.TestCase):
             inner_workers=inner_workers,
             on_stage=on_stage,
             crop_only=crop_only,
+            is_hdr=is_hdr,
         )
 
 
@@ -165,7 +169,75 @@ class TestAnalyzeFrames(_RunnerTestCase):
         self.assertEqual(result.candidate_tier, "360p")
         self.assertTrue(all(score.vmaf is None for score in result.tier_scores))
 
-    def test_flat_segments_are_unmeasurable(self) -> None:
+    def test_hdr_analysis_tone_maps_the_scan_and_metric_commands(self) -> None:
+        """HDR이면 9지점 스캔과 SSIM, VMAF 명령 모두 톤 매핑 체인을 쓰고 결과에 표식을 남김"""
+        runner = FakeStderrRunner()
+        result = self.analyze(runner, is_hdr=True)
+        self.assertTrue(result.hdr_tonemapped)
+        self.assertEqual(result.candidate_tier, "360p")
+        scans = [args for args in runner.commands if "pgm" in args]
+        self.assertTrue(scans)
+        for args in scans:
+            self.assertIn(f"{tonemap_filter_chain(hdr=True)},format=gray", args[args.index("-vf") + 1])
+        for args in runner.commands:
+            if "-filter_complex" not in args:
+                continue
+            chain = args[args.index("-filter_complex") + 1]
+            self.assertIn(f"[0:v]{tonemap_filter_chain(hdr=True)},split=", chain)
+
+    def test_sdr_analysis_keeps_pq_free_chains(self) -> None:
+        """SDR 분석은 톤 매핑 체인을 넣지 않아 기존 측정이 그대로 유지됨"""
+        runner = FakeStderrRunner()
+        result = self.analyze(runner)
+        self.assertFalse(result.hdr_tonemapped)
+        for args in runner.commands:
+            self.assertFalse(any("tonemap=" in token for token in args))
+
+    def test_missing_tonemap_filters_mark_the_hdr_result_unmeasurable(self) -> None:
+        """톤 매핑 필터를 만들지 못하면 PQ 값을 재지 않고 측정 불가와 사유를 남김"""
+
+        class _FilterErrorRunner(FakeStderrRunner):
+            def __call__(self, args: list[str], work_dir: str) -> tuple[int, str]:
+                _ = (args, work_dir)
+                return (1, "[AVFilterGraph] No such filter: 'zscale'")
+
+        runner = _FilterErrorRunner()
+        with mock.patch(
+            "src.core.analysis.frame_scan._pyav_filter_names", return_value=frozenset({"format"})
+        ):
+            result = self.analyze(runner, is_hdr=True)
+        self.assertTrue(result.unmeasurable)
+        self.assertTrue(result.crop_scan_failed)
+        self.assertTrue(result.hdr_tonemapped)
+        self.assertIn("zscale", result.unmeasurable_reason)
+        self.assertIsNone(result.candidate_tier)
+        self.assertEqual(runner.tiers_measured("ssim"), [])
+
+    def test_metric_tonemap_failure_after_scan_marks_unmeasurable(self) -> None:
+        """스캔은 됐지만 지표 명령에서 톤 매핑 필터를 만들지 못하면 측정 불가와 사유를 남김"""
+
+        class _MetricFilterErrorRunner(FakeStderrRunner):
+            def __call__(self, args: list[str], work_dir: str) -> tuple[int, str]:
+                if "-filter_complex" in args:
+                    self.commands.append(args)
+                    return (1, "[AVFilterGraph] No such filter: 'zscale'")
+                return super().__call__(args, work_dir)
+
+        runner = _MetricFilterErrorRunner()
+        result = self.analyze(runner, is_hdr=True)
+        self.assertTrue(result.unmeasurable)
+        self.assertTrue(result.hdr_tonemapped)
+        self.assertIn("zscale", result.unmeasurable_reason)
+        self.assertIsNone(result.candidate_tier)
+        self.assertEqual(result.tier_scores, ())
+
+    def test_crop_only_hdr_scan_keeps_the_tonemap_flag(self) -> None:
+        """감지 전용 HDR 스캔도 톤 매핑 여부를 표식으로 남겨 캐시 재사용 판정에 씀"""
+        runner = FakeStderrRunner()
+        result = self.analyze(runner, crop_only=True, is_hdr=True)
+        self.assertTrue(result.hdr_tonemapped)
+        self.assertEqual(result.analysis_version, CROP_SCAN_VERSION)
+        self.assertEqual(runner.count_commands("libvmaf"), 0)
         # - 같은 화면만 있는 지점은 평균 점수가 1이라 dB가 상한에 걸려 평탄으로 제외됨
         all_inf = "".join(f"n:{index} Y:1 U:1 V:1 All:1.000000 (inf)\n" for index in range(30))
         runner = FakeStderrRunner(ssim_text_by_tier=_tier_scores_text(all_inf))

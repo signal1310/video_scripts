@@ -4,6 +4,7 @@
 - `numpy` 없이 `bytes.translate` 룩업 테이블과 `bytes.count`, 슬라이스 합만으로 픽셀 비율과 줄, 열 평균을 계산
 - PyAV 열기나 디코딩이 실패하거나 테스트가 실행기를 주입하면 FFmpeg CLI 9지점 키프레임 스캔으로 폴백
 - CLI 폴백도 지점마다 8-bit 회색조 한 장을 받아 같은 `luma_frame_stats` 규칙으로 판정해 두 경로의 여백 정의를 하나로 유지
+- HDR 영상은 두 경로 모두 `hdr_tone_map` 체인으로 SDR BT.709을 만든 뒤 회색조로 줄여 PQ 휘도를 그대로 재지 않음
 """
 
 from __future__ import annotations
@@ -12,10 +13,19 @@ import logging
 import threading
 import uuid
 from collections.abc import Callable, Sequence
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, cast
 
 from src.core.analysis.frame_analysis import CropBox, EdgeDarkness
+from src.core.analysis.hdr_tone_map import (
+    TONEMAP_UNAVAILABLE_REASON,
+    ToneMapUnavailableError,
+    is_tonemap_filter_error,
+    missing_tonemap_filters,
+    tonemap_filter_chain,
+    tonemap_filter_nodes,
+)
 from src.core.command_history import STAGE_FRAME_ANALYSIS, command_scope
 from src.core.file_sharing import open_shared_binary
 
@@ -113,11 +123,15 @@ def build_scan_command(
     start_sec: float,
     fast_keyframe_seek: bool,
     frame_path: str,
+    tonemap: bool = False,
 ) -> list[str]:
     """CLI 9지점 폴백에서 키프레임 한 장을 8-bit 회색조 PGM 파일로 받는 인자 목록
 
     - PyAV 경로와 같은 판정을 쓰려고 로그 대신 픽셀을 받음. 한 지점에 프로세스 한 번
+    - HDR이면 회색조 변환 전에 SDR 톤 매핑을 거쳐 PQ 휘도를 그대로 8비트로 자르지 않음
     """
+    tonemap_chain = tonemap_filter_chain(hdr=tonemap)
+    grayscale = f"{tonemap_chain},format=gray" if tonemap_chain else "format=gray"
     args = [
         ffmpeg_executable,
         "-hide_banner",
@@ -137,7 +151,7 @@ def build_scan_command(
             "-frames:v",
             "1",
             "-vf",
-            "format=gray",
+            grayscale,
             "-an",
             "-f",
             "image2",
@@ -547,12 +561,55 @@ def _luma_bytes(frame: VideoFrame) -> tuple[bytes, int, int, int]:
     plane = target.planes[0]
     return (bytes(plane), plane.line_size, target.width, target.height)
 
+
+@lru_cache(maxsize=1)
+def _pyav_filter_names() -> frozenset[str]:
+    """PyAV가 쓰는 FFmpeg 빌드의 필터 이름 목록. 한 번만 읽음"""
+    from av.filter import filters_available
+
+    return frozenset(filters_available)
+
+
+def pyav_tonemap_supported() -> bool:
+    """PyAV가 쓰는 FFmpeg 빌드에 톤 매핑 필터가 모두 있는지
+
+    - PyAV는 함께 배포한 FFmpeg 라이브러리를 쓰므로 zscale 유무가 시스템 FFmpeg와 다를 수 있음
+    """
+    return not missing_tonemap_filters(_pyav_filter_names())
+
+
+def pyav_tonemap_error_text() -> str:
+    """PyAV 빌드에 톤 매핑 필터가 없을 때의 사유"""
+    missing = missing_tonemap_filters(_pyav_filter_names())
+    return f"{TONEMAP_UNAVAILABLE_REASON} (PyAV 빌드에 없는 필터: {', '.join(missing)})"
+
+
+def _tonemapped_gray_frame(frame: VideoFrame) -> VideoFrame:
+    """HDR 프레임을 SDR 톤 매핑 체인과 회색조 변환으로 통과시킨 프레임
+
+    - 스트림 템플릿 대신 디코딩한 프레임을 밀어 넣어, 스트림의 픽셀 형식과 무관하게 같은 체인을 씀
+    - 만든 필터 노드를 모아 이어 붙임(PyAV 그래프는 노드 목록 특성을 노출하지 않음)
+    """
+    from av.filter import Graph
+
+    if missing_tonemap_filters(_pyav_filter_names()):
+        raise ToneMapUnavailableError(pyav_tonemap_error_text())
+    graph = Graph()
+    nodes = [graph.add(name, args) for name, args in tonemap_filter_nodes(hdr=True)]
+    nodes.append(graph.add("format", "gray"))
+    graph.link_nodes(*nodes)
+    graph.configure()
+    graph.push(frame)
+    return cast("VideoFrame", graph.pull())
+
+
 def _scan_with_pyav(
     source_path: str,
     points: Sequence[float],
     *,
     cancel_event: threading.Event | None,
     on_point: PointCallback | None,
+    tonemap: bool = False,
     stats_runner: FrameStatsRunner = luma_frame_stats,
 ) -> KeyframeScanResult:
     """PyAV 컨테이너를 한 번 열고 9지점 키프레임의 Y 평면을 직접 스캔"""
@@ -582,7 +639,9 @@ def _scan_with_pyav(
                 frame = next(frames)
             except StopIteration as error:
                 raise ScanDecodeError("요청한 시점의 키프레임이 없습니다.") from error
-            data, line_size, width, height = _luma_bytes(frame)
+            # - 톤 매핑 결과는 회전 메타데이터가 없는 새 프레임이므로 회전은 디코딩한 프레임에서 읽음
+            luma_frame = _tonemapped_gray_frame(frame) if tonemap else frame
+            data, line_size, width, height = _luma_bytes(luma_frame)
             box, black_ratio, edges = stats_runner(data, line_size, width, height)
             if black_ratio >= BLACK_FRAME_PIXEL_RATIO:
                 black_points.append(index)
@@ -609,12 +668,14 @@ def _read_gray_frame(
     work_dir: str,
     fast_keyframe_seek: bool,
     cancel_event: threading.Event | None,
+    tonemap: bool = False,
 ) -> tuple[bytes, int, int] | None:
     """지점 키프레임 한 장을 CLI로 받아 (Y 평면, 너비, 높이)로 반환, 실패하면 None
 
     - `work_dir`는 여러 작업이 공유하므로 지점마다 다른 임시 파일 이름을 씀
     - 받은 파일은 읽은 뒤 바로 지움
     - FFmpeg가 0으로 끝나도 출력 파일이 없으면 실패한 지점으로 봄(파일 끝을 넘긴 시크 등)
+    - HDR 톤 매핑 필터를 만들지 못한 실패는 `ToneMapUnavailableError`로 올려 측정 불가로 알림
     """
     frame_path = str(Path(work_dir, f"scan_{uuid.uuid4().hex}.pgm"))
     args = build_scan_command(
@@ -623,14 +684,17 @@ def _read_gray_frame(
         start_sec=start_sec,
         fast_keyframe_seek=fast_keyframe_seek,
         frame_path=frame_path,
+        tonemap=tonemap,
     )
     try:
         with command_scope(
             STAGE_FRAME_ANALYSIS, args, target=source_path, source_path=source_path
         ) as handle:
-            returncode, _stderr = runner(args, work_dir)
+            returncode, stderr = runner(args, work_dir)
             handle.exit_code = returncode
         if returncode != 0:
+            if tonemap and is_tonemap_filter_error(stderr):
+                raise ToneMapUnavailableError(TONEMAP_UNAVAILABLE_REASON)
             return None
         if not Path(frame_path).is_file():
             return None
@@ -649,6 +713,7 @@ def scan_with_cli(
     fast_keyframe_seek: bool,
     cancel_event: threading.Event | None,
     on_point: PointCallback | None,
+    tonemap: bool = False,
     stats_runner: FrameStatsRunner = luma_frame_stats,
 ) -> KeyframeScanResult:
     """FFmpeg CLI 9지점 키프레임 스캔. 키프레임을 받지 못한 지점은 실패 지점으로 따로 모음
@@ -672,6 +737,7 @@ def scan_with_cli(
             work_dir=work_dir,
             fast_keyframe_seek=fast_keyframe_seek,
             cancel_event=cancel_event,
+            tonemap=tonemap,
         )
         if frame is None:
             failed_points.append(index)
@@ -699,21 +765,26 @@ def scan_keyframe_points(
     cancel_event: threading.Event | None = None,
     on_point: PointCallback | None = None,
     prefer_pyav: bool = True,
+    tonemap: bool = False,
     stats_runner: FrameStatsRunner = luma_frame_stats,
 ) -> KeyframeScanResult:
     """PyAV 직독을 먼저 시도하고 실패하면 CLI 9지점 스캔으로 폴백
 
     - stats_runner는 픽셀 판정만 대신하는 함수라 PyAV 디코딩과 CLI 폴백 순서는 그대로임
+    - HDR 톤 매핑을 PyAV 빌드가 지원하지 않으면 CLI 경로만 써서 시스템 FFmpeg로 톤 매핑함
     """
-    if prefer_pyav:
+    if prefer_pyav and (not tonemap or pyav_tonemap_supported()):
         try:
             return _scan_with_pyav(
                 source_path,
                 points,
                 cancel_event=cancel_event,
                 on_point=on_point,
+                tonemap=tonemap,
                 stats_runner=stats_runner,
             )
+        except ToneMapUnavailableError:
+            raise
         except InterruptedError:
             raise
         except Exception:
@@ -727,6 +798,7 @@ def scan_keyframe_points(
         fast_keyframe_seek=fast_keyframe_seek,
         cancel_event=cancel_event,
         on_point=on_point,
+        tonemap=tonemap,
         stats_runner=stats_runner,
     )
 

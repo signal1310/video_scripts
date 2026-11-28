@@ -54,6 +54,7 @@ from src.core.analysis.frame_analysis import (
     tier_scores_from_json,
     tier_scores_to_json,
 )
+from src.core.analysis.hdr_tone_map import tonemap_filter_chain
 from src.core.config import ClassifierConfig
 from src.core.models import ActiveFrame
 from src.core.quality_probe import VMAF_THREADS
@@ -511,6 +512,37 @@ class TestCommandBuilders(unittest.TestCase):
                 for other in SCALE_ALGORITHM_VALUES:
                     if other != algorithm:
                         self.assertNotIn(f"flags={other}", chain)
+
+    def test_roundtrip_tone_maps_hdr_before_the_shared_split(self) -> None:
+        """HDR 왕복 지표는 split 앞에서 한 번 톤 매핑해 기준과 축소본을 같은 변환으로 비교함"""
+        region = ActiveRegion(1920, 1080, 0, 0, False)
+        args = build_roundtrip_command(
+            ffmpeg_executable="ffmpeg",
+            source_path="movie.mp4",
+            start_sec=0.0,
+            duration_sec=1.0,
+            active_region=region,
+            tier=RESOLUTION_TIER_BY_KEY["720p"],
+            metric="vmaf",
+            model="vmaf_v0.6.1",
+            log_name="vmaf.json",
+            tonemap=True,
+        )
+        chain = args[args.index("-filter_complex") + 1]
+        self.assertTrue(chain.startswith(f"[0:v]{tonemap_filter_chain(hdr=True)},split=2[ref][dist];"))
+        self.assertEqual(chain.count("tonemap=hable"), 1)
+        sdr = build_roundtrip_command(
+            ffmpeg_executable="ffmpeg",
+            source_path="movie.mp4",
+            start_sec=0.0,
+            duration_sec=1.0,
+            active_region=region,
+            tier=RESOLUTION_TIER_BY_KEY["720p"],
+            metric="vmaf",
+            model="vmaf_v0.6.1",
+            log_name="vmaf.json",
+        )
+        self.assertNotIn("tonemap=hable", sdr[sdr.index("-filter_complex") + 1])
 
 
 class TestScoring(unittest.TestCase):

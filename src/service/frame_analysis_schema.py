@@ -43,7 +43,9 @@ ANALYSIS_LEGACY_TABLE: str = LEGACY_TABLE_NAME
 # - 옛 파일명 키 표의 기본 키. 1단계 파일명 조회 키와 같은 구성
 LEGACY_KEY_COLUMN_NAMES: tuple[str, ...] = ("filename", "filesize_bytes", "mtime_ns")
 # - 옛 행에 없을 수 있어 NULL을 허용하는 열. 나머지 열은 키이거나 측정 결과라 NOT NULL
-_NULLABLE_COLUMNS: frozenset[str] = frozenset({"candidate_tier", "fingerprint"})
+_NULLABLE_COLUMNS: frozenset[str] = frozenset(
+    {"candidate_tier", "fingerprint", "unmeasurable_reason"}
+)
 
 
 def _allows_null(name: str, primary_key: Sequence[str]) -> bool:
@@ -164,6 +166,9 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     (FRAME_ANALYSIS_TABLE, "margins_vary", "INTEGER NOT NULL DEFAULT 0"),
     (FRAME_ANALYSIS_TABLE, "dark_outliers_ignored", "INTEGER NOT NULL DEFAULT 0"),
     (FRAME_ANALYSIS_TABLE, "crop_scan_failed", "INTEGER NOT NULL DEFAULT 0"),
+    # - 옛 HDR 결과는 PQ 값을 그대로 잰 값이라 쓰지 않도록 0으로 두고 다시 잼
+    (FRAME_ANALYSIS_TABLE, "hdr_tonemapped", "INTEGER NOT NULL DEFAULT 0"),
+    (FRAME_ANALYSIS_TABLE, "unmeasurable_reason", "TEXT"),
     (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "filesize_bytes", "INTEGER"),
     (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "mtime_ns", "INTEGER"),
     (FRAME_ANALYSIS_MANUAL_FRAME_TABLE, "fingerprint", "TEXT"),

@@ -776,6 +776,38 @@ class TestFrameAnalysisService(_ServiceTestCase):
         self.assertTrue(service.load_results([vr_request])["b.mp4"].is_vr_protected)
         self.assertFalse(service.load_results([plain])["a.mp4"].is_vr_protected)
 
+    def test_hdr_request_remeasures_a_pre_change_row(self) -> None:
+        """톤 매핑 전에 잰 HDR 행은 다시 재고, 측정한 행은 톤 매핑 표식과 함께 재사용함
+
+        - 옛 HDR 결과는 PQ 휘도를 그대로 잰 값이라 활성 화면과 후보 모두 쓰지 않음
+        """
+        stale = replace(make_frame_record("a.mp4"), unmeasurable=False)
+        self.store.save(stale)
+        runner = FakeStderrRunner()
+        service = self.make_service(runner)
+        request = _request("a.mp4", height=1280, width=720)
+        hdr_request = replace(request, is_hdr=True)
+        self.assertEqual(service.count_cached([hdr_request]), 0)
+        self.assertEqual(service.load_results([hdr_request]), {})
+        result = service.analyze_batch([hdr_request])["a.mp4"]
+        self.assertTrue(result.hdr_tonemapped)
+        self.assertGreater(runner.count_commands("tonemap=hable"), 0)
+        record = self.store.load_many([request.content_key])[request.content_key]
+        self.assertTrue(record.hdr_tonemapped)
+        self.assertEqual(service.count_cached([hdr_request]), 1)
+        # - 같은 파일을 SDR로 보면 톤 매핑 결과를 쓰지 않고 다시 잼
+        self.assertEqual(service.count_cached([request]), 0)
+
+    def test_hdr_result_replaces_the_row_for_the_same_content(self) -> None:
+        """내용 키가 같은 한 행에 톤 매핑 표식을 남겨, 다음 HDR 요청이 그 행을 재사용함"""
+        service = self.make_service(FakeStderrRunner())
+        request = _request("a.mp4")
+        service.analyze_batch([request])
+        service.analyze_batch([replace(request, is_hdr=True)])
+        self.assertEqual(self.store.count(), 1)
+        record = self.store.load_many([request.content_key])[request.content_key]
+        self.assertTrue(record.hdr_tonemapped)
+
     def test_manual_vr_or_metric_change_invalidates_cached_row(self) -> None:
         """VR 보호 설정이나 측정 지표가 캐시와 다르면 다시 분석함을 검증
 

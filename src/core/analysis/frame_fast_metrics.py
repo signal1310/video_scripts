@@ -10,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from src.core.analysis.frame_analysis import ActiveRegion
+from src.core.analysis.hdr_tone_map import tonemap_graph_prefix
 from src.core.quality_probe import SsimStats, parse_ssim_stats, ssim_db_from_score
 from src.core.resolution_tiers import (
     DEFAULT_SCALE_ALGORITHM,
@@ -79,17 +80,21 @@ def build_split_ssim_command(
     log_names: Mapping[str, str],
     fast_keyframe_seek: bool,
     algorithm: str = DEFAULT_SCALE_ALGORITHM,
+    tonemap: bool = False,
 ) -> list[str]:
-    """대상 규격 전체의 축소 왕복 SSIM을 한 번의 디코딩으로 재는 FFmpeg 인자 목록"""
+    """대상 규격 전체의 축소 왕복 SSIM을 한 번의 디코딩으로 재는 FFmpeg 인자 목록
+
+    - HDR이면 `split` 앞에서 SDR 톤 매핑을 거쳐 기준과 축소본이 같은 변환 결과로 비교되게 함
+    """
     count = len(tiers)
     parts: list[str] = []
-    crop = _crop_prefix(active_region)
+    prefix = f"[0:v]{tonemap_graph_prefix(hdr=tonemap)}{_crop_prefix(active_region)}"
     distorted_labels = "".join(f"[d{index}]" for index in range(count))
     if count == 1:
-        parts.append(f"[0:v]{crop}split=2[ref]{distorted_labels}")
+        parts.append(f"{prefix}split=2[ref]{distorted_labels}")
         reference_labels = ["[ref]"]
     else:
-        parts.append(f"[0:v]{crop}split={count + 1}[base]{distorted_labels}")
+        parts.append(f"{prefix}split={count + 1}[base]{distorted_labels}")
         reference_labels = [f"[r{index}]" for index in range(count)]
         parts.append(f"[base]split={count}{''.join(reference_labels)}")
     for index, tier in enumerate(tiers):

@@ -15,7 +15,8 @@ from src.gui.controllers.frame_analysis_targets import (
     is_below_frame_min_tier,
 )
 from src.gui.frame_analysis_skip import (
-    skip_reason_for_crop_scan,
+    skip_reason_for_batch_analysis,
+    skip_reason_for_batch_crop_scan,
     skip_reason_for_frame_analysis,
 )
 from tests._factories import make_eval, make_video
@@ -24,15 +25,21 @@ from tests._factories import make_eval, make_video
 class SkipRuleTests(unittest.TestCase):
     """자동 화질 분석, 여백 감지에서 건너뛸 영상 판정 검증"""
 
-    def test_skip_rules_cover_exception_encoded_hdr_manual_and_interlaced(self) -> None:
-        """예외 규칙, 이미 인코딩, HDR, 인터레이스, 직접 지정 영상은 자동 대상에서 빠짐"""
-        for action in (
-            SmartAction.PASS_EXCEPTION,
-            SmartAction.PASS_ALREADY_ENCODED,
-            SmartAction.PASS_HDR,
-        ):
+    def test_skip_rules_cover_exception_encoded_manual_and_interlaced(self) -> None:
+        """예외 규칙, 이미 인코딩, 인터레이스, 직접 지정 영상은 수동 대상에서 빠짐
+
+        - HDR은 자동 배치에서만 빠지고 우클릭 화질 분석은 톤 매핑으로 측정
+        """
+        for action in (SmartAction.PASS_EXCEPTION, SmartAction.PASS_ALREADY_ENCODED):
             with self.subTest(action=action):
                 self.assertIsNotNone(skip_reason_for_frame_analysis(make_eval(smart_action=action)))
+                self.assertIsNotNone(skip_reason_for_batch_analysis(make_eval(smart_action=action)))
+        self.assertIsNone(
+            skip_reason_for_frame_analysis(make_eval(smart_action=SmartAction.PASS_HDR))
+        )
+        self.assertIsNotNone(
+            skip_reason_for_batch_analysis(make_eval(smart_action=SmartAction.PASS_HDR))
+        )
         self.assertIsNotNone(skip_reason_for_frame_analysis(make_eval(manual_target="keep")))
         self.assertIsNotNone(skip_reason_for_frame_analysis(make_eval(manual_target="720p")))
         self.assertIsNone(skip_reason_for_frame_analysis(make_eval()))
@@ -45,15 +52,17 @@ class SkipRuleTests(unittest.TestCase):
             )
         )
         self.assertIsNotNone(skip_reason_for_frame_analysis(interlaced))
-        self.assertIsNotNone(skip_reason_for_crop_scan(interlaced))
+        self.assertIsNotNone(skip_reason_for_batch_crop_scan(interlaced))
 
     def test_crop_scan_skip_rules_keep_manual_target_videos(self) -> None:
         """여백 감지는 직접 지정 영상을 건너뛰지 않고 보존 대상과 인터레이스만 제외"""
         manual = make_eval(manual_target="720p")
-        self.assertIsNone(skip_reason_for_crop_scan(manual))
-        self.assertIsNone(skip_reason_for_crop_scan(make_eval(manual_target="keep")))
-        self.assertIsNotNone(skip_reason_for_crop_scan(make_eval(smart_action=SmartAction.PASS_HDR)))
-        self.assertIsNone(skip_reason_for_crop_scan(make_eval()))
+        self.assertIsNone(skip_reason_for_batch_crop_scan(manual))
+        self.assertIsNone(skip_reason_for_batch_crop_scan(make_eval(manual_target="keep")))
+        self.assertIsNotNone(
+            skip_reason_for_batch_crop_scan(make_eval(smart_action=SmartAction.PASS_HDR))
+        )
+        self.assertIsNone(skip_reason_for_batch_crop_scan(make_eval()))
 
 
 class MinTierTests(unittest.TestCase):

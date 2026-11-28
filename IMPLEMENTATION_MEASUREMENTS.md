@@ -648,3 +648,10 @@
 | `_ref/video10_normal_phone.mp4`, `_ref/video11_HEVC_phone.mp4`(회전 90 표시) | 3840x2160 | 2160x2160 at 0,0 | 2160x2160 at 0,0 |
 | 나머지 34개(상위 23개 중 위 5개 제외, `clips/` 18개 중 위 1개 제외) | - | 전부 동일 | 전부 동일 |
 
+### 12.22 HDR 톤 매핑 화질 분석 실측(2026-11-28, `_ref` HDR `video12` 읽기 전용, 임시 폴더 측정)
+
+- **목적**: PQ 휘도를 SDR 기준으로 그대로 재던 HDR 화질 분석을 SDR BT.709 톤 매핑(`zscale` 리니어 -> `tonemap=hable` -> `zscale` bt709 TV 범위 -> `yuv420p`) 뒤 측정으로 바꾼 효과 확인
+- **결과**: `video12`(HDR, 표시 회전 720x1280)는 변경 전 축소 후보 480p, 변경 후 후보 없음(유지, 최상위 SSIM 0.9925), 활성 화면 720x1280 전체, `hdr_tonemapped` 참. SDR 대조 `video22`는 활성 화면 242x180 그대로
+- **빌드 제약**: PyAV 17 내장 FFmpeg에는 `tonemap`은 있지만 `zscale`이 없어 HDR 스캔은 시스템 FFmpeg CLI 경로를 씀(`pyav_tonemap_supported`). 시스템 FFmpeg에도 필터가 없으면 측정 불가와 사유를 남기고 다음 실행에서 다시 시도
+- **캐시**: SDR 결과는 바뀌지 않아 방식 버전을 올리지 않음. 새 열 `hdr_tonemapped`(옛 행 0)로 톤 매핑 전에 잰 HDR 행을 재사용과 표시에서 빼고 다시 잼
+- **조사 스크립트 보정**: `scripts/investigate_hdr_frame_analysis.py`가 코딩 크기 1280x720을 넘겨 표시 회전 상자와 합쳐 720x720이 되던 문제를 `build_video_props`의 표시 크기로 고침(제품 경로는 원래 표시 크기를 씀)

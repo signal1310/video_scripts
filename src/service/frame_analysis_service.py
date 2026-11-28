@@ -182,10 +182,13 @@ def _is_reusable(
     - 감지에 실패한 행은 다시 스캔함. 새 결과는 `crop_scan_failed` 플래그로, 이전 전체 화질 분석 행은
       측정 불가로 알아보며, 모든 지점이 검은 화면이면 감지는 성공한 것이므로 재사용함
     - 전체 화질 분석은 같은 방식 버전과 같은 지표 행만 재사용하며 감지 전용 행과 감지 실패 행은 다시 잼
+    - 톤 매핑 여부가 다른 행은 다른 측정이므로 재사용하지 않아, 톤 매핑 전에 잰 HDR 결과를 다시 잼
     - 기준이 바뀌어도 저장된 점수로 최종 후보가 확정되면 다시 재지 않고 재판정 결과를 씀
     """
     # - VR 보호 여부에 따라 측정 영역 자체가 달라지므로, 내용이 같은 사본이라도 보호 여부가 다르면 다시 잼
     if record is None or record.is_vr_protected != _expected_vr(request):
+        return False
+    if record.hdr_tonemapped != request.is_hdr:
         return False
     if crop_only:
         if is_failed_crop_scan(record):
@@ -206,6 +209,19 @@ def _is_reusable(
         thresholds=thresholds,
         all_tier_keys=tuple(tier.key for tier in candidate_tiers_for(region.width, region.height)),
     )
+
+
+def _usable_record(
+    record: FrameAnalysisRecord | None, request: FrameAnalysisRequest, analysis_version: int
+) -> FrameAnalysisRecord | None:
+    """표시에 쓸 수 있는 캐시 행, 쓸 수 없으면 None
+
+    - 전체 화질 분석 버전이 지금 방식과 같아야 하고, 톤 매핑 여부가 요청과 같아야 함
+    - 톤 매핑 전에 잰 HDR 결과는 PQ 값을 그대로 잰 값이라 활성 화면과 후보 모두 쓰지 않음
+    """
+    if record is None or not is_usable_analysis_version(record.analysis_version, analysis_version):
+        return None
+    return record if record.hdr_tonemapped == request.is_hdr else None
 
 
 def _rejudged_result(
@@ -247,6 +263,8 @@ def _rejudged_result(
         is_vr_protected=_expected_vr(request),
         crop_scan_failed=base.crop_scan_failed,
         analysis_version=base.analysis_version,
+        hdr_tonemapped=base.hdr_tonemapped,
+        unmeasurable_reason=base.unmeasurable_reason,
     )
 
 
@@ -443,6 +461,7 @@ class FrameAnalysisService:
                 thresholds=self._thresholds,
                 scale_algorithm=self._scale_algorithm,
                 scan_stats_runner=stats_runner,
+                is_hdr=request.is_hdr,
             )
             self._store.save(record_from_result(request, result, measured_at=self._now()))
             return request, result
@@ -551,10 +570,10 @@ class FrameAnalysisService:
         )
         frames: dict[str, ActiveFrame] = {}
         for request in requests:
-            record = loaded.get(request.filename)
-            if record is None or not is_usable_analysis_version(
-                record.analysis_version, self._analysis_version
-            ):
+            record = _usable_record(
+                loaded.get(request.filename), request, self._analysis_version
+            )
+            if record is None:
                 continue
             region = apply_no_bars_ratio(
                 record.active_region,
@@ -615,10 +634,10 @@ class FrameAnalysisService:
         )
         statuses: dict[str, CropReviewStatus] = {}
         for request in requests:
-            record = records.get(request.filename)
-            if record is None or not is_usable_analysis_version(
-                record.analysis_version, self._analysis_version
-            ):
+            record = _usable_record(
+                records.get(request.filename), request, self._analysis_version
+            )
+            if record is None:
                 continue
             status = crop_review_status(
                 apply_no_bars_ratio(
@@ -642,10 +661,10 @@ class FrameAnalysisService:
         records = self._cached_records(requests)
         results: dict[str, FrameAnalysisResult] = {}
         for request in requests:
-            record = records.get(request.filename)
-            if record is None or not is_usable_analysis_version(
-                record.analysis_version, self._analysis_version
-            ):
+            record = _usable_record(
+                records.get(request.filename), request, self._analysis_version
+            )
+            if record is None:
                 continue
             results[request.filename] = _rejudged_result(record, request, self._thresholds)
         return results

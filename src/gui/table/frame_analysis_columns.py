@@ -250,10 +250,11 @@ def downscale_candidate_text(
 ) -> str:
     """축소 후보 셀 문구: 미측정, 감지 전용 빈칸, 측정 불가, 유지, 건너뜀, 규격명
 
-    - 화질 분석에서 건너뛴 행은 옛 측정 결과가 있어도 건너뜀 문구를 보여 주고,
+    - 자동 배치에서 건너뛴 행은 옛 측정 결과가 있어도 건너뜀 문구를 보여 주고,
       측정 결과는 활성 화면, 측정 지표 열에 그대로 둠
+    - HDR은 우클릭 분석으로 톤 매핑 측정이 가능하므로 건너뜀 대신 측정한 결과를 보여 줌
     """
-    if skip_reason is not None:
+    if skip_reason is not None and skip_reason is not SkipKind.HDR:
         return DOWNSCALE_SKIPPED_TEXT
     if result is None or is_crop_only_result(result):
         return ""
@@ -288,24 +289,44 @@ def _valid_segment_text(result: FrameAnalysisResult) -> str:
     return f"유효 구간: {result.valid_segment_count}/{result.total_segment_count}"
 
 
+def _hard_skip(skip_reason: SkipKind | None) -> SkipKind | None:
+    """건너뜀 문구와 정렬을 강제하는 사유. HDR은 우클릭 분석으로 측정할 수 있어 제외
+
+    - HDR 행은 자동 배치 사유 툴팁을 결과 안내 뒤에 덧붙이는 방식으로 알림
+    """
+    return None if skip_reason is SkipKind.HDR else skip_reason
+
+
 def downscale_candidate_tooltip(
     result: FrameAnalysisResult | None, *, skip_reason: SkipKind | None = None
 ) -> str:
     """축소 후보 셀 툴팁: 감지 전용 안내, 판정 요지, 규격별 점수, 유효 구간, SSIM 대체 안내
 
     - 감지에 실패한 행은 감지 성공을 전제한 안내 대신 실패 사유와 재시도 안내를 씀
-    - 화질 분석에서 건너뛴 행은 셀 문구(건너뜀)와 맞추기 위해 옛 측정 결과의 안내보다 사유를 먼저 알림
+    - 자동 배치에서 건너뛴 행은 셀 문구(건너뜀)와 맞추기 위해 옛 측정 결과의 안내보다 사유를 먼저 알림
+    - HDR 행은 자동 배치가 건너뛰지만 우클릭 분석으로 톤 매핑 측정이 가능함을 결과 안내에 덧붙임
     """
-    if skip_reason is not None:
-        return skip_reason_tooltip(skip_reason)
+    if (hard := _hard_skip(skip_reason)) is not None:
+        return skip_reason_tooltip(hard)
     if result is None:
-        return _NO_RESULT_TIP
+        return skip_reason_tooltip(skip_reason) if skip_reason is not None else _NO_RESULT_TIP
+    lines = _result_tooltip_lines(result)
+    if skip_reason is SkipKind.HDR:
+        lines.append(skip_reason_tooltip(SkipKind.HDR))
+    return "\n".join(lines)
+
+
+def _result_tooltip_lines(result: FrameAnalysisResult) -> list[str]:
+    """측정 결과의 축소 후보 안내 문구 줄 목록"""
     if is_failed_crop_scan(result):
-        return _FAILED_SCAN_CANDIDATE_TIP
+        return [_FAILED_SCAN_CANDIDATE_TIP]
     if is_crop_only_result(result):
-        return _CROP_ONLY_CANDIDATE_TIP
+        return [_CROP_ONLY_CANDIDATE_TIP]
     if result.unmeasurable:
-        lines = [_DOWNSCALE_UNMEASURABLE_TIP, _valid_segment_text(result)]
+        lines = [
+            result.unmeasurable_reason or _DOWNSCALE_UNMEASURABLE_TIP,
+            _valid_segment_text(result),
+        ]
     elif result.candidate_tier is None:
         lines = [_DOWNSCALE_KEEP_TIP, *_score_block(result), _valid_segment_text(result)]
     else:
@@ -316,7 +337,7 @@ def downscale_candidate_tooltip(
         ]
     if result.metric_used == METRIC_SSIM:
         lines.append(_SSIM_SUBSTITUTE_TIP)
-    return "\n".join(lines)
+    return lines
 
 
 def downscale_candidate_sort_value(
@@ -325,8 +346,9 @@ def downscale_candidate_sort_value(
     """축소 후보 정렬 값: 미측정, 감지 전용, 건너뜀, 측정 불가, 유지, 후보 규격 순서
 
     - 건너뜀은 후보가 없으므로 옛 측정 결과와 무관하게 미측정과 같은 자리에 둠
+    - HDR 행은 우클릭 분석 결과가 있으면 그 후보 규격으로 정렬
     """
-    if skip_reason is not None or result is None or is_crop_only_result(result):
+    if _hard_skip(skip_reason) is not None or result is None or is_crop_only_result(result):
         return (0, 0)
     if result.unmeasurable:
         return (1, 0)
@@ -441,9 +463,10 @@ class FrameAnalysisResults:
     def candidate_tier(self, filename: str) -> str | None:
         """파일명의 축소 후보 규격 키. 감지 전용, 후보 없음, 측정 불가, 건너뜀이면 None
 
-        - 건너뜀 사유 행은 옛 측정 결과의 규격을 후보로 쓰지 않음(HDR 결과는 판정이 틀릴 수 있음)
+        - 자동 배치에서 건너뛴 행은 옛 측정 결과의 규격을 후보로 쓰지 않음
+        - HDR은 우클릭 분석으로 잰 결과가 있으면 그 후보를 씀
         """
-        if filename in self._skip_reasons:
+        if (reason := self._skip_reasons.get(filename)) is not None and reason is not SkipKind.HDR:
             return None
         result = self._results.get(filename)
         if result is None or result.unmeasurable or is_crop_only_result(result):

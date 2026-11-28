@@ -59,10 +59,10 @@ from src.gui.controllers.frame_progress_buffer import (
 )
 from src.gui.controllers.manual_target_controller import ManualTargetController
 from src.gui.frame_analysis_skip import (
-    MANUAL_HDR_SKIP_NOTICE,
     SkipKind,
     select_run_targets,
-    skip_reason_for_crop_scan,
+    skip_reason_for_batch_analysis,
+    skip_reason_for_batch_crop_scan,
     skip_reason_for_frame_analysis,
 )
 from src.gui.menus.menu_bar import MainMenuController
@@ -585,13 +585,16 @@ class FrameAnalysisController:
         if report is None:
             return
         config = self._host.config_provider()
-        reason_of = skip_reason_for_crop_scan if crop_only else skip_reason_for_frame_analysis
+        # - 자동 실행은 HDR도 건너뛰고, 수동 실행은 톤 매핑으로 HDR까지 측정하므로 대상과 집계를 함께 고름
+        reason_of = (
+            skip_reason_for_frame_analysis
+            if force
+            else (skip_reason_for_batch_crop_scan if crop_only else skip_reason_for_batch_analysis)
+        )
         # - 영상마다 스트림 요약을 다시 읽지 않도록 사유를 한 번만 계산해 대상과 집계에 함께 씀
         reasons = [reason_of(ev) for ev in evals]
-        selection = select_run_targets(evals, reasons, crop_only=crop_only, force=force)
+        selection = select_run_targets(evals, reasons, force=force)
         targets = list(selection.targets)
-        if selection.forced_hdr_count > 0:
-            self._host.notify(MANUAL_HDR_SKIP_NOTICE.format(count=selection.forced_hdr_count))
         if not targets:
             if not force:
                 self._host.notify(NO_CROP_TARGETS_TEXT if crop_only else NO_FRAME_TARGETS_TEXT)

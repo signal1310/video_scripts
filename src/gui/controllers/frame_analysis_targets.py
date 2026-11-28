@@ -15,7 +15,7 @@ from src.core.encode.encode_impact import parse_stream_summary_layout
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY, find_source_tier
 from src.core.workspace_paths import resolve_source_filepath
-from src.gui.frame_analysis_skip import skip_reason_for_frame_analysis
+from src.gui.frame_analysis_skip import skip_reason_for_batch_analysis
 from src.service.frame_analysis_service import FrameAnalysisRequest
 
 NO_FRAME_TARGETS_TEXT: str = (
@@ -45,12 +45,12 @@ def is_below_frame_min_tier(width: int, height: int, min_tier: str) -> bool:
 def frame_estimate_text(
     evaluations: Sequence[VideoEvaluation], min_tier: str, *, skip: bool = True
 ) -> str:
-    """분석 모드 팝업에 쓸 화질 분석 대상 수 문구. 건너뛸 영상을 빼고 셈"""
+    """분석 모드 팝업에 쓸 화질 분석 대상 수 문구. 자동 배치가 건너뛸 영상을 빼고 셈"""
     count = sum(
         1
         for ev in evaluations
         if not is_below_frame_min_tier(ev.video.width, ev.video.height, min_tier)
-        and not (skip and skip_reason_for_frame_analysis(ev) is not None)
+        and not (skip and skip_reason_for_batch_analysis(ev) is not None)
     )
     return f"대상 {count}개"
 
@@ -98,6 +98,7 @@ def build_requests(
                 mtime_ns=stat.st_mtime_ns,
                 has_vr_metadata=layout is not None and layout.is_vr,
                 manual_vr=path in overrides,
+                is_hdr=ev.video.is_hdr,
                 fingerprint=fingerprint,
             )
         )

@@ -11,6 +11,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from src.core.analysis.hdr_tone_map import tonemap_graph_prefix
 from src.core.config import (
     DEFAULT_FRAME_ANALYSIS_MODE,
     FRAME_ANALYSIS_MODE_BALANCED,
@@ -616,9 +617,11 @@ def _build_roundtrip_chain(
     log_name: str,
     n_subsample: int = 0,
     algorithm: str = DEFAULT_SCALE_ALGORITHM,
+    tonemap: bool = False,
 ) -> str:
     """활성 화면 기준 축소 왕복과 지표 필터를 잇는 필터 그래프 문자열 생성
 
+    - HDR이면 `split` 앞에서 SDR 톤 매핑을 거쳐 기준과 축소본이 같은 변환 결과로 비교되게 함
     - 검은 띠가 있으면 입력에 `crop`을 먼저 적용해 좌우 검은 띠가 SSIM을 부풀리지 않게 함(결정 20)
     - 왕복은 활성 화면 크기로 줄였다가 활성 화면 크기로 되돌린 뒤 원본과 비교
     - 보간 방식은 인코딩 축소와 같은 값을 받아 예측과 실제 결과를 맞춤
@@ -628,9 +631,10 @@ def _build_roundtrip_chain(
         if active_region.has_black_bars
         else ""
     )
+    prefix = f"{_ACTIVE_LABELS}{tonemap_graph_prefix(hdr=tonemap)}{crop}"
     out_width, out_height = calc_scaled_dimensions(active_region.width, active_region.height, tier)
     chain = (
-        f"{_ACTIVE_LABELS}{crop}split=2[ref][dist];"
+        f"{prefix}split=2[ref][dist];"
         f"[dist]{scale_filter(str(out_width), str(out_height), algorithm)},"
         f"{scale_filter(str(active_region.width), str(active_region.height), algorithm)}[sc]"
     )
@@ -652,6 +656,7 @@ def build_roundtrip_command(
     fast_keyframe_seek: bool = False,
     n_subsample: int = 0,
     algorithm: str = DEFAULT_SCALE_ALGORITHM,
+    tonemap: bool = False,
 ) -> list[str]:
     """구간을 규격으로 줄였다 되돌린 결과와 원본의 지표를 재는 FFmpeg 인자 목록"""
     return [
@@ -675,6 +680,7 @@ def build_roundtrip_command(
             log_name=log_name,
             n_subsample=n_subsample,
             algorithm=algorithm,
+            tonemap=tonemap,
         ),
         "-f",
         "null",

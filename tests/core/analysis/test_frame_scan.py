@@ -19,16 +19,20 @@ from src.core.analysis.frame_scan import (
     ScanCommandRunner,
     _declared_rotation,
     _luma_bytes,
+    _pyav_filter_names,
     _scan_with_pyav,
+    _tonemapped_gray_frame,
     build_scan_command,
     luma_frame_stats,
     luma_stats_task,
     parse_gray_frame,
+    pyav_tonemap_supported,
     scan_keyframe_points,
     scan_with_cli,
     transpose_crop_box,
     transpose_edge_darkness,
 )
+from src.core.analysis.hdr_tone_map import ToneMapUnavailableError, tonemap_filter_chain
 from tests._frame_analysis_fakes import FakeStderrRunner
 
 if TYPE_CHECKING:
@@ -514,6 +518,30 @@ class TestScanCommandAndGrayFrame(unittest.TestCase):
         self.assertNotIn("-noaccurate_seek", slow)
         self.assertIn("-y", slow)
 
+    def test_scan_command_tone_maps_hdr_before_gray(self) -> None:
+        """HDR 스캔은 회색조 앞에 SDR 톤 매핑 체인을 붙이고 SDR은 그대로 회색조만 씀"""
+        hdr = build_scan_command(
+            ffmpeg_executable="ffmpeg",
+            source_path="movie.mp4",
+            start_sec=0.0,
+            fast_keyframe_seek=True,
+            frame_path="frame.pgm",
+            tonemap=True,
+        )
+        chain = hdr[hdr.index("-vf") + 1]
+        self.assertEqual(chain, f"{tonemap_filter_chain(hdr=True)},format=gray")
+        self.assertIn("zscale=t=linear:npl=100", chain)
+        self.assertIn("tonemap=hable:desat=0", chain)
+        self.assertLess(chain.index("tonemap=hable"), chain.index("format=gray"))
+        sdr = build_scan_command(
+            ffmpeg_executable="ffmpeg",
+            source_path="movie.mp4",
+            start_sec=0.0,
+            fast_keyframe_seek=True,
+            frame_path="frame.pgm",
+        )
+        self.assertEqual(sdr[sdr.index("-vf") + 1], "format=gray")
+
     def test_parse_gray_frame_reads_header_and_plane(self) -> None:
         data = b"P5\n4 2\n255\n" + bytes(range(8))
         self.assertEqual(parse_gray_frame(data), (bytes(range(8)), 4, 2))
@@ -797,6 +825,74 @@ class TestScanWithCli(unittest.TestCase):
         result = self._scan(runner, points=(0.0, 5.0), stats_runner=counting)
         self.assertEqual(len(seen), 2)
         self.assertEqual(result.boxes, (CropBox(1280, 720, 0, 0),) * 2)
+
+    def test_pyav_scan_is_skipped_when_tonemap_filters_are_missing(self) -> None:
+        """PyAV 빌드에 zscale이 없으면 HDR 스캔은 CLI 경로로 넘겨 시스템 FFmpeg로 톤 매핑함"""
+        runner = FakeStderrRunner(boxes=[(1280, 720, 0, 0)])
+        with mock.patch(
+            "src.core.analysis.frame_scan._pyav_filter_names", return_value=frozenset({"format"})
+        ), mock.patch(
+            "src.core.analysis.frame_scan._scan_with_pyav", side_effect=AssertionError("PyAV 실행")
+        ):
+            self.assertFalse(pyav_tonemap_supported())
+            result = scan_keyframe_points(
+                source_path="movie.mp4",
+                points=[0.0],
+                ffmpeg_executable="ffmpeg",
+                runner=runner,
+                work_dir=self.work_dir,
+                fast_keyframe_seek=True,
+                prefer_pyav=True,
+                tonemap=True,
+            )
+        self.assertEqual(result.boxes, (CropBox(1280, 720, 0, 0),))
+        chain = runner.commands[0][runner.commands[0].index("-vf") + 1]
+        self.assertIn("tonemap=hable", chain)
+
+    def test_pyav_filter_names_reads_the_bundled_build(self) -> None:
+        """PyAV 내장 FFmpeg의 필터 목록을 읽고, 기본 필터인 format이 들어 있는지 검증"""
+        _pyav_filter_names.cache_clear()
+        self.addCleanup(_pyav_filter_names.cache_clear)
+        names = _pyav_filter_names()
+        self.assertIn("format", names)
+        self.assertIs(_pyav_filter_names(), names)
+
+    def test_tonemap_graph_failure_returns_a_reason(self) -> None:
+        """PyAV 그래프를 만들 수 없으면 사유를 담은 측정 불가 오류로 올려 PQ 값을 재지 않음"""
+        with mock.patch(
+            "src.core.analysis.frame_scan._pyav_filter_names", return_value=frozenset({"format"})
+        ), self.assertRaises(ToneMapUnavailableError) as caught:
+            _tonemapped_gray_frame(cast("VideoFrame", object()))
+        self.assertIn("zscale", str(caught.exception))
+
+    def test_cli_scan_raises_when_tonemap_filters_are_missing(self) -> None:
+        """HDR 톤 매핑 필터를 만들지 못한 CLI 실패는 측정 불가로 올림"""
+        runner = FakeStderrRunner(black_returncode=1)
+        with self.assertRaises(ToneMapUnavailableError):
+            scan_with_cli(
+                source_path="movie.mp4",
+                points=[0.0],
+                ffmpeg_executable="ffmpeg",
+                runner=lambda args, work_dir: (1, "[AVFilterGraph] No such filter: 'zscale'"),
+                work_dir=self.work_dir,
+                fast_keyframe_seek=True,
+                cancel_event=None,
+                on_point=None,
+                tonemap=True,
+            )
+        # - SDR 실패는 그대로 실패 지점으로 남음
+        sdr = scan_with_cli(
+            source_path="movie.mp4",
+            points=[0.0],
+            ffmpeg_executable="ffmpeg",
+            runner=runner,
+            work_dir=self.work_dir,
+            fast_keyframe_seek=True,
+            cancel_event=None,
+            on_point=None,
+        )
+        self.assertEqual(sdr.failed_points, frozenset({0}))
+        self.assertEqual(os.listdir(self.work_dir), [])
 
     def test_scan_result_keeps_order(self) -> None:
         result = KeyframeScanResult([CropBox(1, 1, 0, 0), CropBox(2, 2, 0, 0)], [1, 1, 2])

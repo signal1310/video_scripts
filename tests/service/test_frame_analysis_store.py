@@ -304,6 +304,26 @@ class TestFrameAnalysisStore(_StoreTestCase):
             self.store.load_many([record.content_key])[record.content_key].dark_outliers_ignored
         )
 
+    def test_hdr_tonemap_and_reason_roundtrip_through_sqlite(self) -> None:
+        """HDR 톤 매핑 표식과 측정 불가 사유가 캐시에 저장되고 그대로 복원되는지 검증"""
+        record = replace(
+            make_frame_record("clip.mp4"),
+            unmeasurable=True,
+            crop_scan_failed=True,
+            hdr_tonemapped=True,
+            unmeasurable_reason="FFmpeg 빌드에 HDR 톤 매핑 필터가 없습니다.",
+        )
+        self.store.save(record)
+        loaded = self.store.load_many([record.content_key])[record.content_key]
+        self.assertTrue(loaded.hdr_tonemapped)
+        self.assertEqual(loaded.unmeasurable_reason, record.unmeasurable_reason)
+        # - 옛 행을 옮긴 기본값은 톤 매핑 없음, 사유 빈 문자열
+        plain = replace(make_frame_record("other.mp4"))
+        self.store.save(plain)
+        restored = self.store.load_many([plain.content_key])[plain.content_key]
+        self.assertFalse(restored.hdr_tonemapped)
+        self.assertEqual(restored.unmeasurable_reason, "")
+
 
     def test_vr_override_invalidates_the_content_row_of_a_renamed_file(self) -> None:
         """이름이 바뀐 영상도 그 경로의 내용 행을 지워 다시 분석하게 하는지 검증

@@ -135,6 +135,30 @@ class RecordConversionTests(unittest.TestCase):
         self.assertTrue(row_to_record(record_to_row(record)).crop_scan_failed)
         self.assertFalse(record_from_result(_request(), _result(), measured_at="x").crop_scan_failed)
 
+    def test_hdr_tonemap_flag_and_reason_survive_the_roundtrip(self) -> None:
+        """HDR 톤 매핑 표식과 측정 불가 사유가 결과, 캐시 행, 행 값 왕복에서 유지됨"""
+        result = FrameAnalysisResult(
+            active_region=ActiveRegion(width=720, height=1280, x=0, y=0, has_black_bars=False),
+            metric_used="",
+            vmaf_model="vmaf_v0.6.1",
+            tier_scores=(),
+            candidate_tier=None,
+            valid_segment_count=0,
+            total_segment_count=9,
+            unmeasurable=True,
+            is_vr_protected=False,
+            crop_scan_failed=True,
+            hdr_tonemapped=True,
+            unmeasurable_reason="FFmpeg 빌드에 HDR 톤 매핑 필터가 없습니다.",
+        )
+        record = record_from_result(_request(), result, measured_at="2026-11-28T00:00:00Z")
+        self.assertTrue(record.hdr_tonemapped)
+        self.assertEqual(record.unmeasurable_reason, result.unmeasurable_reason)
+        self.assertEqual(result_from_record(record), result)
+        restored = row_to_record(record_to_row(record))
+        self.assertTrue(restored.hdr_tonemapped)
+        self.assertEqual(restored.unmeasurable_reason, result.unmeasurable_reason)
+
     def test_row_roundtrip_follows_the_record_columns(self) -> None:
         record = replace(
             record_from_result(_request(), _result(), measured_at="2026-11-23T00:00:00Z"),

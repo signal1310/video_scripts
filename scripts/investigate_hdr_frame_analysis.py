@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -17,16 +18,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.core.analysis.frame_analysis_runner import analyze_frames
+from src.core.analysis.hdr_tone_map import tonemap_filter_chain
 from src.core.encode.ffmpeg_command import FFMPEG_EXECUTABLE_DEFAULT
+from src.core.probe_parser import build_video_props
 
-TONEMAP_FILTER: str = (
-    "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
-    "tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
-)
+# - 제품 화질 분석이 쓰는 것과 같은 톤 매핑 체인(구간이 바뀌어도 비교 기준이 하나)
+TONEMAP_FILTER: str = tonemap_filter_chain(hdr=True)
 
 
 def probe_video(path: str) -> dict[str, str | int | float]:
-    """ffprobe로 해상도, 길이, 픽셀 포맷, 색 신호 특성을 읽음"""
+    """ffprobe로 해상도, 길이, 픽셀 포맷, 색 신호 특성을 읽음
+
+    - 크기와 길이는 제품과 같은 `build_video_props`를 써서 표시 회전이 반영된 값을 얻음
+      (코딩 크기 1280x720을 넘기면 회전된 검은 여백 상자와 어긋나 잘못된 합집합이 나옴)
+    """
     args = [
         "ffprobe",
         "-v",
@@ -43,14 +48,22 @@ def probe_video(path: str) -> dict[str, str | int | float]:
     ]
     data = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
     stream = data["streams"][0]
+    full = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", path],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    props = build_video_props(path, os.path.getsize(path), json.loads(full))
     return {
         "pix_fmt": stream.get("pix_fmt", "unknown"),
-        "width": int(stream["width"]),
-        "height": int(stream["height"]),
+        "width": props.width,
+        "height": props.height,
         "color_transfer": stream.get("color_transfer", "unknown"),
         "color_primaries": stream.get("color_primaries", "unknown"),
         "color_space": stream.get("color_space", "unknown"),
-        "duration_sec": float(data["format"]["duration"]),
+        "duration_sec": props.duration,
+        "is_hdr": props.is_hdr,
     }
 
 
@@ -130,9 +143,12 @@ def run_analysis(path: str) -> None:
             work_dir=work_dir,
             ffmpeg_executable=FFMPEG_EXECUTABLE_DEFAULT,
             has_vmaf=has_vmaf_filter(),
+            is_hdr=bool(info["is_hdr"]),
         )
     print(f"  candidate_tier={result.candidate_tier}")
     print(f"  metric_used={result.metric_used} active={result.active_region}")
+    if result.unmeasurable_reason:
+        print(f"  unmeasurable_reason={result.unmeasurable_reason}")
     print("  tier  ssim       vmaf")
     for score in result.tier_scores:
         ssim = f"{score.ssim:.6f}" if score.ssim is not None else "-"

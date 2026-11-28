@@ -44,6 +44,8 @@ RECORD_COLUMN_TYPES: tuple[tuple[str, str], ...] = (
     ("dark_outliers_ignored", "INTEGER"),
     ("crop_scan_failed", "INTEGER"),
     ("fingerprint", "TEXT"),
+    ("hdr_tonemapped", "INTEGER"),
+    ("unmeasurable_reason", "TEXT"),
 )
 RECORD_COLUMNS: tuple[str, ...] = tuple(name for name, _sql_type in RECORD_COLUMN_TYPES)
 
@@ -81,6 +83,10 @@ class FrameAnalysisRecord:
     crop_scan_failed: bool = False
     # - 내용 지문. 이 열이 없던 DB의 옛 행은 빈 문자열로 읽음
     fingerprint: str = ""
+    # - HDR 톤 매핑을 거쳐 잰 결과인지. 옛 행은 0이라 HDR 영상에 이 결과를 쓰지 않고 다시 잼
+    hdr_tonemapped: bool = False
+    # - 측정하지 못한 이유. 측정 불가 표시의 안내에 씀
+    unmeasurable_reason: str = ""
 
     @property
     def content_key(self) -> ContentKey:
@@ -117,6 +123,8 @@ class FrameAnalysisRequest:
     mtime_ns: int
     has_vr_metadata: bool = False
     manual_vr: bool = False
+    # - 소스가 HDR이라 톤 매핑을 거쳐 재야 하는지. 같은 파일이라도 이 값이 다르면 다른 측정으로 봄
+    is_hdr: bool = False
     fingerprint: str = ""
 
     @property
@@ -157,6 +165,8 @@ def row_to_record(row: sqlite3.Row | tuple[object, ...]) -> FrameAnalysisRecord:
         dark_outliers_ignored=bool(values["dark_outliers_ignored"]),
         crop_scan_failed=bool(values["crop_scan_failed"]),
         fingerprint=str(values["fingerprint"]),
+        hdr_tonemapped=bool(values["hdr_tonemapped"]),
+        unmeasurable_reason="" if values["unmeasurable_reason"] is None else str(values["unmeasurable_reason"]),
     )
 
 
@@ -185,6 +195,8 @@ def record_to_row(record: FrameAnalysisRecord) -> tuple[object, ...]:
         int(record.dark_outliers_ignored),
         int(record.crop_scan_failed),
         record.fingerprint,
+        int(record.hdr_tonemapped),
+        record.unmeasurable_reason,
     )
 
 
@@ -219,6 +231,8 @@ def record_from_result(
         dark_outliers_ignored=region.dark_outliers_ignored,
         crop_scan_failed=result.crop_scan_failed,
         fingerprint=request.fingerprint,
+        hdr_tonemapped=result.hdr_tonemapped,
+        unmeasurable_reason=result.unmeasurable_reason,
     )
 
 
@@ -236,4 +250,6 @@ def result_from_record(record: FrameAnalysisRecord) -> FrameAnalysisResult:
         is_vr_protected=record.is_vr_protected,
         crop_scan_failed=record.crop_scan_failed,
         analysis_version=record.analysis_version,
+        hdr_tonemapped=record.hdr_tonemapped,
+        unmeasurable_reason=record.unmeasurable_reason,
     )

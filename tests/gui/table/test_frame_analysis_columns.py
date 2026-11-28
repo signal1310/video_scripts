@@ -53,6 +53,11 @@ _MARGINS_VARY_SENTENCE: str = (
 )
 
 
+def _candidate_tip(tier: str) -> str:
+    """축소 후보 셀 툴팁의 첫 문장"""
+    return f"화질 분석에서 {tier_display(tier)}로 줄여도 화질 차이가 기준 안에 있다고 판정했습니다."
+
+
 def _result(
     *,
     active: ActiveRegion | None = None,
@@ -92,8 +97,13 @@ class FrameAnalysisTextTests(unittest.TestCase):
 
     def test_downscale_candidate_values(self) -> None:
         self.assertEqual(downscale_candidate_text(None), "")
-        self.assertEqual(downscale_candidate_text(None, skip_reason=SkipKind.HDR), "건너뜀")
+        self.assertEqual(downscale_candidate_text(None, skip_reason=SkipKind.EXCEPTION), "건너뜀")
+        # - HDR은 우클릭 분석으로 측정할 수 있어 결과가 없으면 미측정 빈칸을 씀
+        self.assertEqual(downscale_candidate_text(None, skip_reason=SkipKind.HDR), "")
         self.assertEqual(downscale_candidate_text(_result(candidate="720p")), "720p")
+        self.assertEqual(
+            downscale_candidate_text(_result(candidate="720p"), skip_reason=SkipKind.HDR), "720p"
+        )
         self.assertEqual(downscale_candidate_text(_result(candidate=None)), DOWNSCALE_KEEP_TEXT)
         self.assertEqual(
             downscale_candidate_text(_result(unmeasurable=True, candidate=None)),
@@ -103,15 +113,37 @@ class FrameAnalysisTextTests(unittest.TestCase):
         self.assertEqual(tier_display("2160p"), "4K")
 
     def test_skipped_row_without_result_shows_text_and_reason_tooltip(self) -> None:
-        """분석 결과가 없는 HDR 행은 건너뜀 문구와 사유 툴팁을 쓰고 미측정처럼 정렬됨"""
+        """분석 결과가 없는 건너뜀 행은 건너뜀 문구와 사유 툴팁을 쓰고 미측정처럼 정렬됨"""
+        view = FrameAnalysisResults()
+        view.set_skip_reasons({"ex.mp4": SkipKind.EXCEPTION})
+        self.assertEqual(view.display("ex.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
+        self.assertEqual(view.filter_value("ex.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
+        tip = view.tooltip("ex.mp4", DOWNSCALE_CANDIDATE_COLUMN)
+        self.assertEqual(tip, skip_reason_tooltip(SkipKind.EXCEPTION))
+        self.assertEqual(view.sort_value("ex.mp4", DOWNSCALE_CANDIDATE_COLUMN), (0, 0))
+        self.assertEqual(view.display("plain.mp4", DOWNSCALE_CANDIDATE_COLUMN), "")
+
+    def test_hdr_row_keeps_the_manual_measurement_and_names_the_batch_skip(self) -> None:
+        """HDR 행은 우클릭으로 잰 결과를 그대로 보여 주고 자동 배치 건너뜀을 툴팁 끝에 덧붙임"""
         view = FrameAnalysisResults()
         view.set_skip_reasons({"hdr.mp4": SkipKind.HDR})
-        self.assertEqual(view.display("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
-        self.assertEqual(view.filter_value("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
+        view.set_results({"hdr.mp4": _result(candidate="720p")})
+        self.assertEqual(view.display("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN), "720p")
+        self.assertEqual(view.candidate_tier("hdr.mp4"), "720p")
         tip = view.tooltip("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN)
-        self.assertEqual(tip, skip_reason_tooltip(SkipKind.HDR))
+        self.assertTrue(tip.startswith(_candidate_tip("720p")))
+        self.assertTrue(tip.endswith(skip_reason_tooltip(SkipKind.HDR)))
+
+    def test_hdr_row_without_result_shows_the_batch_skip_reason(self) -> None:
+        """측정 전 HDR 행은 미측정 빈칸 대신 자동 배치 건너뜀 사유를 툴팁으로 알림"""
+        view = FrameAnalysisResults()
+        view.set_skip_reasons({"hdr.mp4": SkipKind.HDR})
+        self.assertEqual(view.display("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN), "")
+        self.assertEqual(
+            view.tooltip("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN),
+            skip_reason_tooltip(SkipKind.HDR),
+        )
         self.assertEqual(view.sort_value("hdr.mp4", DOWNSCALE_CANDIDATE_COLUMN), (0, 0))
-        self.assertEqual(view.display("plain.mp4", DOWNSCALE_CANDIDATE_COLUMN), "")
 
     def test_row_with_result_shows_skipped_text_and_hides_stale_candidate(self) -> None:
         """측정 결과가 있는 건너뜀 행은 옛 후보 대신 건너뜀 문구와 사유 툴팁을 씀
@@ -120,10 +152,12 @@ class FrameAnalysisTextTests(unittest.TestCase):
         """
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": _result(candidate="720p")})
-        view.set_skip_reasons({"a.mp4": SkipKind.HDR})
+        view.set_skip_reasons({"a.mp4": SkipKind.EXCEPTION})
         self.assertEqual(view.display("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
         self.assertEqual(view.filter_value("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
-        self.assertEqual(view.tooltip("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), skip_reason_tooltip(SkipKind.HDR))
+        self.assertEqual(
+            view.tooltip("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), skip_reason_tooltip(SkipKind.EXCEPTION)
+        )
         self.assertEqual(view.sort_value("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), (0, 0))
         self.assertEqual(view.display("a.mp4", ACTIVE_FRAME_COLUMN), ACTIVE_FRAME_FULL_TEXT)
         self.assertEqual(view.display("a.mp4", QUALITY_METRIC_COLUMN), METRIC_VMAF_TEXT)
@@ -135,14 +169,17 @@ class FrameAnalysisTextTests(unittest.TestCase):
         """감지 전용 결과만 있는 건너뜀 행도 빈칸 대신 건너뜀 문구와 사유 툴팁을 보여 줌"""
         crop_only = _result(candidate=None, version=CROP_SCAN_VERSION)
         self.assertEqual(downscale_candidate_text(crop_only), "")
-        self.assertEqual(downscale_candidate_text(crop_only, skip_reason=SkipKind.HDR), "건너뜀")
+        self.assertEqual(downscale_candidate_text(crop_only, skip_reason=SkipKind.HDR), "")
         self.assertEqual(
             downscale_candidate_tooltip(crop_only, skip_reason=SkipKind.HDR),
-            skip_reason_tooltip(SkipKind.HDR),
+            f"{downscale_candidate_tooltip(crop_only)}\n{skip_reason_tooltip(SkipKind.HDR)}",
+        )
+        self.assertEqual(
+            downscale_candidate_text(crop_only, skip_reason=SkipKind.INTERLACED), "건너뜀"
         )
         view = FrameAnalysisResults()
         view.set_results({"a.mp4": crop_only})
-        view.set_skip_reasons({"a.mp4": SkipKind.HDR})
+        view.set_skip_reasons({"a.mp4": SkipKind.INTERLACED})
         self.assertEqual(view.display("a.mp4", DOWNSCALE_CANDIDATE_COLUMN), "건너뜀")
 
     def test_downscale_plain_text_covers_skipped_value(self) -> None:

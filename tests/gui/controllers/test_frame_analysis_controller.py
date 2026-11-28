@@ -37,7 +37,7 @@ from src.gui.controllers.frame_cache_loader import (
     run_frame_cache_load,
 )
 from src.gui.controllers.frame_progress_buffer import frame_analysis_stage_text
-from src.gui.frame_analysis_skip import SkipKind, skip_reason_for_frame_analysis
+from src.gui.frame_analysis_skip import SkipKind, skip_reason_for_batch_analysis
 from src.gui.menus.menu_bar import MainMenuController
 from src.gui.table.video_table_view import VideoTableView
 from src.gui.widgets.filter_bar import FilterTuningBar
@@ -1409,8 +1409,8 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         self.assertEqual(worker.kwargs["crop_only_names"], frozenset())
         controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
 
-    def test_manual_analysis_announces_hdr_skip_once(self) -> None:
-        """수동 분석은 HDR 건너뜀을 시작 안내로 한 번만 알리고 완료 줄에는 겹쳐 쓰지 않음"""
+    def test_manual_analysis_measures_hdr_without_a_skip_notice(self) -> None:
+        """수동 분석은 HDR도 톤 매핑으로 측정하고 건너뜀 안내를 내지 않음"""
         hdr = make_eval(video=make_video(filename="h.mp4"), smart_action=SmartAction.PASS_HDR)
         encoded = make_eval(
             video=make_video(filename="e.mp4"), smart_action=SmartAction.PASS_ALREADY_ENCODED
@@ -1423,10 +1423,12 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
             return_value=self._capability(),
         ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
             controller.analyze_evaluations([hdr, encoded], crop_only=False)
-        self.assertEqual([request.filename for request in controller._requests], ["e.mp4"])
-        self.assertEqual(self.notifications, ["HDR 영상 1개는 건너뛰었습니다."])
-        controller._on_completed(FrameAnalysisFinished({}, total=1))
-        self.assertEqual(self.notifications[-1], "화질 분석 완료: 1개")
+        self.assertEqual(
+            [request.filename for request in controller._requests], ["h.mp4", "e.mp4"]
+        )
+        self.assertEqual(self.notifications, [])
+        controller._on_completed(FrameAnalysisFinished({}, total=2))
+        self.assertEqual(self.notifications[-1], "화질 분석 완료: 2개")
 
     def test_forced_crop_detection_measures_hdr_rows(self) -> None:
         """수동 여백 감지는 HDR 영상도 측정하고 HDR 건너뜀을 안내하지 않음"""
@@ -1462,13 +1464,43 @@ class FrameAnalysisStartRulesTests(_ControllerCase):
         ), mock.patch(
             "src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker
         ), mock.patch(
-            "src.gui.controllers.frame_analysis_controller.skip_reason_for_frame_analysis",
-            wraps=skip_reason_for_frame_analysis,
+            "src.gui.controllers.frame_analysis_controller.skip_reason_for_batch_analysis",
+            wraps=skip_reason_for_batch_analysis,
         ) as reason_of:
             controller.analyze_all()
         self.assertEqual(reason_of.call_count, 2)
         self.assertEqual(controller._skipped_counts, {SkipKind.EXCEPTION: 1})
         controller._on_completed(FrameAnalysisFinished({}, cancelled=True))
+
+    def test_manual_analysis_measures_hdr_rows(self) -> None:
+        """우클릭 수동 화질 분석은 HDR도 톤 매핑 측정 대상에 넣음"""
+        hdr = make_eval(video=make_video(filename="h.mp4"), smart_action=SmartAction.PASS_HDR)
+        self._write_video(self.root, "h.mp4")
+        report = make_report([hdr], root_dir=self.root)
+        controller = self.make_controller(report=report)
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_evaluations([hdr], crop_only=False)
+        self.assertEqual([request.filename for request in controller._requests], ["h.mp4"])
+        controller._on_completed(FrameAnalysisFinished({}, total=1))
+
+    def test_batch_analysis_still_skips_hdr_rows(self) -> None:
+        """자동 전체 화질 분석은 HDR을 건너뛰고 그 사유를 완료 줄에 남김"""
+        hdr = make_eval(video=make_video(filename="h.mp4"), smart_action=SmartAction.PASS_HDR)
+        self._write_video(self.root, "h.mp4")
+        report = make_report([self.ev, hdr], root_dir=self.root)
+        controller = self.make_controller(report=report)
+        with mock.patch(
+            "src.gui.controllers.frame_analysis_controller.probe_ffmpeg_capability",
+            return_value=self._capability(),
+        ), mock.patch("src.gui.controllers.frame_analysis_controller.FrameAnalysisWorker", _FakeWorker):
+            controller.analyze_all()
+        self.assertEqual([request.filename for request in controller._requests], ["a.mp4"])
+        self.assertEqual(controller._skipped_counts, {SkipKind.HDR: 1})
+        controller._on_completed(FrameAnalysisFinished({}, total=2))
+        self.assertEqual(self.notifications[-1], "화질 분석 완료: 2개 (건너뜀 1개(HDR 1))")
 
     def test_skip_counts_do_not_leak_into_the_next_batch(self) -> None:
         """취소, 오류, 폴더 전환으로 끝난 실행의 건너뜀 수가 다음 배치 완료 줄로 새지 않음"""

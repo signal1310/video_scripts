@@ -13,6 +13,7 @@ from src.core.analysis.frame_fast_metrics import (
     ssim_log_name,
     vmaf_log_name,
 )
+from src.core.analysis.hdr_tone_map import tonemap_filter_chain
 from src.core.quality_probe import SsimStats
 
 
@@ -90,6 +91,28 @@ class TestSplitSsimCommand(unittest.TestCase):
         chain = args[args.index("-filter_complex") + 1]
         self.assertEqual(chain.count("flags=spline"), 4)
         self.assertNotIn("flags=bicubic", chain)
+
+    def test_hdr_tone_maps_the_shared_reference_before_split(self) -> None:
+        """HDR은 split 앞에서 한 번 톤 매핑해 기준과 축소본이 같은 변환 결과를 씀"""
+        candidates = candidate_tiers_for(1920, 1080)[:2]
+        names = {tier.key: ssim_log_name(0, tier.key) for tier in candidates}
+        args = build_split_ssim_command(
+            ffmpeg_executable="ffmpeg",
+            source_path="movie.mp4",
+            start_sec=0.0,
+            duration_sec=1.0,
+            active_region=ActiveRegion(1280, 720, 100, 20, True),
+            tiers=candidates,
+            log_names=names,
+            fast_keyframe_seek=True,
+            tonemap=True,
+        )
+        chain = args[args.index("-filter_complex") + 1]
+        self.assertTrue(
+            chain.startswith(f"[0:v]{tonemap_filter_chain(hdr=True)},crop=1280:720:100:20,split=3")
+        )
+        self.assertEqual(chain.count("tonemap=hable"), 1)
+        self.assertLess(chain.index("tonemap=hable"), chain.index("split=3"))
 
 
 class TestSsimLogs(unittest.TestCase):

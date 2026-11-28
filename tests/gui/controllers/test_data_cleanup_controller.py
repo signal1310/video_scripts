@@ -410,6 +410,7 @@ class _Window:
         self._encode = _Encode()
         self._theme_mgr = _Theme()
         self.re_evaluate_calls: int = 0
+        self.clear_analysis_view_calls: int = 0
         self.sync_calls: int = 0
         self.status_texts: list[str] = []
         self.table_view = _TableView()
@@ -427,6 +428,10 @@ class _Window:
     def _re_evaluate_async(self) -> None:
         """재평가 요청 횟수 기록"""
         self.re_evaluate_calls += 1
+
+    def _clear_analysis_view(self) -> None:
+        """분석 뷰 초기화 횟수 기록"""
+        self.clear_analysis_view_calls += 1
 
     def _sync_widgets_from_session(self) -> None:
         """위젯 동기화 횟수 기록"""
@@ -776,6 +781,25 @@ class ExecuteCleanupTest(unittest.TestCase):
         """직접 지정을 지우지 않았으면 다시 읽지 않는지 검증"""
         self.controller.execute_cleanup("current", ("probe_cache",))
         self.assertEqual(self.window._session.reload_calls, 0)
+
+    def test_probe_cache_cleanup_clears_analysis_view_and_encode_state(self) -> None:
+        """분석 캐시를 지우면 남은 리포트와 인코딩 버튼 상태를 즉시 비우는지 검증"""
+        self.controller.execute_cleanup("current", ("probe_cache",))
+        self.assertEqual(self.window.clear_analysis_view_calls, 1)
+        self.assertEqual(self.window.menu.refresh_calls, 1)
+        self.assertEqual(self.window.re_evaluate_calls, 1)
+
+    def test_frame_cache_cleanup_keeps_the_table_but_refreshes_encode_state(self) -> None:
+        """분석 캐시가 아닌 화질 분석 캐시만 지우면 표는 두고 인코딩 상태만 다시 계산하는지 검증"""
+        self.controller.execute_cleanup("current", ("frame_cache",))
+        self.assertEqual(self.window.clear_analysis_view_calls, 0)
+        self.assertEqual(self.window.menu.refresh_calls, 1)
+
+    def test_ui_reset_refreshes_encode_state(self) -> None:
+        """설정만 기본값으로 되돌려도 인코딩 버튼 상태를 다시 계산하는지 검증"""
+        self.controller.execute_cleanup("all", ("criteria_settings",))
+        self.assertEqual(self.window.menu.refresh_calls, 1)
+        self.assertEqual(self.window.clear_analysis_view_calls, 0)
 
     def test_ui_only_cleanup_skips_service(self) -> None:
         """화면, 설정 항목만 고르면 저장 데이터 서비스를 부르지 않는지 검증"""

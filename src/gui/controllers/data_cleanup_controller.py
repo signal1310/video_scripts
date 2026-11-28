@@ -88,6 +88,8 @@ SESSION_ATTR: str = "_session"
 ENCODE_ATTR: str = "_encode"
 THEME_ATTR: str = "_theme_mgr"
 RE_EVALUATE_ATTR: str = "_re_evaluate_async"
+CLEAR_ANALYSIS_VIEW_ATTR: str = "_clear_analysis_view"
+
 SYNC_WIDGETS_ATTR: str = "_sync_widgets_from_session"
 USER_RESIZED_NAME_ATTR: str = "_user_resized_name_col"
 USER_RESIZED_COLS_ATTR: str = "_user_resized_cols"
@@ -153,6 +155,8 @@ class DataCleanupDeps:
     theme: ThemeManager
     sync_widgets: Callable[[], None]
     re_evaluate: Callable[[], None]
+    # - 분석 캐시를 지우면 메모리 재평가가 결과를 못 만들므로 창의 분석 뷰를 직접 비울 때 씀
+    clear_analysis_view: Callable[[], None] | None
     set_status: Callable[[str], None]
     is_analysis_busy: Callable[[], bool]
 
@@ -182,6 +186,7 @@ def _resolve_deps(window: CleanupWindowPort) -> DataCleanupDeps:
         theme=cast("ThemeManager", _member(window, THEME_ATTR)),
         sync_widgets=cast("Callable[[], None]", _member(window, SYNC_WIDGETS_ATTR)),
         re_evaluate=cast("Callable[[], None]", _member(window, RE_EVALUATE_ATTR)),
+        clear_analysis_view=cast("Callable[[], None] | None", _member(window, CLEAR_ANALYSIS_VIEW_ATTR)),
         set_status=window.set_status_text,
         is_analysis_busy=window.task_runner.is_running,
     )
@@ -380,6 +385,9 @@ class DataCleanupController:
             if "manual_targets" in cleared:
                 deps.session.reload_manual_targets()
             deps.session.attach_manual_targets()
+            # - 분석 캐시를 지우면 메모리 재평가가 결과를 만들지 못해 이전 리포트가 그대로 남으므로 표를 먼저 비움
+            if "probe_cache" in cleared and deps.clear_analysis_view is not None:
+                deps.clear_analysis_view()
             deps.frame_analysis.reload_cached()
             deps.re_evaluate()
         if cleared & ENCODE_STORAGE_KEYS:
@@ -387,7 +395,8 @@ class DataCleanupController:
             if "discarded_history" in cleared:
                 deps.encode.book.clear_discarded()
             deps.table_model.set_encode_book(deps.encode.book)
-            deps.menu.refresh_encode_state()
+        # - 저장 데이터를 지우면 인코딩 대상과 시작 가능 상태가 달라지므로 지운 항목과 무관하게 다시 계산
+        deps.menu.refresh_encode_state()
 
     def _ui_checks(self) -> dict[CleanupItemKey, Callable[[], bool]]:
         """화면과 설정 항목별로 기본값과 다른지 확인하는 함수"""
@@ -655,3 +664,6 @@ class DataCleanupController:
             classifier.set_recursive(session.state.ui.recursive_scan)
         session.sync_classifier_and_table(deps.filter_bar, deps.table_model, config)
         deps.re_evaluate()
+        # - 판별 기준과 인코딩 설정이 바뀌면 대상 수도 달라질 수 있어 인코딩 버튼 상태를 바로 다시 계산
+        deps.menu.refresh_encode_state()
+

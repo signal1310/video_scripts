@@ -12,7 +12,7 @@ from src.core.evaluation.classification_policy import (
     should_use_low_quality_preset,
 )
 from src.core.models import ActiveFrame, QualityZone
-from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+from src.core.resolution_tiers import ENCODE_DESIGNATION_KEY, RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import DownscaleReason, SmartAction
 from tests._factories import make_video
 
@@ -89,6 +89,21 @@ class TestClassificationPolicy(unittest.TestCase):
         self.assertEqual(
             _run_policies(_make_context(video=encoded_vid, downscale=manual_downscale)),
             SmartAction.ENCODE_DOWNSCALE,
+        )
+        # - 인코딩 지정은 이미 인코딩 판정보다 우선해 원본 해상도 품질 인코딩
+        self.assertEqual(
+            _run_policies(_make_context(video=encoded_vid, manual_target=ENCODE_DESIGNATION_KEY)),
+            SmartAction.ENCODE_MANUAL,
+        )
+        self.assertEqual(
+            _run_policies(
+                _make_context(
+                    video=encoded_vid,
+                    manual_target=ENCODE_DESIGNATION_KEY,
+                    downscale=manual_downscale,
+                )
+            ),
+            SmartAction.ENCODE_MANUAL,
         )
         self.assertEqual(
             _run_policies(_make_context(video=make_video(is_hdr=True))),

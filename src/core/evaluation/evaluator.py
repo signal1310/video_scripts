@@ -205,6 +205,7 @@ class VideoEvaluator:
             source_codec_weight=src_weight,
             target_codec_weight=target_weight,
             downscale=downscale,
+            manual_target=manual_target,
             manual_active_frame=manual_active_frame,
             known_encode_tag_names=known_encode_tag_names,
             encoded_history_filenames=encoded_history_filenames,

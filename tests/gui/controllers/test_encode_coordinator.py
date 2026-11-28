@@ -43,6 +43,7 @@ from src.gui.controllers import encode_item_actions as item_actions_module
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.controllers.encode_coordinator import CompareOpener, EncodeCoordinator
 from src.gui.controllers.encode_worker import BatchFinished
+from src.gui.controllers.session_controller import SessionCoordinator
 from src.gui.dialogs.encode_progress_window import EncodeProgressWindow
 from src.gui.dialogs.encode_resume_dialogs import ResumeChoice
 from src.gui.preview.preview_controller import PreviewController
@@ -158,6 +159,53 @@ class EncodeCoordinatorTests(unittest.TestCase):
 
     def _on_ready_to_close(self) -> None:
         self.ready_to_close += 1
+
+    def _reload_session_with_sandbox_db(self) -> mock.Mock:
+        """reload_manual_targets가 샌드박스 DB를 실제로 다시 읽도록 세션 조율자를 세우고 반환"""
+        session = self.session
+        store = AnalysisStore(os.path.join(self.root, "manual_targets.sqlite3"))
+        self.addCleanup(store.close)
+        self._sandbox_store = store
+
+        def reload() -> None:
+            loaded = store.read_manual_targets({})
+            session.state.ui.manual_target_tiers = loaded
+            session.classifier.manual_target_store = loaded
+
+        session.reload_manual_targets.side_effect = reload
+        return session
+
+    def test_done_event_reloads_manual_targets_from_the_db(self) -> None:
+        """완료 이벤트가 실행기가 지운 인코딩 지정을 DB에서 다시 읽어 메모리에서도 지우는지 검증"""
+        session = self._reload_session_with_sandbox_db()
+        session.state.ui.manual_target_tiers = {"root": {"a.mp4": "encode"}}
+        session.classifier.manual_target_store = {"root": {"a.mp4": "encode"}}
+        session.classifier.set_manual_target_store = mock.Mock()
+        self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, "C:/work/a.mp4", state=EncodeState.DONE))
+        self.assertEqual(session.state.ui.manual_target_tiers, {})
+        self.assertEqual(session.classifier.manual_target_store, {})
+
+    def test_manual_target_edit_after_done_does_not_restore_cleared_value(self) -> None:
+        """완료 뒤 다른 영상의 직접 지정을 저장해도 지워진 인코딩 지정이 DB에 되살아나지 않는지 검증"""
+        self._reload_session_with_sandbox_db()
+        stale = {"root": {"a.mp4": "encode"}}
+        session = self.session
+        session.state.ui.manual_target_tiers = stale
+        session.classifier.manual_target_store = stale
+        self.coordinator._on_event(EncodeEvent(EVENT_STATE, 1, "C:/work/a.mp4", state=EncodeState.DONE))
+        store = self._sandbox_store
+        # - 완료 뒤 다른 영상에 직접 지정을 더하고 저장 기준은 완료 전 메모리 맵
+        saver = SessionCoordinator.__new__(SessionCoordinator)
+        saver.state = mock.Mock()
+        saver.state.ui.manual_target_tiers = {**session.state.ui.manual_target_tiers, "root": {"b.mp4": "720p"}}
+        saver._saved_manual_targets = stale
+        with mock.patch(
+            "src.gui.controllers.session_controller.save_manual_target_store",
+            lambda value: store.write_manual_targets(value),
+        ):
+            saver._save_manual_targets_if_changed()
+        self.assertEqual(store.read_manual_targets({}), {"root": {"b.mp4": "720p"}})
+
 
     def test_not_running_before_any_start(self) -> None:
         """시작 전에는 실행 중이 아닌지 검증"""

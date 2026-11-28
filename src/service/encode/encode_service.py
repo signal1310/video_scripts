@@ -20,7 +20,11 @@ import psutil
 from src.core.analysis.prober import resolve_ffprobe_executable
 from src.core.analysis.volume_identity import volume_location
 from src.core.command_history import STAGE_MAIN_ENCODE, command_scope
-from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_REPLACE, RESULT_POLICY_SEPARATE
+from src.core.config import (
+    RESULT_POLICY_ARCHIVE,
+    RESULT_POLICY_REPLACE,
+    RESULT_POLICY_SEPARATE,
+)
 from src.core.encode.encode_gate import GatePurpose, GateVerdict, OutputSummary, judge_result, summarize_probe
 from src.core.encode.encode_paths import (
     archive_path_of,
@@ -632,6 +636,25 @@ class EncodeRunner:
         self._emit(EncodeEvent(EVENT_STATE, batch_id, row.source_path, state=outcome.state, reason=outcome.reason))
         if outcome.state is EncodeState.DONE:
             self._forget_analysis_row(job)
+            self._clear_encode_designation(job)
+
+    def _clear_encode_designation(self, job: EncodeJob) -> None:
+        """인코딩 지정 영상이 결과를 배치해 완료되면 지정을 해제(제안 2.2절)
+
+        - 원본 교체, 원본 보관 후 교체 모드는 결과가 원본을 대체하므로 2중 재압축을 막으려면 항상 해제
+        - 별도 폴더에 저장 모드는 설정을 켠 경우에만 유지하고, 꺼진 기본값에서는 해제
+        """
+        if not job.encode_designation:
+            return
+        keep = (
+            self._settings.result_policy == RESULT_POLICY_SEPARATE
+            and self._settings.keep_encode_designation_separate
+        )
+        if keep:
+            return
+        if self._store is None:
+            return
+        self._store.clear_manual_targets([job.root_dir], [job.filename])
 
     def _forget_analysis_row(self, job: EncodeJob) -> None:
         """원본 행을 분석 캐시에서 지워 다음 분석이 결과 파일을 새로 읽게 함

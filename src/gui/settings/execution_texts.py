@@ -87,6 +87,15 @@ TOOLTIP_TAG_NAME: str = (
     "공백을 뺀 1자 이상, 64자 이하이며 세미콜론(;)과 제어 문자는 쓸 수 없습니다. "
     "바꾸기 전에 쓴 이름으로 된 인코딩 기록도 계속 인식합니다. 기본값은 re_encoded입니다."
 )
+TOOLTIP_KEEP_ENCODE_DESIGNATION: str = (
+    "인코딩 지정한 영상이 별도 폴더에 저장 모드로 인코딩이 끝나도 지정을 유지합니다. "
+    "같은 영상을 다시 인코딩할 때 씁니다. 원본 교체와 원본 보관 후 교체 모드에서는 "
+    "설정과 관계없이 파일이 교체되면 지정이 항상 해제됩니다."
+)
+KEEP_ENCODE_DESIGNATION_CHOICES: tuple[tuple[str, bool], ...] = (
+    ("사용 안 함 (기본)", False),
+    ("유지", True),
+)
 
 RESULT_POLICY_CHOICES: tuple[tuple[str, str], ...] = (
     ("원본 보관 후 교체 (기본)", RESULT_POLICY_ARCHIVE),

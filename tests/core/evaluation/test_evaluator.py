@@ -38,6 +38,7 @@ from src.core.quality_target import (
     protect_cq_continuous,
     quality_size_factor,
 )
+from src.core.resolution_tiers import ENCODE_DESIGNATION_KEY
 from src.core.smart_action import ActionBadgeTone, DownscaleReason, SmartAction
 from src.core.sorting import WindowsNameOrder, compare_natural_order, compare_natural_tokens
 from tests._legacy_model import use_legacy_size_model as _use_legacy_size_model
@@ -429,6 +430,26 @@ class TestEvaluatorModule(unittest.TestCase):
         self.assertEqual(ev.smart_action, SmartAction.PASS_EXCEPTION)
         self.assertFalse(ev.is_encode_target)
         self.assertEqual(ev.expected_delta_mb, 0.0)
+
+    def test_encode_designation_forces_manual_at_source_resolution(self) -> None:
+        """인코딩 지정은 이미 인코딩, 적정 영상도 원본 해상도 품질 인코딩 대상으로 바꾸는지 검증"""
+        tagged = _vid("tagged.mp4", 1200, 60.0, has_encode_tag=True)
+        optimal = _vid("optimal.mp4", 1200, 60.0, codec="hevc")
+        for vid in (tagged, optimal):
+            with self.subTest(filename=vid.filename):
+                rep = VideoEvaluator.evaluate_all(
+                    "C:/designated", [vid], self.cfg, manual_targets={vid.filename: ENCODE_DESIGNATION_KEY}
+                )
+                ev = rep.evaluations[0]
+                self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+                self.assertTrue(ev.is_encode_target)
+                self.assertIsNone(ev.target_tier)
+                self.assertIsNone(ev.target_width)
+                self.assertEqual(ev.reason_label, "직접 지정")
+                self.assertEqual(ev.manual_target, ENCODE_DESIGNATION_KEY)
+        # - 지정이 없으면 원래 판정(이미 인코딩, 적정 보존)으로 돌아감
+        rep_plain = VideoEvaluator.evaluate_all("C:/designated", [tagged], self.cfg)
+        self.assertEqual(rep_plain.evaluations[0].smart_action, SmartAction.PASS_ALREADY_ENCODED)
 
     def test_summary_report_aggregation_empty_and_normal(self) -> None:
         """SummaryReport 집계 시 빈 디렉터리 및 다중 파일에서의 누적/순수 절감량 계산 정확성을 검증"""

@@ -62,9 +62,13 @@ RESOLUTION_TIER_BY_KEY: dict[str, ResolutionTier] = {tier.key: tier for tier in 
 KEEP_RESOLUTION_KEY: str = "keep"
 
 
+# - 영상별 직접 지정 값으로서 인코딩을 강제하는 저장 계약값(규격 키와 겹치지 않음)
+ENCODE_DESIGNATION_KEY: str = "encode"
+
+
 def is_valid_manual_target(value: str) -> bool:
-    """영상별 직접 지정 값이 축소 안 함 또는 규격 키인지 판별"""
-    return value == KEEP_RESOLUTION_KEY or value in RESOLUTION_TIER_BY_KEY
+    """영상별 직접 지정 값이 인코딩 지정, 축소 안 함 또는 규격 키인지 판별"""
+    return value in (KEEP_RESOLUTION_KEY, ENCODE_DESIGNATION_KEY) or value in RESOLUTION_TIER_BY_KEY
 
 
 def copy_manual_targets(

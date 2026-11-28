@@ -217,9 +217,19 @@ def count_manual_targets(conn: sqlite3.Connection, root_dirs: Sequence[str] | No
     return len(_manual_target_keys(conn, root_dirs))
 
 
-def clear_manual_targets(conn: sqlite3.Connection, root_dirs: Sequence[str] | None = None) -> int:
-    """영상별 출력 해상도 직접 지정을 정리 범위에서 지우고 지운 건수 반환"""
+def clear_manual_targets(
+    conn: sqlite3.Connection,
+    root_dirs: Sequence[str] | None = None,
+    filenames: Sequence[str] | None = None,
+) -> int:
+    """영상별 직접 지정을 정리 범위에서 지우고 지운 건수 반환
+
+    - filenames를 주면 정리 범위 안에서 그 파일명 행만 지움
+    """
     keys = _manual_target_keys(conn, root_dirs)
+    if filenames is not None:
+        wanted = set(filenames)
+        keys = [key for key in keys if key[1] in wanted]
     if not keys:
         return 0
     with transaction(conn):

@@ -40,6 +40,7 @@ from src.gui.settings.execution_status import STATUS_OBJECT_ERROR, codec_status,
 from src.gui.settings.execution_texts import (
     AFTER_COMPLETE_CHOICES,
     CONTAINER_CHOICES,
+    KEEP_ENCODE_DESIGNATION_CHOICES,
     NAME_CONFLICT_CHOICES,
     PREVENT_SLEEP_CHOICES,
     PRIORITY_CHOICES,
@@ -52,6 +53,7 @@ from src.gui.settings.execution_texts import (
     TOOLTIP_CONCURRENT,
     TOOLTIP_FFMPEG,
     TOOLTIP_FFPROBE,
+    TOOLTIP_KEEP_ENCODE_DESIGNATION,
     TOOLTIP_NAME_CONFLICT,
     TOOLTIP_OUTPUT_DIR,
     TOOLTIP_PREVENT_SLEEP,
@@ -104,6 +106,7 @@ _CARD_FFMPEG_TITLE: str = "FFmpeg / FFprobe 경로"
 _CARD_AUTO_TITLE: str = "자동 품질 조절 및 중단 기준"
 _CARD_DETAIL_TITLE: str = "실행 및 파일 세부"
 _TAG_NAME_KEY: str = "execution.encode_tag_name"
+_KEEP_DESIGNATION_KEY: str = "execution.keep_encode_designation_separate"
 _CODEC_KEY: str = "analysis.encode.encode_codec"
 _SPEED_KEY: str = "analysis.encode.encode_speed_factor"
 _CONTAINER_KEY: str = "execution.container_policy"
@@ -276,6 +279,11 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             self.rows, card_run, ExecutionConfig, "encode_tag_mode", "인코딩 태그 기록",
             TOOLTIP_TAG_MODE, TAG_MODE_CHOICES, row_key="execution.encode_tag_mode",
         )
+        self.combo_keep_designation = make_combo_row(
+            self.rows, card_result, ExecutionConfig, "keep_encode_designation_separate",
+            "별도 폴더 저장 후 인코딩 지정 유지", TOOLTIP_KEEP_ENCODE_DESIGNATION,
+            KEEP_ENCODE_DESIGNATION_CHOICES, row_key=_KEEP_DESIGNATION_KEY,
+        )
 
         section_advanced = CollapsibleSection(
             title=_ADVANCED_TITLE, subtitle=_ADVANCED_SUBTITLE, is_expanded=False
@@ -428,6 +436,7 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             _select_data(self.combo_priority, cfg.process_priority)
             _select_data(self.combo_name_conflict, cfg.name_conflict)
             _select_data(self.combo_tag_mode, cfg.encode_tag_mode)
+            _select_data(self.combo_keep_designation, cfg.keep_encode_designation_separate)
             self.spin_protect_delta.setValue(cfg.protect_cq_delta_max)
             self.spin_sample_discard.setValue(round(cfg.sample_saving_discard_factor * PERCENT_SCALE))
             self.spin_early_stop.setValue(round(cfg.early_stop_margin * PERCENT_SCALE))
@@ -465,6 +474,7 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             protect_cq_delta_max=round(self.spin_protect_delta.value(), FLOAT_SETTING_ROUND_DIGITS),
             sample_saving_discard_factor=self.spin_sample_discard.value() / PERCENT_SCALE,
             early_stop_margin=self.spin_early_stop.value() / PERCENT_SCALE,
+            keep_encode_designation_separate=bool(self.combo_keep_designation.currentData()),
         )
 
     def encode_values(self) -> dict[str, object]:

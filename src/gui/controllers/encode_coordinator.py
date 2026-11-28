@@ -32,6 +32,7 @@ from src.core.encode.encode_close import CloseAction, CloseChoice, close_action
 from src.core.encode.encode_impact import parse_stream_summary_layout, summarize_encode_impact
 from src.core.encode.encode_progress import LONG_RUN_NOTICE_SEC
 from src.core.encode.encode_start_state import StartState, evaluate_start_state
+from src.core.encode.encode_state import EncodeState
 from src.core.encode.encoder_trial import SHARED_ENCODER_TRIAL_CACHE, check_encoder
 from src.core.encode.ffmpeg_capability import FfmpegCapability, probe_ffmpeg_capability
 from src.core.encoder_specs import get_encode_codec_family, get_encode_codec_label
@@ -575,6 +576,10 @@ class EncodeCoordinator:
             )
             if event.state in SHOWN_STATES:
                 self._results.record(event.batch_id, event.source_path)
+            if event.state is EncodeState.DONE:
+                # - 실행기가 지운 인코딩 지정이 메모리에 남아 다음 저장 때 되살아나지 않도록 DB에서 다시 읽음
+                self._session.reload_manual_targets()
+                self._notify_changed()
             self._notify_book_changed()
         elif event.kind == EVENT_LONG_PAUSE:
             logger.info(

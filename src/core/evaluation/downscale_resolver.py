@@ -14,6 +14,7 @@ from src.core.evaluation.size_estimator import combine_video_caps_kbps, estimate
 from src.core.models import DownscaleSkipReason, VideoProps
 from src.core.quality_target import corrected_target_kbps, general_maxrate_kbps
 from src.core.resolution_tiers import (
+    ENCODE_DESIGNATION_KEY,
     KEEP_RESOLUTION_KEY,
     RESOLUTION_TIER_BY_KEY,
     RESOLUTION_TIERS,
@@ -99,7 +100,7 @@ def select_output_candidate(
     - 규격 키가 아닌 직접 지정 값과 의미 없는 축소 후보는 없는 것으로 봄
     - 후보가 여러 개면 출력 화소 수가 가장 작은 것을 쓰고, 같은 크기면 최대 해상도, 화질 분석 축소, 비트레이트 맞춤 순으로 사유를 정함
     """
-    if manual_target == KEEP_RESOLUTION_KEY:
+    if manual_target in (KEEP_RESOLUTION_KEY, ENCODE_DESIGNATION_KEY):
         return None
     if manual_target in RESOLUTION_TIER_BY_KEY:
         return RESOLUTION_TIER_BY_KEY[manual_target], DownscaleReason.MANUAL

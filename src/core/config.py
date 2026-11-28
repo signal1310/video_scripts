@@ -504,6 +504,12 @@ class ExecutionConfig:
         default=6.0,
         metadata=setting_meta("품질값 자동 조절 한도 (화질 기준값에 더하는 최대값)", (0.0, 15.0)),
     )
+    keep_encode_designation_separate: bool = field(
+        default=False,
+        metadata=setting_meta(
+            "별도 폴더에 저장 모드에서 인코딩이 끝난 뒤에도 영상별 인코딩 지정을 유지"
+        ),
+    )
     sample_saving_discard_factor: float = field(
         default=1.05,
         metadata=setting_meta("사전 예측 중단 기준 (원본 크기 대비 배수)", (0.90, 1.50)),
@@ -524,7 +530,7 @@ DEFAULT_DISPLAY = DisplayConfig()
 DEFAULT_CUI = CuiConfig()
 DEFAULT_DIAGNOSTICS = DiagnosticsConfig()
 
-# 분류기 핵심 세부 설정 항목 총 개수 (analysis 38 + display 10 + cui 1 + execution 16 + diagnostics 1)
+# 분류기 핵심 세부 설정 항목 총 개수 (analysis 38 + display 10 + cui 1 + execution 17 + diagnostics 1)
 CORE_SETTING_COUNT: int = (
     len(fields(ThresholdsConfig))
     + len(fields(SavingsConfig))

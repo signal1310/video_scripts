@@ -26,7 +26,7 @@ from src.core.quality_target import (
     corrected_target_kbps,
     general_maxrate_kbps,
 )
-from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, build_scale_expression
+from src.core.resolution_tiers import DEFAULT_SCALE_ALGORITHM, ENCODE_DESIGNATION_KEY, build_scale_expression
 from src.core.workspace_paths import resolve_source_filepath, split_logical_filename
 from src.service.encode.encode_history import EncodeHistory, NewItem
 
@@ -58,6 +58,8 @@ class EncodeSettings:
     protect_cq_delta_max: float = PROTECT_CQ_DELTA_MAX
     sample_saving_discard_factor: float = SAMPLE_SAVING_DISCARD_FACTOR
     early_stop_margin: float = EARLY_STOP_MARGIN
+    # - 별도 폴더에 저장 모드에서 인코딩 지정을 완료 뒤에도 유지할지(배치 시작 시 설정 사본)
+    keep_encode_designation_separate: bool = False
 
     @classmethod
     def from_config(cls, config: ClassifierConfig) -> "EncodeSettings":
@@ -81,6 +83,7 @@ class EncodeSettings:
             protect_cq_delta_max=execution.protect_cq_delta_max,
             sample_saving_discard_factor=execution.sample_saving_discard_factor,
             early_stop_margin=execution.early_stop_margin,
+            keep_encode_designation_separate=execution.keep_encode_designation_separate,
         )
 
     @classmethod
@@ -107,6 +110,9 @@ class EncodeSettings:
                 raw.get("sample_saving_discard_factor", SAMPLE_SAVING_DISCARD_FACTOR)
             ),
             early_stop_margin=float(raw.get("early_stop_margin", EARLY_STOP_MARGIN)),
+            keep_encode_designation_separate=bool(
+                raw.get("keep_encode_designation_separate", False)
+            ),
         )
 
     def to_json(self) -> str:
@@ -154,6 +160,8 @@ class EncodeJob:
     manual_downscale: bool = False
     # - 축소 비교 확정 결과(원본 유지/축소 유지). 이어서 인코딩할 때 비교를 다시 하지 않도록 기록에 남김
     downscale_decision: str = ""
+    # - 인코딩 지정 값(원본 해상도 품질 인코딩 강제). 완료 후 지정 해제 판단에 쓰며 옛 기록에는 없음
+    encode_designation: bool = False
 
 
 def job_to_json(job: EncodeJob) -> str:
@@ -185,6 +193,7 @@ def job_to_json(job: EncodeJob) -> str:
         "original_target_kbps": job.original_target_kbps,
         "manual_downscale": job.manual_downscale,
         "downscale_decision": job.downscale_decision,
+        "encode_designation": job.encode_designation,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
@@ -220,6 +229,7 @@ def job_from_json(text: str) -> EncodeJob:
         original_target_kbps=_optional_float(raw.get("original_target_kbps")),
         manual_downscale=bool(raw.get("manual_downscale", False)),
         downscale_decision=str(raw.get("downscale_decision", "")),
+        encode_designation=bool(raw.get("encode_designation", False)),
     )
 
 
@@ -322,6 +332,7 @@ def jobs_from_evaluations(
                     else None
                 ),
                 manual_downscale=ev.manual_target is not None,
+                encode_designation=ev.manual_target == ENCODE_DESIGNATION_KEY,
             )
         )
     return jobs

@@ -229,7 +229,7 @@ class TestConfigModule(unittest.TestCase):
     def test_dataclass_metadata_bounds_and_core_setting_count(self) -> None:
         """데이터클래스 메타데이터 경계와 CORE_SETTING_COUNT, DEFAULT_PATHS 기준 정의를 검증"""
         bounds = collect_setting_bounds()
-        self.assertEqual(CORE_SETTING_COUNT, 64)
+        self.assertEqual(CORE_SETTING_COUNT, 65)
         self.assertFalse(hasattr(DEFAULT_PATHS, "root_dir"))
         self.assertEqual(DEFAULT_PATHS.recent_dirs, [])
         self.assertIn("over_bitrate_ratio", bounds)
@@ -299,6 +299,19 @@ class TestConfigModule(unittest.TestCase):
             {"analysis": {"encode": {"frame_analysis_min_tier": "8k"}}}
         )
         self.assertEqual(invalid.encode.frame_analysis_min_tier, "1080p")
+
+    def test_keep_encode_designation_separate_default_and_roundtrip(self) -> None:
+        """별도 폴더 저장 후 인코딩 지정 유지 설정의 기본값(꺼짐)과 왕복을 검증"""
+        cfg = ClassifierConfig()
+        self.assertFalse(cfg.execution.keep_encode_designation_separate)
+        cfg.execution.keep_encode_designation_separate = True
+        payload = cfg.to_dict()
+        self.assertTrue(payload["execution"]["keep_encode_designation_separate"])
+        self.assertTrue(ClassifierConfig.from_dict(payload).execution.keep_encode_designation_separate)
+        # - 옛 설정 파일에는 이 키가 없으므로 기본값(꺼짐)으로 채워야 함
+        self.assertFalse(
+            ClassifierConfig.from_dict({"execution": {}}).execution.keep_encode_designation_separate
+        )
 
     def test_precise_quality_mode_default_and_roundtrip(self) -> None:
         """품질값 정밀 결정 적용 범위의 기본값, 왕복, 미지 값 기본 복귀를 검증"""

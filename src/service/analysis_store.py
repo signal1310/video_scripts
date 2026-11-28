@@ -705,9 +705,12 @@ class AnalysisStore:
             ManualTargetSync(),
         )
 
-    def clear_manual_targets(self, root_dirs: Sequence[str] | None = None) -> int:
-        """영상별 출력 해상도 직접 지정을 지우고 지운 건수 반환"""
-        return self._run(lambda conn: clear_manual_targets(conn, root_dirs), 0)
+    def clear_manual_targets(self, root_dirs: Sequence[str] | None = None, filenames: Sequence[str] | None = None) -> int:
+        """영상별 직접 지정을 지우고 지운 건수 반환
+
+        - filenames를 주면 정리 범위 안에서 그 파일명 행만 지움(인코딩 완료 후 인코딩 지정 자동 해제)
+        """
+        return self._run(lambda conn: clear_manual_targets(conn, root_dirs, filenames), 0)
 
     def count_table_selections(self, root_dirs: Sequence[str] | None = None) -> int:
         """표 선택 기억(작업 폴더별 선택 파일명) 건수. root_dirs를 주면 그 작업 폴더 키만 셈"""

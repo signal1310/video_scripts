@@ -7,7 +7,7 @@ from src.core.config import SAVINGS_BASIS_ENCODE, ClassifierConfig
 from src.core.encode_tag import has_tag_name_keyword
 from src.core.evaluation.size_estimator import STATIC_SCREEN_RATIO_THRESHOLD
 from src.core.models import SECONDS_PER_MINUTE, ActiveFrame, QualityZone, VideoProps
-from src.core.resolution_tiers import ResolutionTier
+from src.core.resolution_tiers import ENCODE_DESIGNATION_KEY, ResolutionTier
 from src.core.smart_action import DownscaleReason, SmartAction
 
 LEGACY_COMPAT_CODECS: frozenset[str] = frozenset({
@@ -66,6 +66,8 @@ class EvaluationContext:
     source_codec_weight: float = 1.0
     target_codec_weight: float = 1.0
     downscale: DownscaleEstimate | None = None
+    # - 영상별 직접 지정 값(규격 키, 축소 안 함, 인코딩 지정). 직접 지정 판정에 쓰이며 자동 판정이면 None
+    manual_target: str | None = None
     # - 사용자 지정 활성 화면이 잘라내기에 적용된 영상이면 그 영역. 직접 지정이 없으면 None
     manual_active_frame: ActiveFrame | None = None
     known_encode_tag_names: tuple[str, ...] = ()
@@ -219,6 +221,8 @@ def _policy_already_encoded(ctx: EvaluationContext) -> ClassificationDecision | 
         return None
     if ctx.downscale is not None and ctx.downscale.reason == DownscaleReason.MANUAL:
         return None
+    if ctx.manual_target == ENCODE_DESIGNATION_KEY:
+        return None
     if _has_manual_active_frame(ctx):
         return None
     return ClassificationDecision(SmartAction.PASS_ALREADY_ENCODED)
@@ -235,9 +239,12 @@ def _policy_manual_encode(ctx: EvaluationContext) -> ClassificationDecision | No
     """영상별 직접 지정을 화질 등급과 절약 선별보다 먼저 따르는 판정
 
     - 출력 해상도 직접 지정 축소 후보가 있으면 절약 선별 없이 축소 인코딩
+    - 인코딩 지정이 있으면 화질 등급과 절약 선별을 무시하고 원본 해상도 품질 인코딩
     - 사용자 지정 활성 화면이 있으면 축소 후보 유무에 따라 축소 인코딩 또는 품질 인코딩
     - 직접 지정이 없으면 None으로 기존 정책에 넘김
     """
+    if ctx.manual_target == ENCODE_DESIGNATION_KEY:
+        return _make_encode_decision(SmartAction.ENCODE_MANUAL, ctx)
     estimate = ctx.downscale
     if estimate is not None and estimate.reason == DownscaleReason.MANUAL:
         return ClassificationDecision(

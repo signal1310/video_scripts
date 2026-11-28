@@ -31,8 +31,9 @@ from src.core.evaluation.sample_tuner import (
     TuneResult,
 )
 from src.core.quality_target import PROTECT_CQ_DELTA_MAX
-from src.core.resolution_tiers import RESOLUTION_TIER_BY_KEY
+from src.core.resolution_tiers import ENCODE_DESIGNATION_KEY, RESOLUTION_TIER_BY_KEY
 from src.core.smart_action import SmartAction
+from src.core.workspace_paths import normalize_root_key
 from src.service.encode.encode_events import (
     EVENT_LONG_PAUSE,
     PHASE_MAIN,
@@ -292,6 +293,7 @@ class _ServiceCase(unittest.TestCase):
         name_conflict: str = "skip",
         concurrent_jobs: int = 1,
         container_policy: str = "keep",
+        keep_encode_designation_separate: bool = False,
     ) -> EncodeSettings:
         return EncodeSettings(
             encoder="libx264",
@@ -306,6 +308,7 @@ class _ServiceCase(unittest.TestCase):
             concurrent_jobs=concurrent_jobs,
             prevent_sleep=False,
             after_complete="none",
+            keep_encode_designation_separate=keep_encode_designation_separate,
         )
 
     def _runner(
@@ -1145,6 +1148,90 @@ class TestContentFingerprintGate(_ServiceCase):
         self._runner(settings, store=store).run(batch_id)
         return self.history.list_items(batch_id)[0]
 
+
+
+class TestEncodeDesignationClear(_ServiceCase):
+    """인코딩 지정 영상의 완료 후 지정 자동 해제와 유지 설정"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._designation_stores: list[Any] = []
+
+    def tearDown(self) -> None:
+        # - 임시 폴더 정리 전에 DB 연결을 닫아 파일 잠금을 풂
+        for store in self._designation_stores:
+            store.close()
+        super().tearDown()
+
+    def _designation_store(self) -> Any:
+        from src.service.analysis_store import AnalysisStore
+
+        store = AnalysisStore(os.path.join(self._tmp.name, "designation", "video_cache.sqlite3"))
+        self._designation_stores.append(store)
+        return store
+
+    def _run_designated(
+        self, store: Any, *, result_policy: str, keep: bool
+    ) -> ItemRow:
+        path = self._source("desig.mp4")
+        job = self._job(path)
+        job = dataclasses.replace(job, encode_designation=True)
+        settings = self._settings(
+            result_policy=result_policy, keep_encode_designation_separate=keep
+        )
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        self._runner(settings, store=store).run(batch_id)
+        return self.history.list_items(batch_id)[0]
+
+    def test_done_in_replace_policy_clears_designation(self) -> None:
+        """원본 교체 모드에서 완료하면 유지 설정과 관계없이 지정을 해제"""
+        store = self._designation_store()
+        store.write_manual_targets(
+            {normalize_root_key(self.root): {"desig.mp4": ENCODE_DESIGNATION_KEY}}
+        )
+        item = self._run_designated(store, result_policy=RESULT_POLICY_REPLACE, keep=True)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(store.read_manual_targets({}), {})
+
+    def test_done_in_separate_policy_clears_designation_when_setting_off(self) -> None:
+        """별도 폴더에 저장 모드에서 유지 설정이 꺼져 있으면 완료 뒤 지정을 해제"""
+        store = self._designation_store()
+        store.write_manual_targets(
+            {normalize_root_key(self.root): {"desig.mp4": ENCODE_DESIGNATION_KEY}}
+        )
+        item = self._run_designated(store, result_policy=RESULT_POLICY_SEPARATE, keep=False)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(store.read_manual_targets({}), {})
+
+    def test_done_in_separate_policy_keeps_designation_when_setting_on(self) -> None:
+        """별도 폴더에 저장 모드에서 유지 설정을 켜면 완료 뒤에도 지정이 남음"""
+        store = self._designation_store()
+        store.write_manual_targets(
+            {normalize_root_key(self.root): {"desig.mp4": ENCODE_DESIGNATION_KEY}}
+        )
+        item = self._run_designated(store, result_policy=RESULT_POLICY_SEPARATE, keep=True)
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(
+            store.read_manual_targets({}),
+            {normalize_root_key(self.root): {"desig.mp4": ENCODE_DESIGNATION_KEY}},
+        )
+
+    def test_non_designated_job_never_touches_designations(self) -> None:
+        """지정 없는 일반 항목 완료는 직접 지정을 건드리지 않음"""
+        store = self._designation_store()
+        store.write_manual_targets(
+            {normalize_root_key(self.root): {"desig.mp4": "720p"}}
+        )
+        path = self._source("plain.mp4")
+        settings = self._settings(result_policy=RESULT_POLICY_REPLACE)
+        batch_id = create_batch(self.history, settings, self.root, [self._job(path)])
+        self._runner(settings, store=store).run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(
+            store.read_manual_targets({}),
+            {normalize_root_key(self.root): {"desig.mp4": "720p"}},
+        )
 
 
 class TestOutputHistoryIntegration(_ServiceCase):

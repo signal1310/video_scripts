@@ -15,7 +15,7 @@ from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.config import ClassifierConfig
 from src.core.evaluation.evaluator import VideoEvaluator
 from src.core.models import ActiveFrame, VideoEvaluation
-from src.core.smart_action import SmartAction
+from src.core.smart_action import SMART_ACTION_LABELS, SmartAction
 from src.gui.constants import (
     COLUMN_PRESETS,
     COMPACT_PROPERTY,
@@ -47,7 +47,15 @@ from src.gui.table.column_sizing import (
     measure_column_content_widths,
     measure_name_content_width,
 )
+from src.gui.table.delegates import (
+    badge_font,
+    pill_badge_cell_width,
+    quiet_dot_cell_width,
+    quiet_dot_font,
+    quiet_dot_text_limit,
+)
 from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_KEEP_FULL_TEXT
+from src.gui.table.table_columns import ENCODE_STATE_LABELS
 from src.gui.table.table_model import VideoTableModel
 from tests._factories import make_video
 
@@ -148,6 +156,66 @@ class ActiveFrameColumnWidthTests(unittest.TestCase):
         self.assertGreaterEqual(widths[col], expected)
         self.assertEqual(model.index(1, col).data(Qt.ItemDataRole.DisplayRole), ACTIVE_FRAME_KEEP_FULL_TEXT)
         self.assertEqual(model.index(0, col).data(Qt.ItemDataRole.DisplayRole), "132x240")
+
+
+class BadgeColumnWidthTests(unittest.TestCase):
+    """배지로 그리는 열 폭이 글자 폭이 아니라 배지가 필요로 하는 폭을 덮는지 검증"""
+
+    def _model(self) -> VideoTableModel:
+        model = VideoTableModel()
+        model.set_data_source(_evaluations(3), root_dir="C:/work")
+        return model
+
+    def test_zone_width_fits_the_widest_zone_badge(self) -> None:
+        """화질 등급 열 폭이 점 배지 글꼴로 잰 가장 넓은 등급 표기를 점과 여백까지 담는지 검증"""
+        model = self._model()
+        col = VideoTableModel.COL_ZONE
+        widths = measure_column_content_widths(model, QFont(), TextWidthCache())
+        metrics = QFontMetrics(quiet_dot_font())
+        widest = max(
+            str(model.index(row, col).data(Qt.ItemDataRole.DisplayRole) or "")
+            for row in range(model.rowCount())
+        )
+        self.assertTrue(widest)
+        needed = quiet_dot_cell_width(metrics.horizontalAdvance(widest))
+        self.assertGreaterEqual(widths[col], needed)
+        self.assertGreaterEqual(quiet_dot_text_limit(widths[col]), metrics.horizontalAdvance(widest))
+
+    def test_action_width_fits_the_widest_action_badge(self) -> None:
+        """권장 처리 열 폭이 알약 배지 글꼴로 잰 가장 넓은 처리 표기를 알약 여백까지 담는지 검증"""
+        model = self._model()
+        col = VideoTableModel.COL_ACTION
+        widths = measure_column_content_widths(model, QFont(), TextWidthCache())
+        metrics = QFontMetrics(badge_font())
+        widest = max(SMART_ACTION_LABELS, key=metrics.horizontalAdvance)
+        self.assertGreaterEqual(widths[col], pill_badge_cell_width(metrics.horizontalAdvance(widest)))
+
+    def test_auto_fit_applies_the_badge_width_to_badge_columns(self) -> None:
+        """모든 열 너비 맞춤이 화질 등급, 권장 처리, 인코딩 상태 열에 배지 폭을 적용하는지 검증"""
+        view = _TableViewFixture.build()
+        model = view.model()
+        assert isinstance(model, VideoTableModel)
+        applied = auto_fit_visible_columns(model, view)
+        dot_metrics = QFontMetrics(quiet_dot_font())
+        zone_widest = max(
+            str(model.index(row, VideoTableModel.COL_ZONE).data(Qt.ItemDataRole.DisplayRole) or "")
+            for row in range(model.rowCount())
+        )
+        self.assertGreaterEqual(
+            applied[VideoTableModel.COL_ZONE],
+            quiet_dot_cell_width(dot_metrics.horizontalAdvance(zone_widest)),
+        )
+        pill_metrics = QFontMetrics(badge_font())
+        action_widest = max(SMART_ACTION_LABELS, key=pill_metrics.horizontalAdvance)
+        self.assertGreaterEqual(
+            applied[VideoTableModel.COL_ACTION],
+            pill_badge_cell_width(pill_metrics.horizontalAdvance(action_widest)),
+        )
+        state_widest = max(ENCODE_STATE_LABELS, key=pill_metrics.horizontalAdvance)
+        self.assertGreaterEqual(
+            applied[VideoTableModel.COL_ENCODE_STATE],
+            pill_badge_cell_width(pill_metrics.horizontalAdvance(state_widest)),
+        )
 
 
 class ColumnPresetTests(unittest.TestCase):

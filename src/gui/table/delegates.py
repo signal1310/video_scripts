@@ -43,8 +43,52 @@ _CHIP_MARGIN_PX: int = 6
 _CHIP_MAX_HEIGHT_PX: int = 18
 _CHIP_BORDER_WIDTH_PX: float = 1.0
 _ROW_ACCENT_WIDTH_PX: int = 4
+# - 열 폭은 셀 사각형보다 격자선 한 줄만큼 작으므로 배지 폭 계산에 그만큼 더함
+_GRID_LINE_PX: int = 1
 # - 좁게 보기에서는 배지, 칩의 위아래 여백을 줄여 행 높이를 낮춤
 _COMPACT_MARGIN_FACTOR: int = 2
+
+
+def badge_font() -> QFont:
+    """알약 배지가 쓰는 굵은 작은 글꼴, 셀 그리기와 열 폭 계산이 함께 씀"""
+    return QFont(FONT_UI_FAMILY, FONT_TABLE_BADGE_PT, QFont.Weight.Bold)
+
+
+def quiet_dot_font() -> QFont:
+    """점 강조 배지가 쓰는 굵은 글꼴, 셀 그리기와 열 폭 계산이 함께 씀"""
+    return QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
+
+
+def badge_pill_width(text_width: int, *, has_icon: bool = False) -> int:
+    """알약 배지가 글자를 자르지 않고 그리는 데 필요한 알약 폭"""
+    icon_w = _CELL_ICON_PX + _ICON_TEXT_GAP_PX if has_icon else 0
+    return text_width + icon_w + _BADGE_PAD_X_PX * 2
+
+
+def pill_badge_cell_width(text_width: int, *, has_icon: bool = False) -> int:
+    """알약 배지 열이 확보해야 하는 셀 폭, 알약 좌우 여백과 격자선을 더함"""
+    return (
+        badge_pill_width(text_width, has_icon=has_icon) + _BADGE_MARGIN_PX + _GRID_LINE_PX
+    )
+
+
+def quiet_dot_text_limit(cell_width: int) -> int:
+    """점 강조 셀이 글자를 자르지 않고 담을 수 있는 글자 폭 상한"""
+    return max(
+        cell_width - _QUIET_DOT_DIAMETER_PX - _QUIET_DOT_GAP_PX - _CELL_H_PADDING_PX * 2,
+        0,
+    )
+
+
+def quiet_dot_cell_width(text_width: int) -> int:
+    """점 강조 배지 열이 확보해야 하는 셀 폭, 점, 간격, 좌우 여백과 격자선을 더함"""
+    return (
+        text_width
+        + _QUIET_DOT_DIAMETER_PX
+        + _QUIET_DOT_GAP_PX
+        + _CELL_H_PADDING_PX * 2
+        + _GRID_LINE_PX
+    )
 
 
 def _is_compact(option: QStyleOptionViewItem) -> bool:
@@ -99,9 +143,7 @@ class PillBadgeDelegate(_PaletteDelegateBase):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._badge_font = QFont(
-            FONT_UI_FAMILY, FONT_TABLE_BADGE_PT, QFont.Weight.Bold
-        )
+        self._badge_font = badge_font()
 
     def paint(
         self,
@@ -141,7 +183,8 @@ class PillBadgeDelegate(_PaletteDelegateBase):
             option.rect.height() - _margin_px(_BADGE_MARGIN_PX, option), _BADGE_MAX_HEIGHT_PX
         )
         badge_w = min(
-            text_width + icon_w + pad_x * 2, option.rect.width() - _BADGE_MARGIN_PX
+            badge_pill_width(text_width, has_icon=has_icon),
+            option.rect.width() - _BADGE_MARGIN_PX,
         )
 
         x = option.rect.x() + (option.rect.width() - badge_w) / 2.0
@@ -200,7 +243,7 @@ class QuietDotDelegate(_PaletteDelegateBase):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._text_font = QFont(FONT_UI_FAMILY, FONT_UI_PT, QFont.Weight.Bold)
+        self._text_font = quiet_dot_font()
 
     def paint(
         self,
@@ -229,7 +272,7 @@ class QuietDotDelegate(_PaletteDelegateBase):
         dot = _QUIET_DOT_DIAMETER_PX
         text_w = min(
             fm.horizontalAdvance(text),
-            max(option.rect.width() - dot - _QUIET_DOT_GAP_PX - _CELL_H_PADDING_PX * 2, 0),
+            quiet_dot_text_limit(option.rect.width()),
         )
         total_w = text_w + dot + _QUIET_DOT_GAP_PX
         start_x = option.rect.x() + max(

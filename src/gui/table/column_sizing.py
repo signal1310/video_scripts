@@ -6,11 +6,20 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import QTableView, QWidget
 
+from src.core.encode.encode_batch_book import STATUS_DONE
+from src.core.encode.encode_gate import DONE_SURGE_BADGE
+from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL
 from src.core.smart_action import SMART_ACTION_REASONS
 from src.gui.constants import (
     COMPACT_PROPERTY,
     COMPACT_VALUE_OFF,
     COMPACT_VALUE_ON,
+)
+from src.gui.table.delegates import (
+    badge_font,
+    pill_badge_cell_width,
+    quiet_dot_cell_width,
+    quiet_dot_font,
 )
 from src.gui.table.table_model import VideoTableModel
 
@@ -121,6 +130,49 @@ ICON_COLUMNS: frozenset[int] = frozenset(
 # - 글자를 알약에 넣어 그리는 열은 좌우 알약 여백만큼 폭을 더 확보해 문구가 잘리지 않게 함(활성 화면)
 PILL_COLUMNS: frozenset[int] = frozenset({VideoTableModel.COL_ACTIVE_FRAME})
 PILL_CELL_EXTRA_PX: int = 16
+# - 델리게이트가 배지로 그리는 열은 글자 폭이 아니라 배지가 필요로 하는 폭으로 맞춤
+DOT_BADGE_COLUMNS: frozenset[int] = frozenset({VideoTableModel.COL_ZONE})
+PILL_BADGE_COLUMNS: frozenset[int] = frozenset(
+    {VideoTableModel.COL_ACTION, VideoTableModel.COL_ENCODE_STATE}
+)
+# - 열 선택지에 없는 값도 배지로 나오므로 열 폭 계산에 함께 넣음
+BADGE_EXTRA_LABELS: dict[int, tuple[str, ...]] = {
+    VideoTableModel.COL_ENCODE_STATE: (PREVIOUS_DISCARD_LABEL,),
+}
+# - 배지 안에 아이콘을 함께 그리는 표기는 아이콘 폭까지 확보
+BADGE_ICON_LABELS: frozenset[str] = frozenset({STATUS_DONE, DONE_SURGE_BADGE})
+
+
+def _badge_labels(col: int) -> tuple[str, ...]:
+    """배지로 그려질 수 있는 표기 목록, 열 선택지와 데이터에 없는 추가 표기를 합침"""
+    preset = VideoTableModel.get_column_spec(col).preset_values
+    return (*preset, *BADGE_EXTRA_LABELS.get(col, ()))
+
+
+def _badge_content_width(col: int, cache: TextWidthCache) -> int:
+    """델리게이트가 배지로 그리는 열의 배지 필요 폭, 배지 열이 아니면 0
+
+    - 글자 폭만으로 맞추면 굵은 배지 글꼴과 알약 여백, 점이 빠져 문구가 잘리므로 델리게이트와 같은 폭 계산을 씀
+    - 배치 진행에 따라 값이 바뀌는 열도 표본 행과 무관하게 가장 넓은 배지가 들어가도록 선택지 전체를 잼
+    """
+    if col in DOT_BADGE_COLUMNS:
+        dot_widths = cache.for_font(quiet_dot_font())
+        return max(
+            (quiet_dot_cell_width(dot_widths.advance(label)) for label in _badge_labels(col)),
+            default=0,
+        )
+    if col in PILL_BADGE_COLUMNS:
+        pill_widths = cache.for_font(badge_font())
+        return max(
+            (
+                pill_badge_cell_width(
+                    pill_widths.advance(label), has_icon=label in BADGE_ICON_LABELS
+                )
+                for label in _badge_labels(col)
+            ),
+            default=0,
+        )
+    return 0
 
 
 def _cell_extra_px(col: int) -> int:
@@ -130,11 +182,18 @@ def _cell_extra_px(col: int) -> int:
 
 
 def _displayed_content_width(
-    model: VideoTableModel, col: int, base_font: QFont, cache: TextWidthCache
+    model: VideoTableModel,
+    col: int,
+    base_font: QFont,
+    cache: TextWidthCache,
+    *,
+    pad_reduction: int = 0,
 ) -> int:
     """표에 실제로 표시되는 값 중 가장 넓은 텍스트 폭, 파일명 열은 전체 행 기준
 
     - 아이콘이 붙는 열은 아이콘과 간격만큼, 알약을 쓰는 열은 알약 좌우 여백만큼 폭을 더함
+    - 배지로 그리는 열은 델리게이트의 배지 폭을 함께 봐 굵은 글꼴과 여백 때문에 문구가 잘리지 않게 함
+    - pad_reduction은 좁게 보기에서 줄어드는 셀 좌우 여백이며, 배지 폭은 줄이지 않음
     """
     if col == VideoTableModel.COL_NAME:
         return measure_name_content_width(model, base_font, cache)
@@ -142,7 +201,8 @@ def _displayed_content_width(
     bold_font.setBold(True)
     bold_widths = cache.for_font(bold_font)
     widest = _widest_cell_text(model, col, 1, bold_widths, bold_font, cache)
-    return widest + CELL_PADDING_PX + _cell_extra_px(col)
+    text_width = widest + CELL_PADDING_PX - pad_reduction + _cell_extra_px(col)
+    return max(max(text_width, 0), _badge_content_width(col, cache))
 
 
 def _compact_reduction() -> int:
@@ -171,7 +231,9 @@ def auto_fit_visible_columns(
     for col in order:
         if view.isColumnHidden(col):
             continue
-        content_w = max(0, _displayed_content_width(model, col, base_font, cache) - reduction)
+        content_w = _displayed_content_width(
+            model, col, base_font, cache, pad_reduction=reduction
+        )
         if col == VideoTableModel.COL_NAME:
             width = min(max(NAME_COL_DEFAULT_WIDTH, content_w), NAME_COL_MAX_WIDTH)
         else:
@@ -299,7 +361,10 @@ def measure_column_content_widths(
     *,
     cell_padding: int = CELL_PADDING_PX,
 ) -> dict[int, int]:
-    """표본 행의 표시 텍스트와 헤더 단어의 최대 폭으로 파일명 열을 제외한 열별 필요 폭을 계산"""
+    """표본 행의 표시 텍스트와 헤더 단어의 최대 폭으로 파일명 열을 제외한 열별 필요 폭을 계산
+
+    - 배지로 그리는 열은 델리게이트의 배지 폭도 필요 폭에 넣어 굵은 글꼴, 여백 때문에 배지가 잘리지 않게 함
+    """
     row_count = model.rowCount()
     if row_count <= 0:
         return {}
@@ -324,6 +389,7 @@ def measure_column_content_widths(
         widths[col] = max(
             widest_text + cell_padding + icon_extra,
             widest_word + HEADER_CHROME_PX,
+            _badge_content_width(col, cache),
         )
     return widths
 

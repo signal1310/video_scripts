@@ -35,7 +35,7 @@ PATH_AC_MAX_FOLDERS: int = 200
 PARENT_ROW_TEXT: str = ".."
 READING_NOTICE: str = "폴더를 읽는 중입니다"
 TRUNCATED_NOTICE: str = "일부만 표시합니다"
-KEY_HINT: str = "Up Down 이동, Tab 채우기, Enter 확정"
+KEY_HINT: str = "Up Down 이동, Tab/Enter 채우기, 선택 없이 Enter 확정"
 _FOLDER_ICON_NAME: str = "folder"
 _FOLDER_ROW_ICON_SIZE_PX: int = 14
 _LIST_MAX_HEIGHT_PX: int = 232
@@ -123,13 +123,25 @@ def read_folder_names(
     return tuple(names[:limit]), truncated
 
 
+def resolve_listing_base(text: str) -> tuple[str, str]:
+    """하위 목록을 읽을 기준 경로와 이름 접두어 반환
+
+    - 마지막 항목이 구분자 없이 존재하는 폴더면 그 폴더 자체의 하위 목록을 읽도록 기준을 옮김
+    - 그 밖에는 입력한 이름으로 시작하는 폴더를 고르도록 상위 경로와 접두어를 그대로 씀
+    """
+    base_dir, prefix = split_folder_input(text)
+    if prefix and os.path.isdir(f"{base_dir}{prefix}"):
+        return f"{base_dir}{prefix}", ""
+    return base_dir, prefix
+
+
 def build_listing(
     text: str,
     limit: int,
     is_cancelled: Callable[[], bool],
 ) -> FolderListing | None:
     """입력 경로에 대한 하위 폴더 목록. 폴더로 읽을 수 없거나 취소되면 None"""
-    base_dir, prefix = split_folder_input(text)
+    base_dir, prefix = resolve_listing_base(text)
     if not base_dir or not os.path.isdir(base_dir):
         return None
     try:
@@ -343,7 +355,7 @@ class PathAutocomplete(QObject):
     """경로 입력 칸의 하위 폴더 자동완성 조율
 
     - 입력이 멈추면 `FILTER_DEBOUNCE_MS` 뒤에 폴더 읽기를 시작
-    - Up/Down 이동, Tab 채우기, Enter 확정은 입력 칸 이벤트 필터가 처리
+    - Up/Down 이동, Tab/Enter 채우기, 선택 없는 Enter 확정은 입력 칸 이벤트 필터가 처리
     """
 
     def __init__(self, edit: QLineEdit, parent: QWidget | None = None) -> None:
@@ -406,7 +418,7 @@ class PathAutocomplete(QObject):
 
     def _start_reading(self) -> None:
         """입력 경로의 하위 폴더 읽기를 워커에 요청. 읽을 상위 경로가 없으면 닫음"""
-        base_dir, _prefix = split_folder_input(self._edit.text())
+        base_dir, _prefix = resolve_listing_base(self._edit.text())
         if not base_dir:
             self.close()
             return
@@ -443,7 +455,9 @@ class PathAutocomplete(QObject):
 
     def _fill_folder(self, folder: str) -> None:
         """고른 폴더를 입력 칸에 채우고 그 아래 목록을 이어서 읽음"""
-        self._edit.setText(f"{folder}{os.sep}")
+        # - 드라이브 루트처럼 이미 구분자로 끝나는 경로에 구분자를 겹쳐 붙이지 않음
+        suffix = "" if folder.endswith(("\\", "/")) else os.sep
+        self._edit.setText(f"{folder}{suffix}")
         self._start_reading()
 
     def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
@@ -462,20 +476,15 @@ class PathAutocomplete(QObject):
         if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
             self._popup.move_selection(-1 if key == Qt.Key.Key_Up else 1)
             return True
-        if key == Qt.Key.Key_Tab:
+        if key in (Qt.Key.Key_Tab, Qt.Key.Key_Return, Qt.Key.Key_Enter):
             folder = self._popup.selected_folder()
-            if folder is None:
+            if folder is not None:
+                # - Tab과 Enter 모두 고른 폴더를 채우고 그 아래 목록을 이어서 보여 줌
+                self._fill_folder(folder)
+                return True
+            if key == Qt.Key.Key_Tab:
                 return False
-            self._fill_folder(folder)
-            return True
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            folder = self._popup.selected_folder()
-            if folder is None:
-                # - 고른 항목이 없으면 입력 텍스트 그대로 확정하도록 기본 처리에 맡김
-                self.close()
-                return False
+            # - 고른 항목이 없으면 입력 텍스트 그대로 확정하도록 기본 처리에 맡김
             self.close()
-            self._edit.setText(folder)
-            self._edit.returnPressed.emit()
-            return True
+            return False
         return False

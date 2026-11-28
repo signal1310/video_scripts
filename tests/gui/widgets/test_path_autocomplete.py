@@ -189,6 +189,22 @@ class BuildListingTests(unittest.TestCase):
             ["gamma2", "gamma10"],
         )
 
+    def test_existing_folder_without_separator_lists_its_children(self) -> None:
+        sub = os.path.join(self._tmp.name, "alpha")
+        os.makedirs(os.path.join(sub, "inner"))
+        listing = build_listing(sub, PATH_AC_MAX_FOLDERS, lambda: False)
+        assert listing is not None
+        self.assertEqual(listing.base_dir, sub)
+        self.assertEqual(listing.folders, (os.path.join(sub, "inner"),))
+        self.assertEqual(listing.parent, self._tmp.name)
+
+    def test_existing_folder_without_children_keeps_parent_only(self) -> None:
+        sub = os.path.join(self._tmp.name, "alpha")
+        listing = build_listing(sub, PATH_AC_MAX_FOLDERS, lambda: False)
+        assert listing is not None
+        self.assertEqual(listing.folders, ())
+        self.assertEqual(listing.parent, self._tmp.name)
+
     def test_missing_directory_returns_none(self) -> None:
         self.assertIsNone(
             build_listing(
@@ -363,12 +379,18 @@ class FolderAutocompletePopupTests(unittest.TestCase):
         )
         self.assertFalse(self._popup.eventFilter(self._popup, event))
 
+    def test_empty_listing_with_parent_shows_only_the_parent_row(self) -> None:
+        self._popup.show_listing(
+            FolderListing(base_dir="F:\\sub", folders=(), parent="F:\\", truncated=False)
+        )
+        self.assertEqual(self._popup.list_folders.count(), 1)
+        self.assertEqual(_item_text(self._popup, 0), PARENT_ROW_TEXT)
+
     def test_hidden_popup_clears_selection(self) -> None:
         self._popup.show_listing(self._listing(parent="F:\\"))
         self._popup.move_selection(1)
         self._popup._on_hidden()
         self.assertIsNone(self._popup.selected_folder())
-
 
 
 class PathAutocompleteTests(unittest.TestCase):
@@ -411,6 +433,20 @@ class PathAutocompleteTests(unittest.TestCase):
         self.assertIn("gamma10", rows)
         self.assertIn("gamma2", rows)
         self.assertNotIn("alpha", rows)
+
+    def test_typing_an_existing_folder_lists_its_children(self) -> None:
+        sub = os.path.join(self._tmp.name, "alpha")
+        os.makedirs(os.path.join(sub, "inner"))
+        self._edit.setText(sub)
+        self._autocomplete._on_text_edited("")
+        self._wait_open()
+        self.assertEqual(self._rows(), [PARENT_ROW_TEXT, "inner"])
+
+    def test_typing_an_empty_existing_folder_shows_only_the_parent_row(self) -> None:
+        self._edit.setText(os.path.join(self._tmp.name, "alpha"))
+        self._autocomplete._on_text_edited("")
+        self._wait_open()
+        self.assertEqual(self._rows(), [PARENT_ROW_TEXT])
 
     def test_input_without_folder_keeps_the_dropdown_closed(self) -> None:
         self._autocomplete._start_reading()
@@ -487,8 +523,11 @@ class PathAutocompleteTests(unittest.TestCase):
         self._autocomplete._on_listing_ready(request_id, listing)
         self.assertEqual(self._autocomplete.popup.list_folders.count(), 0)
 
+    def test_fill_folder_does_not_repeat_a_trailing_separator(self) -> None:
+        self._autocomplete._fill_folder(self._tmp.name + os.sep)
+        self.assertEqual(self._edit.text(), self._tmp.name + os.sep)
 
-    def test_enter_commits_the_selected_folder(self) -> None:
+    def test_enter_fills_the_selected_folder_and_keeps_reading(self) -> None:
         submitted: list[str] = []
         self._edit.returnPressed.connect(lambda: submitted.append(self._edit.text()))
         self._edit.setText(self._tmp.name + os.sep)
@@ -497,7 +536,47 @@ class PathAutocompleteTests(unittest.TestCase):
         self._autocomplete.popup.move_selection(1)
         self._autocomplete.popup.move_selection(1)
         self.assertTrue(self._autocomplete.eventFilter(self._edit, _key_event(Qt.Key.Key_Return)))
-        self.assertEqual(submitted, [os.path.join(self._tmp.name, "alpha")])
+        self.assertEqual(self._edit.text(), os.path.join(self._tmp.name, "alpha") + os.sep)
+        self.assertEqual(submitted, [])
+        self._wait_open()
+
+    def test_numpad_enter_fills_the_selected_folder_like_tab(self) -> None:
+        submitted: list[str] = []
+        self._edit.returnPressed.connect(lambda: submitted.append(self._edit.text()))
+        self._edit.setText(self._tmp.name + os.sep)
+        self._autocomplete._on_text_edited("")
+        self._wait_open()
+        self._autocomplete.popup.move_selection(1)
+        self._autocomplete.popup.move_selection(1)
+        self.assertTrue(self._autocomplete.eventFilter(self._edit, _key_event(Qt.Key.Key_Enter)))
+        self.assertEqual(self._edit.text(), os.path.join(self._tmp.name, "alpha") + os.sep)
+        self.assertEqual(submitted, [])
+
+    def test_enter_without_selection_falls_through_to_the_edit(self) -> None:
+        submitted: list[str] = []
+        self._edit.returnPressed.connect(lambda: submitted.append(self._edit.text()))
+        self._edit.setText(self._tmp.name + os.sep)
+        self._autocomplete._on_text_edited("")
+        self._wait_open()
+        self.assertFalse(self._autocomplete.eventFilter(self._edit, _key_event(Qt.Key.Key_Return)))
+        self.assertFalse(self._autocomplete.is_open)
+        # - 이벤트를 입력 칸에 그대로 넘기면 기본 처리로 확정 신호가 나감
+        QApplication.sendEvent(self._edit, _key_event(Qt.Key.Key_Return))
+        self.assertEqual(submitted, [self._tmp.name + os.sep])
+        self.assertEqual(self._edit.text(), self._tmp.name + os.sep)
+
+    def test_real_enter_key_press_fills_without_confirming(self) -> None:
+        submitted: list[str] = []
+        self._edit.returnPressed.connect(lambda: submitted.append(self._edit.text()))
+        self._edit.setText(self._tmp.name + os.sep)
+        self._autocomplete._on_text_edited("")
+        self._wait_open()
+        self._autocomplete.popup.move_selection(1)
+        self._autocomplete.popup.move_selection(1)
+        QApplication.sendEvent(self._edit, _key_event(Qt.Key.Key_Return))
+        self.assertEqual(submitted, [])
+        self.assertEqual(self._edit.text(), os.path.join(self._tmp.name, "alpha") + os.sep)
+        self.assertTrue(self._autocomplete.is_open)
 
     def test_shortcut_override_is_not_consumed(self) -> None:
         """키 입력 전에 오는 ShortcutOverride를 목록 조작으로 처리하지 않는지 검증"""
@@ -511,13 +590,6 @@ class PathAutocompleteTests(unittest.TestCase):
         )
         self.assertFalse(self._autocomplete.eventFilter(self._edit, override))
         self.assertEqual(self._autocomplete.popup.current_row_text(), "")
-
-    def test_enter_without_selection_uses_the_typed_text(self) -> None:
-        self._edit.setText(self._tmp.name + os.sep)
-        self._autocomplete._on_text_edited("")
-        self._wait_open()
-        self.assertFalse(self._autocomplete.eventFilter(self._edit, _key_event(Qt.Key.Key_Return)))
-        self.assertFalse(self._autocomplete.is_open)
 
     def test_tab_fills_the_selected_folder_and_keeps_reading(self) -> None:
         self._edit.setText(self._tmp.name + os.sep)

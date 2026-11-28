@@ -172,7 +172,10 @@ class EncodeSummaryView(QWidget):
         self._layout_body()
 
     def _layout_body(self) -> None:
-        """브리핑 카드, 상태 칩, 경고, 태그, 트리를 위에서 아래로 배치"""
+        """브리핑 카드, 상태 칩, 경고, 태그, 트리를 위에서 아래로 배치
+
+        - 남는 세로 공간은 트리만 받도록 스트레치를 트리에만 줌
+        """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -185,9 +188,9 @@ class EncodeSummaryView(QWidget):
             self.warning_box,
             self.tag_label,
             self.tree_head,
-            self.tree,
         ):
             layout.addWidget(widget)
+        layout.addWidget(self.tree, 1)
         self.tree_head.setVisible(False)
 
     def _build_live_label(self) -> QLabel:
@@ -257,6 +260,8 @@ class EncodeSummaryView(QWidget):
         """배치 요약 카드. 제목 줄 아래 한 줄에 강조 타일 하나와 보조 두 줄을 나란히 둠"""
         card = QFrame(self)
         card.setObjectName("EncodeBriefCard")
+        # - 카드가 세로로 늘어나지 않고 내용 높이(sizeHint)를 유지하도록 최대 크기로 둠
+        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         outer = QVBoxLayout(card)
         outer.setContentsMargins(
             BRIEF_CARD_MARGIN_H_PX, BRIEF_CARD_MARGIN_V_PX, BRIEF_CARD_MARGIN_H_PX, BRIEF_CARD_MARGIN_V_PX

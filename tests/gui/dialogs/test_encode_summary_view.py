@@ -31,6 +31,7 @@ from src.gui.styles.palettes import DARK_PALETTE, LIGHT_PALETTE
 from src.gui.theme import ThemeAwareMixin
 from src.service.encode.encode_job import EncodeSettings
 from tests._factories import make_eval, make_video
+from tests._gui_helpers import GuiTestCase
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -45,6 +46,11 @@ _OLD_VIEW_MIN_WIDTH_13PT_PX: int = 447
 # - 12개 영상 계획(24.2GB -> 21.2GB)의 기대 문구
 _EXPECTED_TARGET_LINE: str = "대상 12개, 24.2 GB -> 21.2 GB"
 _EXPECTED_ENCODER_LINE: str = "HEVC (NVENC), 화질 기준값 28.0"
+# - 세로 여유를 줬을 때 카드가 내용 높이를 지키고 트리가 늘어나는지 재는 창 크기
+_VIEW_WIDTH_PX: int = 900
+_SHORT_VIEW_HEIGHT_PX: int = 640
+_TALL_VIEW_HEIGHT_PX: int = 1000
+_CARD_HEIGHT_TOLERANCE_PX: int = 2
 
 
 class _FakeMedia:
@@ -526,6 +532,40 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.assertNotIsInstance(self.view, ThemeAwareMixin)
         for widget in self.view.findChildren(QWidget):
             self.assertIsNotNone(widget.parentWidget())
+
+
+class EncodeSummaryViewLayoutTests(GuiTestCase):
+    """세로 여유가 생겨도 배치 요약 카드는 내용 높이를 지키고 트리가 남는 높이를 받는지 검증"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = self._tmp.name
+        self.view = EncodeSummaryView(_FakeMedia(), get_shortcuts=_shortcuts)
+        self.addCleanup(self.view.deleteLater)
+        self.view.set_plan(_multi_plan(self.root, 12))
+
+    def _layout_at(self, height: int) -> tuple[QWidget, QWidget]:
+        """뷰를 보여 주고 지정 높이로 맞춘 뒤 배치를 반영한 카드와 트리를 돌려줌"""
+        self.view.resize(_VIEW_WIDTH_PX, height)
+        self.view.show()
+        _APP.processEvents()
+        return self.view.brief_card, self.view.tree
+
+    def test_tall_view_keeps_the_card_at_its_size_hint_and_grows_the_tree(self) -> None:
+        """높이 1000 px에서도 카드는 내용 높이를 유지하고, 늘어난 높이는 트리가 받음"""
+        short_card, short_tree = self._layout_at(_SHORT_VIEW_HEIGHT_PX)
+        short_card_height = short_card.geometry().height()
+        short_tree_height = short_tree.geometry().height()
+        self.view.hide()
+        tall_card, tall_tree = self._layout_at(_TALL_VIEW_HEIGHT_PX)
+        tall_card_height = tall_card.geometry().height()
+        self.assertGreater(tall_card_height, 0)
+        self.assertLessEqual(tall_card_height, tall_card.sizeHint().height())
+        self.assertLessEqual(abs(tall_card_height - short_card_height), _CARD_HEIGHT_TOLERANCE_PX)
+        content_height = tall_card.heightForWidth(tall_card.width())
+        self.assertLessEqual(abs(tall_card_height - content_height), _CARD_HEIGHT_TOLERANCE_PX)
+        self.assertGreater(tall_tree.geometry().height(), short_tree_height)
 
 
 class SummaryHelpersTests(unittest.TestCase):

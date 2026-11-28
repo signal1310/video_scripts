@@ -215,7 +215,7 @@ def encode_state_badge(label: str | None, p: ThemePalette) -> tuple[str, str, st
 
 def encode_state_icon_name(label: str | None) -> str | None:
     """인코딩 상태 표기의 아이콘 이름. 완료 표기만 체크 아이콘을 씀"""
-    return _ENCODE_DONE_ICON if label in (STATUS_DONE, DONE_SURGE_BADGE) else None
+    return _ENCODE_DONE_ICON if label == STATUS_DONE else None
 
 
 def encode_state_foreground(label: str | None, p: ThemePalette) -> str | None:

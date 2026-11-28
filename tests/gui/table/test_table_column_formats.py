@@ -80,13 +80,13 @@ class EncodeStateBadgeTests(unittest.TestCase):
         self.assertIsNone(encode_state_badge(STATUS_PENDING, DARK_PALETTE))
         self.assertIsNone(encode_state_badge(None, DARK_PALETTE))
 
-    def test_surge_done_label_uses_the_pending_badge_family_and_the_check_icon(self) -> None:
-        """급증 상한을 넘고 배치된 완료 표기는 주의 배지 토큰과 체크 아이콘을 쓰는지 검증(안 A)"""
+    def test_surge_done_label_uses_the_pending_badge_family_without_an_icon(self) -> None:
+        """급증 상한을 넘고 배치된 완료 표기는 주의 배지 토큰만 쓰고 아이콘은 비우는지 검증"""
         from src.core.encode.encode_gate import DONE_SURGE_BADGE
 
         p = DARK_PALETTE
         self.assertEqual(encode_state_badge(DONE_SURGE_BADGE, p), p.badge_pending)
-        self.assertEqual(encode_state_icon_name(DONE_SURGE_BADGE), "check")
+        self.assertIsNone(encode_state_icon_name(DONE_SURGE_BADGE))
 
     def test_pending_label_uses_the_muted_text_color_and_others_do_not(self) -> None:
         """대기만 보조 글자색을 쓰고 배지가 있는 표기는 글자색을 따로 정하지 않는지 검증"""

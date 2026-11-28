@@ -13,10 +13,16 @@ from src.classifier import VideoClassifier
 from src.core.config import DEFAULT_THRESHOLDS
 from src.core.messages import ColumnId
 from src.core.settings.app_state import load_app_state, save_app_state
+from src.core.settings.shortcuts import (
+    RESET_COLUMNS_DESCRIPTION,
+    RESET_COLUMNS_TEXT,
+    SHORTCUT_SPEC_BY_ID,
+)
 from src.gui.help.help_dialog import HelpDialog
 from src.gui.main_window import MainWindow
 from src.gui.settings.settings_dialog import SettingsDialog
 from src.gui.table.column_filters import ColumnFilterRule
+from src.gui.table.column_history import COLUMN_RESET_HISTORY_LABEL
 from src.gui.table.column_layout_state import COL_INDEX_TO_ID, decode_column_layouts
 from src.gui.table.table_model import VideoTableModel
 from src.gui.theme import ThemeManager
@@ -126,6 +132,33 @@ class TestGUIWindowMenus(GuiWindowTestCase):
             if getattr(menu, name).icon().isNull()
         ]
         self.assertEqual(iconless, [])
+
+    def test_view_menu_shows_item_descriptions_as_tooltips(self) -> None:
+        """보기 메뉴와 하위 메뉴가 툴팁 표시를 켜고, 열 복원 항목이 설명 툴팁을 가지는지 검증"""
+        mw, _, _ = self._menu_window()
+        menu = mw.menu
+        menu_bar = mw.menuBar()
+        assert menu_bar is not None
+        view_menu = next(
+            action.menu()
+            for action in menu_bar.actions()
+            if action.text() == "보기(&V)"
+        )
+        assert view_menu is not None
+        self.assertTrue(view_menu.toolTipsVisible())
+        self.assertTrue(menu.preset_menu.toolTipsVisible())
+        self.assertTrue(menu.columns_menu.toolTipsVisible())
+        self.assertEqual(menu.act_reset_columns.toolTip(), RESET_COLUMNS_DESCRIPTION)
+        self.assertEqual(menu.act_reset_columns.statusTip(), RESET_COLUMNS_DESCRIPTION)
+
+    def test_reset_columns_name_matches_the_header_context_menu(self) -> None:
+        """보기 메뉴, 되돌리기 라벨, 열 헤더 우클릭 메뉴 항목이 같은 열 복원 이름을 쓰는지 검증"""
+        mw, _, _ = self._menu_window()
+        self.assertEqual(mw.menu.act_reset_columns.text(), RESET_COLUMNS_TEXT)
+        self.assertEqual(COLUMN_RESET_HISTORY_LABEL, RESET_COLUMNS_TEXT)
+        spec = SHORTCUT_SPEC_BY_ID["view.reset_columns"]
+        self.assertEqual(spec.label, RESET_COLUMNS_TEXT)
+        self.assertEqual(spec.description, RESET_COLUMNS_DESCRIPTION)
 
     def test_recent_menu_returns_to_previous_dir_and_clears(self) -> None:
         """최근 폴더 항목으로 복귀하고 마지막 항목으로 목록을 비움을 검증"""

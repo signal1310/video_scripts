@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication, QMenu, QWidget
 
 from src.core.config import ClassifierConfig
 from src.core.models import VideoEvaluation
+from src.core.settings.shortcuts import RESET_COLUMNS_TEXT
 from src.core.smart_action import SmartAction
 from src.gui.menus.manual_target_menu import MANUAL_TARGET_MENU_TITLE
 from src.gui.table.column_filter_popover import ColumnFilterPopover
@@ -202,7 +203,7 @@ class TestHeaderContextMenu(unittest.TestCase):
         self.assertTrue(actions["기본 정렬로 복원"].isEnabled())
 
         actions["기본 정렬로 복원"].trigger()
-        actions["기본 열 너비, 표시, 순서 복원"].trigger()
+        actions[RESET_COLUMNS_TEXT].trigger()
         self.assertEqual(self.host.calls, [("reset_sort", None), ("reset_columns", None)])
 
 

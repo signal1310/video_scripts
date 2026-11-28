@@ -3,7 +3,24 @@
 from collections.abc import Callable
 
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMainWindow, QMenu
+from PyQt6.QtWidgets import QMainWindow, QMenu, QMenuBar
+
+
+def enable_menu_tooltips(menu: QMenu) -> None:
+    """메뉴와 하위 메뉴의 툴팁 표시를 켜, 상태 표시줄이 없는 창에서도 항목 설명이 호버 툴팁으로 보이게 함"""
+    menu.setToolTipsVisible(True)
+    for action in menu.actions():
+        submenu = action.menu()
+        if submenu is not None:
+            enable_menu_tooltips(submenu)
+
+
+def enable_menu_bar_tooltips(menu_bar: QMenuBar) -> None:
+    """메뉴바의 모든 메뉴와 하위 메뉴에 툴팁 표시를 적용"""
+    for action in menu_bar.actions():
+        menu = action.menu()
+        if menu is not None:
+            enable_menu_tooltips(menu)
 
 
 def make_action(

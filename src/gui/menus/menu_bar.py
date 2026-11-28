@@ -19,7 +19,7 @@ from src.gui.menus.dynamic_menus import (
 )
 from src.gui.menus.manual_target_menu import fill_manual_target_menu
 from src.gui.menus.menu_analysis import build_analysis_menu
-from src.gui.menus.menu_base import MenuContext
+from src.gui.menus.menu_base import MenuContext, enable_menu_bar_tooltips
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.menus.menu_edit import build_edit_menu
 from src.gui.menus.menu_encode import apply_start_state, build_encode_menu
@@ -84,6 +84,8 @@ class MainMenuController:
             self._ctx, edit_menu.menu, callbacks, self._refresh_manual_target_menu
         )
         self._build_help_menu(menu_bar, callbacks)
+        # - 상태 표시줄이 없는 창에서도 항목 설명이 호버 툴팁으로 보이도록 모든 메뉴에 한 번에 적용
+        enable_menu_bar_tooltips(menu_bar)
         self.act_open_dir = file_menu.act_open_dir
         self.act_add_dir = file_menu.act_add_dir
         self.recent_menu = file_menu.recent_menu

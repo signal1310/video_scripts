@@ -8,6 +8,7 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu, QWidget
 
 from src.core.models import VideoEvaluation
+from src.core.settings.shortcuts import RESET_COLUMNS_TEXT
 from src.gui.menus.manual_target_menu import (
     MANUAL_TARGET_MENU_TITLE,
     fill_manual_target_menu,
@@ -201,7 +202,7 @@ def show_header_context_menu(view: TableContextHost, pos: QPoint) -> None:
         palette=p,
         enabled=bool(view.proxy_model.sort_stack) or header.isSortIndicatorShown(),
     )
-    add_menu_action(menu, "기본 열 너비, 표시, 순서 복원", view.reset_columns)
+    add_menu_action(menu, RESET_COLUMNS_TEXT, view.reset_columns)
     # 메뉴가 닫힐 때까지 열 구성 변경을 한 번의 편집으로 묶어 되돌리기 기록에 알림
     header.layout_edit_started.emit()
     menu.exec(header.mapToGlobal(pos))

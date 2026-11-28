@@ -53,6 +53,13 @@ class ShortcutSpec:
     description: str
 
 
+RESET_COLUMNS_TEXT: str = "기본 열 너비, 표시, 순서 복원"
+RESET_COLUMNS_DESCRIPTION: str = (
+    "지금 열 프리셋을 기본으로 바꾸고 열 너비를 내용 폭 기준 기본 너비로, "
+    "열 표시와 순서를 기본 배치로 되돌립니다."
+)
+
+
 SHORTCUT_GROUPS: tuple[ShortcutGroup, ...] = (
     ShortcutGroup("file", "작업 폴더 및 파일", "folder"),
     ShortcutGroup("analyze", "영상 분석 및 캐시", "analyze"),
@@ -171,7 +178,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("filter_table", "edit.reset_filters", "필터 초기화", "Ctrl+Shift+F", "검색어 및 모든 열 필터를 기본값으로 초기화합니다."),
     ShortcutSpec("filter_table", "edit.clear_column_filters", "모든 열 필터 해제", "", "적용된 모든 열 헤더 필터를 해제합니다."),
     ShortcutSpec("filter_table", "view.reset_sort", "기본 정렬로 복원", "", "테이블 정렬 상태를 기본 파일명 자연 정렬로 초기화합니다."),
-    ShortcutSpec("filter_table", "view.reset_columns", "기본 열 너비, 표시 복원", "", "숨겨진 열을 다시 표시하고 기본 열 너비와 순서로 복원합니다."),
+    ShortcutSpec("filter_table", "view.reset_columns", RESET_COLUMNS_TEXT, "", RESET_COLUMNS_DESCRIPTION),
     ShortcutSpec("app_view", "edit.open_settings", "환경 설정", "Ctrl+,", "환경 설정 탭을 엽니다."),
     ShortcutSpec("app_view", "edit.open_tuner", "판별 기준 조정", "Ctrl+T", "판별 기준 실시간 조정 탭을 엽니다."),
     ShortcutSpec("app_view", "edit.open_shortcuts", "단축키 설정", "Ctrl+K", "단축키 사용자 지정 탭을 엽니다."),

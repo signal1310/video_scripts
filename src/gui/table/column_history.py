@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from src.core.settings.shortcuts import RESET_COLUMNS_TEXT
 from src.core.settings.undo_history import UndoableSnapshot
 from src.gui.table.column_layout_state import (
     capture_column_state,
@@ -12,7 +13,7 @@ from src.gui.table.video_table_view import VideoTableView
 COLUMN_WIDTH_HISTORY_LABEL: str = "열 너비 조정"
 COLUMN_ORDER_HISTORY_LABEL: str = "열 순서 변경"
 COLUMN_VISIBILITY_HISTORY_LABEL: str = "열 표시 변경"
-COLUMN_RESET_HISTORY_LABEL: str = "기본 열 너비, 표시 복원"
+COLUMN_RESET_HISTORY_LABEL: str = RESET_COLUMNS_TEXT
 COLUMN_PRESET_HISTORY_LABEL: str = "열 프리셋 변경"
 COLUMN_PRESET_RESET_HISTORY_LABEL: str = "프리셋 기본 배치로 되돌리기"
 COLUMN_FIT_HISTORY_LABEL: str = "모든 열 너비 맞춤"

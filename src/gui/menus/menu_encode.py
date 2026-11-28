@@ -6,7 +6,7 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu, QMenuBar
 
 from src.core.encode.encode_start_state import StartState
-from src.gui.menus.menu_base import MenuContext
+from src.gui.menus.menu_base import MenuContext, enable_menu_tooltips
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 
 ENCODE_MENU_TITLE: str = "인코딩(&N)"
@@ -39,7 +39,7 @@ def build_encode_menu(
     """
     menu = menu_bar.addMenu(ENCODE_MENU_TITLE)
     assert menu is not None
-    menu.setToolTipsVisible(True)
+    enable_menu_tooltips(menu)
     act_start = ctx.create_action(
         OPEN_WINDOW_TEXT,
         callbacks.on_start_encode or (lambda: None),

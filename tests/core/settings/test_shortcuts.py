@@ -142,5 +142,18 @@ class BackgroundShortcutTests(unittest.TestCase):
         )
 
 
+class ShortcutLabelTests(unittest.TestCase):
+    """열 복원 명령의 표시명과 설명이 동작(너비, 표시, 순서)과 일치하는지 검증"""
+
+    def test_reset_columns_spec_describes_width_visibility_and_order(self) -> None:
+        spec = next(spec for spec in SHORTCUT_SPECS if spec.action_id == "view.reset_columns")
+        self.assertEqual(spec.label, "기본 열 너비, 표시, 순서 복원")
+        self.assertEqual(
+            spec.description,
+            "지금 열 프리셋을 기본으로 바꾸고 열 너비를 내용 폭 기준 기본 너비로, "
+            "열 표시와 순서를 기본 배치로 되돌립니다.",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

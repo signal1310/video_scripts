@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import QMenu, QMenuBar
 
+from src.core.settings.shortcuts import RESET_COLUMNS_DESCRIPTION, RESET_COLUMNS_TEXT
 from src.gui.menus.menu_base import MenuContext
 from src.gui.menus.menu_callbacks import MenuBarCallbacks
 from src.gui.theme import ThemeManager
@@ -143,11 +144,11 @@ def build_view_menu(
         status_tip="테이블 정렬 상태를 기본 파일명 자연 정렬로 초기화합니다.",
     )
     act_reset_columns = ctx.create_action(
-        "기본 열 너비, 표시 복원",
+        RESET_COLUMNS_TEXT,
         callbacks.on_reset_columns,
         action_id="view.reset_columns",
         icon_name="rotate-ccw",
-        status_tip="숨겨진 열을 다시 표시하고 기본 열 너비로 복원합니다.",
+        status_tip=RESET_COLUMNS_DESCRIPTION,
     )
     act_show_logs = ctx.create_action(
         "작업 기록 보기",

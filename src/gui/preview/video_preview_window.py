@@ -512,23 +512,24 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
     def _crop_active_frame(self) -> ActiveFrame | None:
         """지금 영상의 잘라내기 기준 영역, 편집 대상이 아니거나 비교 모드면 None
 
-        - 화면 분석 결과가 있으면 검은 띠가 없어 활성 화면이 비어 있어도 전체 프레임으로 편집함
+        - 화질 분석 결과가 없어도 영상 크기를 알면 전체 프레임을 편집 영역으로 씀
         """
         info = self._video_info
-        if info is None or self.compare_mode or not info.has_frame_analysis:
+        frame_size = self._video_frame_size()
+        if info is None or frame_size is None or self.compare_mode:
             return None
-        video = info.ev.video
-        return info.ev.active_frame or full_active_frame((video.width, video.height))
+        return info.ev.active_frame or full_active_frame(frame_size)
 
     def _sync_crop_controls(self) -> None:
-        """여백 미리 보기 버튼 표시와 겹침 상태를 지금 영상과 모드에 맞춤"""
+        """여백 미리 보기 버튼 표시와 겹침 상태를 지금 영상과 모드에 맞춤
+
+        - 영상 크기를 모르는 동안에는 버튼을 꺼 둔 채 켤 수 없는 이유를 툴팁으로 알림
+        """
         active = self._crop_active_frame()
-        self._controls.set_crop_available(active is not None)
+        unknown_size = self._video_info is not None and not self.compare_mode and active is None
+        self._controls.set_crop_available(active is not None, unknown_size=unknown_size)
         # - 대상이 아닌 영상으로 바뀌면 켜 둔 표시도 함께 끔
-        if active is None:
-            self._crop_enabled = False
-        else:
-            self._crop_enabled = self._controls.crop_button.isChecked()
+        self._crop_enabled = active is not None and self._controls.crop_button.isChecked()
         self._update_crop_overlay()
 
     def _update_crop_overlay(self) -> None:
@@ -607,10 +608,11 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._update_crop_overlay()
 
     def _toggle_crop_preview(self) -> None:
-        """여백 미리 보기 단축키: 대상 영상이 아니거나 비교 모드면 아무것도 하지 않음
+        """여백 미리 보기 단축키: 편집 대상이 아니거나 비교 모드면 아무것도 하지 않음
 
         - 버튼 토글 한 경로만 써서 아이콘, 겹침, 상태가 함께 바뀌게 함
         - 알림은 키로 바꿨을 때만 띄워, 영상 전환이나 창 닫기로 꺼질 때 토스트가 남지 않게 함
+        - 영상 크기를 몰라 켤 수 없는 이유는 버튼 툴팁이 알림
         """
         if self._crop_active_frame() is None:
             return

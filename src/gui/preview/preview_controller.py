@@ -399,7 +399,6 @@ class PreviewController(QObject):
                 config=model.config,
                 pending_tiers=model.pending_output_tiers,
                 selected_count=len(selection.selectedRows()) if selection is not None else 0,
-                has_frame_analysis=model.has_frame_analysis(ev.video.filename),
             )
         )
 

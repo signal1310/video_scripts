@@ -586,10 +586,6 @@ class VideoTableModel(QAbstractTableModel):
         """파일명이 검은 여백 잘라내기 제외 대상인지 여부"""
         return self._frame_view.is_crop_excluded(filename)
 
-    def has_frame_analysis(self, filename: str) -> bool:
-        """파일명의 화질 분석 결과가 있는지 여부(검은 띠가 없어도 활성 화면을 직접 지정할 수 있음)"""
-        return self._frame_view.result(filename) is not None
-
     def apply_frame_analysis_candidates(self, evals: list[VideoEvaluation]) -> None:
         """선택 영상에 화질 분석 축소 후보를 적용하도록 컨트롤러에 요청"""
         if self._frame_candidate_handler is not None:

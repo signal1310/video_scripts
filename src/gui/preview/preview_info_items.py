@@ -90,8 +90,6 @@ class PreviewVideoInfo:
     config: ClassifierConfig
     pending_tiers: Mapping[str, ResolutionTier | None]
     selected_count: int
-    # - 화질 분석 결과가 있으면 검은 띠가 없어도 여백 미리 보기에서 전체 프레임을 직접 편집할 수 있음
-    has_frame_analysis: bool = False
 
 
 @dataclass(frozen=True, slots=True)

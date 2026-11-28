@@ -345,7 +345,6 @@ class FrameStepTests(GuiTestCase):
             config=ClassifierConfig(),
             pending_tiers={},
             selected_count=0,
-            has_frame_analysis=False,
         )
         self.window.set_video_info(info)
         player = cast("object", self.window._player)

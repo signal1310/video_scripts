@@ -23,7 +23,7 @@ from src.gui.preview.crop_overlay import (
 )
 from src.gui.preview.preview_controller import PreviewPositionMemory
 from src.gui.preview.preview_info_items import PreviewVideoInfo
-from src.gui.preview.video_preview_controls import PlaybackControls
+from src.gui.preview.video_preview_controls import CROP_UNKNOWN_SIZE_TIP, PlaybackControls
 from src.gui.preview.video_preview_window import VideoPreviewWindow
 from src.gui.styles.icons import get_active_palette, get_icon
 from src.gui.styles.palettes import DARK_PALETTE
@@ -340,6 +340,21 @@ class CropButtonTests(GuiTestCase):
         self.assertEqual(button.accessibleName(), "여백 미리 보기")
         self.assertEqual(button.icon().pixmap(16, 16).toImage(), self._icon_image("crop"))
 
+    def test_unknown_size_keeps_the_button_disabled_with_the_reason(self) -> None:
+        """영상 크기를 모르면 버튼을 꺼 둔 채 켤 수 없는 이유만 툴팁으로 보여 주는지 검증
+
+        - 실행할 수 없는 단축키를 붙이지 않음
+        - 나중에 켤 수 있게 되면 꺼짐 상태의 단축키 툴팁으로 돌아옴
+        """
+        self.controls.set_crop_available(False, unknown_size=True)
+        button = self.controls.crop_button
+        self.assertFalse(button.isHidden())
+        self.assertFalse(button.isEnabled())
+        self.assertEqual(button.toolTip(), CROP_UNKNOWN_SIZE_TIP)
+        self.controls.set_crop_available(True)
+        self.assertTrue(button.isEnabled())
+        self.assertEqual(button.toolTip(), "인코딩할 때 잘라낼 화면 여백을 영상 위에 표시합니다.")
+
     def test_toggle_emits_the_new_state(self) -> None:
         states: list[bool] = []
         self.controls.crop_preview_toggled.connect(states.append)
@@ -370,11 +385,17 @@ def _window() -> VideoPreviewWindow:
 
 def _crop_info() -> PreviewVideoInfo:
     ev = make_eval(make_video(), active_frame=ActiveFrame(1920, 800, 0, 140))
-    return PreviewVideoInfo(ev, ClassifierConfig(), {}, 1, has_frame_analysis=True)
+    return PreviewVideoInfo(ev, ClassifierConfig(), {}, 1)
 
 
 def _plain_info() -> PreviewVideoInfo:
+    """화면 여백이 감지되지 않아 활성 화면이 비어 있는 행"""
     return PreviewVideoInfo(make_eval(), ClassifierConfig(), {}, 1)
+
+
+def _unknown_size_info() -> PreviewVideoInfo:
+    """영상 크기를 아직 모르는 행"""
+    return PreviewVideoInfo(make_eval(make_video(width=0, height=0)), ClassifierConfig(), {}, 1)
 
 
 def _crop_button(window: VideoPreviewWindow) -> QToolButton:
@@ -409,7 +430,27 @@ class CropPreviewWindowTests(GuiTestCase):
 
     def test_button_hidden_when_the_video_has_no_crop(self) -> None:
         self.window.set_video_info(_plain_info())
-        self.assertTrue(_crop_button(self.window).isHidden())
+        button = _crop_button(self.window)
+        self.assertFalse(button.isHidden())
+        self.assertTrue(button.isEnabled())
+
+    def test_button_disabled_with_a_reason_tooltip_when_the_frame_size_is_unknown(self) -> None:
+        """영상 크기를 모르면 버튼을 꺼 둔 채 켤 수 없는 이유를 툴팁으로 보여 주는지 검증"""
+        self.window.set_video_info(_unknown_size_info())
+        button = _crop_button(self.window)
+        self.assertFalse(button.isHidden())
+        self.assertFalse(button.isEnabled())
+        self.assertEqual(button.toolTip(), CROP_UNKNOWN_SIZE_TIP)
+
+    def test_hiding_the_button_clears_the_disabled_reason(self) -> None:
+        """대상이 아닌 상태로 돌아가면 이유 툴팁 없이 숨기고 단축키 툴팁을 되살리는지 검증"""
+        self.window.set_video_info(_unknown_size_info())
+        button = _crop_button(self.window)
+        self.window.set_video_info(None)
+        self.assertTrue(button.isHidden())
+        self.assertEqual(
+            button.toolTip(), "인코딩할 때 잘라낼 화면 여백을 영상 위에 표시합니다. [B]"
+        )
 
     def test_button_visible_and_checkable_for_a_crop_target(self) -> None:
         self.window.set_video_info(_crop_info())
@@ -429,17 +470,36 @@ class CropPreviewWindowTests(GuiTestCase):
         _APP.processEvents()
         self.assertFalse(overlay.isVisible())
 
-    def test_switching_to_a_non_target_hides_button_and_overlay(self) -> None:
+    def test_switching_to_a_video_outside_the_table_hides_button_and_overlay(self) -> None:
         self.window.set_video_info(_crop_info())
         button = _crop_button(self.window)
         overlay = _overlay(self.window)
         button.setChecked(True)
         _APP.processEvents()
         self.assertTrue(overlay.isVisible())
-        self.window.set_video_info(_plain_info())
+        self.window.set_video_info(None)
         _APP.processEvents()
         self.assertTrue(button.isHidden())
         self.assertFalse(overlay.isVisible())
+
+    def test_no_margin_row_keeps_the_button_and_switching_into_it_shows_the_full_frame(
+        self,
+    ) -> None:
+        """여백이 없는 행으로 넘어가면 버튼과 겹침이 유지되고 유지 영역이 전체 프레임이 되는지 검증"""
+        self.window.set_video_info(_crop_info())
+        button = _crop_button(self.window)
+        overlay = _overlay(self.window)
+        button.setChecked(True)
+        _APP.processEvents()
+        self.window.set_video_info(_plain_info())
+        _APP.processEvents()
+        self.assertFalse(button.isHidden())
+        self.assertTrue(button.isChecked())
+        self.assertTrue(overlay.isVisible())
+        rects = self.window._crop_edit.rects()
+        assert rects is not None
+        self.assertEqual(rects.kept, rects.content)
+        self.assertEqual(rects.cuts, ())
 
     def test_state_survives_switching_between_crop_targets(self) -> None:
         self.window.set_video_info(_crop_info())
@@ -502,15 +562,49 @@ class CropPreviewWindowTests(GuiTestCase):
         self.assertEqual(button.accessibleName(), "여백 미리 보기")
         self.assertEqual(toast.text(), "여백 미리 보기 해제")
 
-    def test_b_key_is_ignored_for_a_video_without_crop(self) -> None:
-        """대상이 아닌 영상에서는 B 키가 상태와 알림을 바꾸지 않는지 검증"""
-        self.window.set_video_info(_plain_info())
+    def test_b_key_is_ignored_for_a_video_without_analysis(self) -> None:
+        """표에 없는 영상에서는 B 키가 상태와 알림을 바꾸지 않는지 검증"""
+        self.window.set_video_info(None)
         button = _crop_button(self.window)
         with mock.patch.object(self.window, "show_notice") as notice:
             _press(self.window, Qt.Key.Key_B)
             _APP.processEvents()
         notice.assert_not_called()
         self.assertFalse(button.isChecked())
+
+    def test_b_key_toggles_the_overlay_for_a_video_with_no_detected_margins(self) -> None:
+        """화면 여백이 감지되지 않은 행에서도 B 키가 전체 프레임 편집을 켜는지 검증"""
+        self.window.set_video_info(_plain_info())
+        button = _crop_button(self.window)
+        overlay = _overlay(self.window)
+        _press(self.window, Qt.Key.Key_B)
+        _APP.processEvents()
+        self.assertTrue(button.isChecked())
+        self.assertTrue(overlay.isVisible())
+        self.assertEqual(self.window._crop_hud.size_label.text(), "1920 x 1080")
+        for name in ("PreviewCropResetButton", "PreviewCropFullButton"):
+            hud_button = self.window.findChild(QToolButton, name)
+            assert hud_button is not None
+            self.assertTrue(hud_button.isVisible())
+        rects = self.window._crop_edit.rects()
+        assert rects is not None
+        self.assertEqual(rects.kept, rects.content)
+        self.assertEqual(rects.cuts, ())
+        _press(self.window, Qt.Key.Key_B)
+        _APP.processEvents()
+        self.assertFalse(button.isChecked())
+        self.assertFalse(overlay.isVisible())
+
+    def test_b_key_is_ignored_while_the_frame_size_is_unknown(self) -> None:
+        """영상 크기를 모르면 B 키가 겹침을 켜지 않고 상태를 그대로 두는지 검증"""
+        self.window.set_video_info(_unknown_size_info())
+        button = _crop_button(self.window)
+        with mock.patch.object(self.window, "show_notice") as notice:
+            _press(self.window, Qt.Key.Key_B)
+            _APP.processEvents()
+        notice.assert_not_called()
+        self.assertFalse(button.isChecked())
+        self.assertFalse(_overlay(self.window).isVisible())
 
     def test_b_key_is_ignored_in_compare_mode(self) -> None:
         """비교 모드에서는 대상 영상이어도 B 키가 겹침과 알림을 바꾸지 않는지 검증"""

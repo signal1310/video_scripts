@@ -51,6 +51,7 @@ _CROP_TEXT: str = "여백 미리 보기"
 _CROP_EXIT_TEXT: str = "여백 미리 보기 해제"
 _CROP_TIP: str = "인코딩할 때 잘라낼 화면 여백을 영상 위에 표시합니다."
 _CROP_EXIT_TIP: str = "여백 표시를 끕니다."
+CROP_UNKNOWN_SIZE_TIP: str = "영상 크기를 아직 알 수 없어 여백을 표시할 수 없습니다."
 _CROP_ICON: str = "crop"
 _CROP_OFF_ICON: str = "crop-off"
 _FRAME_BACK_TIP: str = "한 프레임 뒤로 이동합니다."
@@ -148,6 +149,8 @@ class PlaybackControls(QWidget):
         self._playback_rate: float = VALID_PREVIEW_PLAYBACK_RATES[0]
         self._fullscreen: bool = False
         self._always_on_top: bool = True
+        # - 편집 대상이 아니어도 버튼을 남겨야 하면 그 이유 문구, 숨기면 빈 문자열
+        self._crop_disabled_tip: str = ""
 
         self._btn_toggle = self._icon_button("PreviewToggleButton", "", _PLAY_TEXT)
         self._btn_prev = self._icon_button("PreviewPrevButton", _FRAME_BACK_TIP, _FRAME_BACK_TEXT)
@@ -307,14 +310,18 @@ class PlaybackControls(QWidget):
         self._always_on_top = pinned
         self._refresh_pin()
 
-    def set_crop_available(self, available: bool) -> None:
-        """이 영상이 잘라내기 대상이고 일반 모드일 때만 여백 미리 보기 버튼을 보여 줌
+    def set_crop_available(self, available: bool, *, unknown_size: bool = False) -> None:
+        """이 영상이 잘라내기 대상이고 일반 모드일 때만 여백 미리 보기 버튼을 켤 수 있게 함
 
         - 숨길 때는 체크도 함께 풀어 버튼이 켜진 채 사라지지 않게 함
+        - 영상 크기를 몰라 켤 수 없으면 버튼을 꺼 둔 채 그 이유를 툴팁으로 보여 줌
         """
-        self._btn_crop.setVisible(available)
+        self._crop_disabled_tip = CROP_UNKNOWN_SIZE_TIP if unknown_size and not available else ""
+        self._btn_crop.setVisible(available or bool(self._crop_disabled_tip))
+        self._btn_crop.setEnabled(available)
         if not available:
             self._btn_crop.setChecked(False)
+        self._refresh_crop_button()
 
     def _on_crop_button_toggled(self, checked: bool) -> None:
         """켜고 끈 상태를 아이콘과 이름, 툴팁에 반영하고 창에 알림"""
@@ -510,14 +517,20 @@ class PlaybackControls(QWidget):
         self._btn_compare.setIcon(get_icon(_COMPARE_ICON, color=palette.media_fg, size=_ICON_SIZE))
 
     def _refresh_crop_button(self) -> None:
-        """여백 미리 보기 상태에 맞춰 아이콘, 접근성 이름, 툴팁을 바꿈"""
+        """여백 미리 보기 상태에 맞춰 아이콘, 접근성 이름, 툴팁을 바꿈
+
+        - 켤 수 없는 상태에서는 실행할 수 없는 단축키를 붙이지 않고 이유만 알림
+        """
         palette = get_active_palette()
         checked = self._btn_crop.isChecked()
         icon_name = _CROP_OFF_ICON if checked else _CROP_ICON
         base = _CROP_EXIT_TEXT if checked else _CROP_TEXT
-        tip = _CROP_EXIT_TIP if checked else _CROP_TIP
         self._btn_crop.setIcon(get_icon(icon_name, color=palette.media_fg, size=_ICON_SIZE))
         self._btn_crop.setAccessibleName(base)
+        if self._crop_disabled_tip:
+            self._btn_crop.setToolTip(self._crop_disabled_tip)
+            return
+        tip = _CROP_EXIT_TIP if checked else _CROP_TIP
         self._btn_crop.setToolTip(
             format_tooltip_with_shortcut(tip, self._shortcut("preview.toggle_crop"))
         )

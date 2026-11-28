@@ -56,7 +56,7 @@ def _window(
 
 def _info(active_frame: ActiveFrame | None = _DEFAULT_FRAME) -> PreviewVideoInfo:
     ev = make_eval(make_video(), active_frame=active_frame)
-    return PreviewVideoInfo(ev, ClassifierConfig(), {}, 1, has_frame_analysis=True)
+    return PreviewVideoInfo(ev, ClassifierConfig(), {}, 1)
 
 
 def _overlay_info() -> PreviewVideoInfo:
@@ -130,6 +130,29 @@ class CropEditWindowTests(GuiTestCase):
         self.assertEqual(len(self.manual), 1)
         saved = self.manual[0][1]
         assert saved is not None
+        self.assertLess(saved.width, 1920)
+
+    def test_b_key_then_drag_saves_a_manual_frame_on_a_video_without_margins(self) -> None:
+        """여백이 감지되지 않은 영상에서도 B 키로 편집을 켜고 끌면 지정 값이 저장되는지 검증"""
+        self.window._controls.crop_button.setChecked(False)
+        _APP.processEvents()
+        self.window.set_video_info(_overlay_info())
+        _APP.processEvents()
+        QApplication.sendEvent(
+            self.window,
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_B, Qt.KeyboardModifier.NoModifier, ""),
+        )
+        _APP.processEvents()
+        self.assertTrue(self.window._controls.crop_button.isChecked())
+        rects = self.window._crop_edit.rects()
+        assert rects is not None
+        self.assertEqual(rects.kept, rects.content)
+        edge = QPoint(rects.content.left() + rects.content.width(), rects.content.center().y())
+        _drag(self.window._video, edge, QPoint(edge.x() - 100, edge.y()))
+        self.assertEqual(len(self.manual), 1)
+        saved = self.manual[0][1]
+        assert saved is not None
+        self.assertEqual(saved.y, 0)
         self.assertLess(saved.width, 1920)
 
     def test_escape_cancels_a_drag_without_saving(self) -> None:

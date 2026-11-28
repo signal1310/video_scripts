@@ -16,7 +16,14 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 from unittest import mock
 
-from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_REPLACE, RESULT_POLICY_SEPARATE, ClassifierConfig
+from src.core.config import (
+    NAME_CONFLICT_OVERWRITE,
+    NAME_CONFLICT_SETTINGS_SUBDIR,
+    RESULT_POLICY_ARCHIVE,
+    RESULT_POLICY_REPLACE,
+    RESULT_POLICY_SEPARATE,
+    ClassifierConfig,
+)
 from src.core.encode.encode_gate import (
     DONE_SURGE_BADGE,
     GatePurpose,
@@ -411,6 +418,112 @@ class TestPlacementPolicies(_ServiceCase):
         item = self._run_one(path, self._settings(result_policy=RESULT_POLICY_ARCHIVE))
         self.assertIs(item.state, EncodeState.FAILED)
         self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+
+    def test_overwrite_replaces_existing_result_after_the_gate_passes(self) -> None:
+        """별도 폴더 + 덮어쓰기는 사후 게이트를 통과한 결과로 기존 결과 파일을 교체함"""
+        path = self._source()
+        os.makedirs(os.path.join(self.root, "_인코딩결과"))
+        existing = os.path.join(self.root, "_인코딩결과", "clip.mp4")
+        with open(existing, "wb") as handle:
+            handle.write(b"x")
+        item = self._run_one(
+            path, self._settings(result_policy=RESULT_POLICY_SEPARATE, name_conflict=NAME_CONFLICT_OVERWRITE)
+        )
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertGreaterEqual(os.path.getsize(existing), OUTPUT_BYTES)
+        self.assertLess(os.path.getsize(existing), SOURCE_BYTES)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+        self.assertFalse(os.path.exists(existing + ".part"))
+        self.assertEqual(item.output_path, existing)
+
+    def test_overwrite_keeps_existing_result_when_the_gate_discards(self) -> None:
+        """사후 게이트가 결과를 폐기하면 기존 결과 파일과 원본을 그대로 둠"""
+        path = self._source()
+        os.makedirs(os.path.join(self.root, "_인코딩결과"))
+        existing = os.path.join(self.root, "_인코딩결과", "clip.mp4")
+        with open(existing, "wb") as handle:
+            handle.write(b"old")
+        item = self._run_one(
+            path,
+            self._settings(result_policy=RESULT_POLICY_SEPARATE, name_conflict=NAME_CONFLICT_OVERWRITE),
+            encoder=_FakeEncoder(output_bytes=SOURCE_BYTES * 2),
+        )
+        self.assertIs(item.state, EncodeState.DISCARDED)
+        self.assertEqual(os.path.getsize(existing), 3)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+        self.assertFalse(os.path.exists(existing + ".part"))
+
+    def test_settings_subdir_places_result_under_its_own_folder(self) -> None:
+        """설정별 하위 폴더 정책은 출력 폴더 아래 설정 하위 폴더에 결과를 둠"""
+        path = self._source()
+        item = self._run_one(
+            path,
+            self._settings(result_policy=RESULT_POLICY_SEPARATE, name_conflict=NAME_CONFLICT_SETTINGS_SUBDIR),
+        )
+        expected = os.path.join(self.root, "_인코딩결과", "h264_crf22", "clip.mp4")
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(item.output_path, expected)
+        self.assertGreaterEqual(os.path.getsize(expected), OUTPUT_BYTES)
+        self.assertLess(os.path.getsize(expected), SOURCE_BYTES)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+
+    def test_settings_subdir_numbers_within_the_same_subfolder(self) -> None:
+        """같은 설정 하위 폴더에 같은 이름이 있으면 덮어쓰지 않고 번호를 붙임"""
+        path = self._source()
+        os.makedirs(os.path.join(self.root, "_인코딩결과", "h264_crf22"))
+        existing = os.path.join(self.root, "_인코딩결과", "h264_crf22", "clip.mp4")
+        with open(existing, "wb") as handle:
+            handle.write(b"old")
+        item = self._run_one(
+            path,
+            self._settings(result_policy=RESULT_POLICY_SEPARATE, name_conflict=NAME_CONFLICT_SETTINGS_SUBDIR),
+        )
+        numbered = os.path.join(self.root, "_인코딩결과", "h264_crf22", "clip (1).mp4")
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertEqual(item.output_path, numbered)
+        self.assertEqual(os.path.getsize(existing), 3)
+
+    def test_archive_policy_with_overwrite_value_still_fails_on_archive_conflict(self) -> None:
+        """원본 보관 후 교체에서 덮어쓰기 값을 골라도 원본 보관 폴더는 덮어쓰지 않음"""
+        path = self._source()
+        os.makedirs(os.path.join(self.root, "_원본보관"))
+        archived = os.path.join(self.root, "_원본보관", "clip.mp4")
+        with open(archived, "wb") as handle:
+            handle.write(b"old")
+        item = self._run_one(
+            path,
+            self._settings(result_policy=RESULT_POLICY_ARCHIVE, name_conflict=NAME_CONFLICT_OVERWRITE),
+        )
+        self.assertIs(item.state, EncodeState.FAILED)
+        self.assertEqual(os.path.getsize(archived), 3)
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+
+    def test_overwrite_keeps_same_batch_results_at_distinct_paths(self) -> None:
+        """같은 배치의 두 원본이 한 결과 이름으로 가면 덮어쓰기 대신 번호를 붙여 둘 다 남김"""
+        first = self._source("a.avi")
+        second = self._source("a.mkv")
+        settings = self._settings(
+            result_policy=RESULT_POLICY_SEPARATE, name_conflict=NAME_CONFLICT_OVERWRITE, container_policy="mp4"
+        )
+        batch_id = create_batch(self.history, settings, self.root, [self._job(first), self._job(second)])
+        self._runner(settings).run(batch_id)
+        rows = {row.source_path: row for row in self.history.list_items(batch_id)}
+        outputs = {rows[first].output_path, rows[second].output_path}
+        self.assertEqual(
+            outputs,
+            {
+                os.path.join(self.root, "_인코딩결과", "a.mp4"),
+                os.path.join(self.root, "_인코딩결과", "a (1).mp4"),
+            },
+        )
+        for row in rows.values():
+            self.assertIs(row.state, EncodeState.DONE)
+            self.assertIsNotNone(row.output_path)
+            assert row.output_path is not None
+            self.assertGreaterEqual(os.path.getsize(row.output_path), OUTPUT_BYTES)
+            self.assertLess(os.path.getsize(row.output_path), SOURCE_BYTES)
+        self.assertEqual(os.path.getsize(first), SOURCE_BYTES)
+        self.assertEqual(os.path.getsize(second), SOURCE_BYTES)
 
 
 class TestPostGate(_ServiceCase):

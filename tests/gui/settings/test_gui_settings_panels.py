@@ -9,7 +9,18 @@ from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication, QComboBox, QDoubleSpinBox, QMessageBox, QWidget
 
-from src.core.config import DEFAULT_SAVINGS, DEFAULT_THRESHOLDS, ClassifierConfig, SavingsConfig, ThresholdsConfig
+from src.core.config import (
+    DEFAULT_SAVINGS,
+    DEFAULT_THRESHOLDS,
+    NAME_CONFLICT_NUMBER,
+    NAME_CONFLICT_OVERWRITE,
+    NAME_CONFLICT_SETTINGS_SUBDIR,
+    NAME_CONFLICT_SKIP,
+    RESULT_POLICY_SEPARATE,
+    ClassifierConfig,
+    SavingsConfig,
+    ThresholdsConfig,
+)
 from src.core.paths import ROOTDIR_FILENAME
 from src.core.settings.app_state import CONFIG_FILENAME, DATA_DIR_NAME, load_app_state
 from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_GROUPS, SHORTCUT_SPEC_BY_ID
@@ -445,6 +456,111 @@ class TestGUISettingsPanels(GuiSettingsTestCase):
                 dlg.criteria_panel.spin_min_saved.setValue(12.0)
                 self.assertEqual(dlg.execution_panel.combo_encode_codec.currentData(), "libx265")
                 self.assertAlmostEqual(dlg.execution_panel.spin_encode_speed.value(), 1.9)
+
+
+    def test_settings_dialog_execution_name_conflict_choices_and_warning(self) -> None:
+        """같은 이름이 있을 때 4종 선택지 왕복 저장/복원과 덮어쓰기 경고 영역 표시, 숨김을 검증"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            with (
+                patch("src.core.settings.app_state.get_state_path", return_value=state_path),
+                patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
+            ):
+                dlg = SettingsDialog(current_root_dir=tmpdir)
+                dlg.show()
+                self.addCleanup(dlg.close)
+                _APP.processEvents()
+                panel = dlg.execution_panel
+                combo = panel.combo_name_conflict
+                self.assertEqual(
+                    [combo.itemData(i) for i in range(combo.count())],
+                    [
+                        NAME_CONFLICT_SKIP,
+                        NAME_CONFLICT_NUMBER,
+                        NAME_CONFLICT_OVERWRITE,
+                        NAME_CONFLICT_SETTINGS_SUBDIR,
+                    ],
+                )
+                self.assertEqual(
+                    combo.itemText(combo.findData(NAME_CONFLICT_OVERWRITE)),
+                    "덮어쓰기 (별도 폴더만)",
+                )
+                self.assertEqual(
+                    combo.itemText(combo.findData(NAME_CONFLICT_SETTINGS_SUBDIR)),
+                    "설정별 하위 폴더에 저장 (별도 폴더만)",
+                )
+                # - 기본값에서는 경고 영역이 숨겨져 있음
+                self.assertTrue(panel.warning_name_conflict.isHidden())
+
+                # - 결과 처리 방식이 원본 보관이면 덮어쓰기를 골라도 실제로는 번호 규칙이라 경고를 띄우지 않음
+                combo.setCurrentIndex(combo.findData(NAME_CONFLICT_OVERWRITE))
+                _APP.processEvents()
+                self.assertTrue(panel.warning_name_conflict.isHidden())
+
+                panel.combo_result_policy.setCurrentIndex(
+                    panel.combo_result_policy.findData(RESULT_POLICY_SEPARATE)
+                )
+                _APP.processEvents()
+                self.assertFalse(panel.warning_name_conflict.isHidden())
+                self.assertIn("덮어쓰지 않습니다", panel.lbl_name_conflict_warning.text())
+                self.assertEqual(
+                    panel.lbl_name_conflict_warning.objectName(), "WarningHintLabel"
+                )
+                self.assertFalse(panel.lbl_name_conflict_warning_icon.pixmap().isNull())
+
+                combo.setCurrentIndex(combo.findData(NAME_CONFLICT_SETTINGS_SUBDIR))
+                _APP.processEvents()
+                self.assertTrue(panel.warning_name_conflict.isHidden())
+
+                for policy in (NAME_CONFLICT_OVERWRITE, NAME_CONFLICT_SETTINGS_SUBDIR):
+                    with self.subTest(policy=policy):
+                        combo.setCurrentIndex(combo.findData(policy))
+                        _APP.processEvents()
+                        self.assertEqual(load_app_state().execution.name_conflict, policy)
+                        reopened = SettingsDialog(current_root_dir=tmpdir)
+                        reopened.show()
+                        _APP.processEvents()
+                        try:
+                            restored = reopened.execution_panel.combo_name_conflict
+                            self.assertEqual(restored.currentData(), policy)
+                        finally:
+                            reopened.close()
+
+
+    def test_settings_dialog_search_hides_the_overwrite_warning_with_its_row(self) -> None:
+        """설정 검색이 같은 이름 행을 숨기면 덮어쓰기 경고 상자도 함께 숨겨 문구만 남지 않음"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = os.path.join(tmpdir, DATA_DIR_NAME, CONFIG_FILENAME)
+            rootdir_path = os.path.join(tmpdir, DATA_DIR_NAME, ROOTDIR_FILENAME)
+            with (
+                patch("src.core.settings.app_state.get_state_path", return_value=state_path),
+                patch("src.core.paths.get_rootdir_path", return_value=rootdir_path),
+            ):
+                isolate_app_state(self, tmpdir)
+                dlg = SettingsDialog(current_root_dir=tmpdir)
+                dlg.show()
+                self.addCleanup(dlg.close)
+                _APP.processEvents()
+                panel = dlg.execution_panel
+                panel.combo_result_policy.setCurrentIndex(
+                    panel.combo_result_policy.findData(RESULT_POLICY_SEPARATE)
+                )
+                panel.combo_name_conflict.setCurrentIndex(
+                    panel.combo_name_conflict.findData(NAME_CONFLICT_OVERWRITE)
+                )
+                _APP.processEvents()
+                self.assertFalse(panel.warning_name_conflict.isHidden())
+
+                dlg.search_edit.setText("인코딩 태그 이름")
+                _APP.processEvents()
+                self.assertTrue(panel.rows["execution.name_conflict"].isHidden())
+                self.assertTrue(panel.warning_name_conflict.isHidden())
+
+                dlg.search_edit.setText("")
+                _APP.processEvents()
+                self.assertFalse(panel.rows["execution.name_conflict"].isHidden())
+                self.assertFalse(panel.warning_name_conflict.isHidden())
 
 
 class TestShortcutsPanelTab(GuiSettingsTestCase):

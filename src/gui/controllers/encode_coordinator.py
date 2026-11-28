@@ -15,7 +15,7 @@ from typing import Protocol
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QWidget
 
-from src.core.config import RESULT_POLICY_REPLACE
+from src.core.config import NAME_CONFLICT_OVERWRITE, RESULT_POLICY_REPLACE, RESULT_POLICY_SEPARATE
 from src.core.diagnostics.events import (
     ACTION_FINISH,
     ACTION_START,
@@ -320,6 +320,12 @@ class EncodeCoordinator:
             window.set_start_available(False)
             return
         if settings.result_policy == RESULT_POLICY_REPLACE and not window.confirm_replace(len(targets)):
+            return
+        if (
+            settings.result_policy == RESULT_POLICY_SEPARATE
+            and settings.name_conflict == NAME_CONFLICT_OVERWRITE
+            and not window.confirm_separate_overwrite(len(targets))
+        ):
             return
         plan = self._build_plan(report, targets=targets)
         if plan is not None:

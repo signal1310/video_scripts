@@ -7,6 +7,8 @@ from unittest import mock
 
 from src.core.config import (
     NAME_CONFLICT_NUMBER,
+    NAME_CONFLICT_OVERWRITE,
+    NAME_CONFLICT_SETTINGS_SUBDIR,
     NAME_CONFLICT_SKIP,
     RESULT_POLICY_SEPARATE,
     ClassifierConfig,
@@ -178,6 +180,49 @@ class NameConflictPreviewTests(unittest.TestCase):
         assert planned is not None
         self.assertEqual(planned.skip_reason, "")
         self.assertIn("clip (1).mp4", planned.command_line)
+
+    def test_overwrite_policy_keeps_the_target_path_instead_of_skipping(self) -> None:
+        """별도 폴더 + 덮어쓰기는 같은 이름이 있어도 건너뜀으로 오판하지 않고 대상 경로를 유지함"""
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = os.path.join(root, "encoded")
+            os.makedirs(output_dir)
+            open(os.path.join(root, "clip.mp4"), "wb").close()
+            open(os.path.join(output_dir, "clip.mp4"), "wb").close()
+            ev = make_eval(
+                make_video(filename="clip.mp4", stream_summary=_LAYOUT_SUMMARY),
+                smart_action=SmartAction.ENCODE_OVER,
+            )
+            config = _config(
+                result_policy=RESULT_POLICY_SEPARATE,
+                output_dirname="encoded",
+                name_conflict=NAME_CONFLICT_OVERWRITE,
+            )
+            planned = planned_command_for_evaluation(ev, config, root_dir=root)
+        self.assertIsNotNone(planned)
+        assert planned is not None
+        self.assertEqual(planned.skip_reason, "")
+        self.assertIn(os.path.join("encoded", "clip.mp4"), planned.command_line)
+        self.assertNotIn("clip (1).mp4", planned.command_line)
+
+    def test_settings_subdir_policy_previews_the_setting_folder(self) -> None:
+        """설정별 하위 폴더 정책은 예정 명령도 그 하위 폴더 경로로 만듦"""
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "encoded", "hevc_cq22"))
+            open(os.path.join(root, "clip.mp4"), "wb").close()
+            ev = make_eval(
+                make_video(filename="clip.mp4", stream_summary=_LAYOUT_SUMMARY),
+                smart_action=SmartAction.ENCODE_OVER,
+            )
+            config = _config(
+                result_policy=RESULT_POLICY_SEPARATE,
+                output_dirname="encoded",
+                name_conflict=NAME_CONFLICT_SETTINGS_SUBDIR,
+            )
+            planned = planned_command_for_evaluation(ev, config, root_dir=root)
+        self.assertIsNotNone(planned)
+        assert planned is not None
+        self.assertEqual(planned.skip_reason, "")
+        self.assertIn(os.path.join("encoded", "hevc_cq22", "clip.mp4"), planned.command_line)
 
 
 if __name__ == "__main__":

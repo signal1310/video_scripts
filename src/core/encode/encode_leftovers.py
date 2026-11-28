@@ -96,6 +96,7 @@ def source_candidates(part_path: str, output_dirname: str, video_exts: Collectio
 
     - 같은 폴더에서 바꾸는 경우: 같은 폴더의 같은 이름
     - 별도 출력 폴더인 경우: 출력 폴더 이름을 떼어 낸 원본 폴더의 같은 이름
+    - 설정별 하위 폴더를 쓴 결과는 출력 폴더 아래 폴더가 하나 더 있으므로 그 한 단계도 떼어 냄
     """
     directory, name = os.path.split(part_path)
     stem = os.path.splitext(name[: -len(PART_SUFFIX)])[0] if name.lower().endswith(PART_SUFFIX) else name
@@ -105,4 +106,7 @@ def source_candidates(part_path: str, output_dirname: str, video_exts: Collectio
         # - 드라이브 문자가 든 경로도 같은 구분자로 이어야 상대 경로로 바뀌지 않음
         index = len(parts) - 1 - parts[::-1].index(output_dirname)
         directories.append(os.sep.join(parts[:index] + parts[index + 1 :]))
+        if index + 1 < len(parts):
+            # - 출력 폴더 바로 아래의 설정 하위 폴더 한 단계까지 떼어 원본 폴더로 되돌림
+            directories.append(os.sep.join(parts[:index] + parts[index + 2 :]))
     return [os.path.join(folder, stem + ext) for folder in directories for ext in sorted(video_exts)]

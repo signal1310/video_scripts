@@ -9,14 +9,9 @@
 import os
 from dataclasses import dataclass
 
-from src.core.config import RESULT_POLICY_SEPARATE, ClassifierConfig
+from src.core.config import ClassifierConfig
 from src.core.encode.encode_impact import parse_stream_summary_layout
-from src.core.encode.encode_paths import (
-    choose_free_path,
-    in_place_output_path,
-    part_path_of,
-    separate_output_path,
-)
+from src.core.encode.encode_paths import part_path_of, resolve_output_path
 from src.core.encode.encode_plan import EncodePlan, build_encode_plan, choose_container
 from src.core.encode.ffmpeg_command import (
     build_ffmpeg_args,
@@ -69,20 +64,24 @@ def _plan_for_job(
     """배치가 쓸 결과 경로와 계획을 같은 정책으로 계산. 같은 이름 충돌은 실제 존재 여부로 판단
 
     - 같은 이름 건너뜀처럼 쓸 수 있는 결과 경로가 없으면 None(배치도 그 항목을 건너뜀)
+    - 별도 폴더에 저장 + 덮어쓰기는 기존 결과 파일이 있어도 대상 경로를 유지(배치가 교체함)
     """
     container = choose_container(
         job.source_ext, layout, settings.container_policy, get_encode_codec_family(settings.encoder)
     )
-    if settings.result_policy == RESULT_POLICY_SEPARATE:
-        candidate = separate_output_path(job.source_path, job.root_dir, settings.output_dirname, container)
-    else:
-        candidate = in_place_output_path(job.source_path, container)
-    final = candidate
-    if final != job.source_path:
-        chosen = choose_free_path(candidate, settings.name_conflict, os.path.exists)
-        if chosen is None:
-            return None
-        final = chosen
+    final = resolve_output_path(
+        source_path=job.source_path,
+        root_dir=job.root_dir,
+        output_dirname=settings.output_dirname,
+        container=container,
+        name_conflict=settings.name_conflict,
+        result_policy=settings.result_policy,
+        encoder=settings.encoder,
+        quality=job.quality,
+        exists=os.path.exists,
+    )
+    if final is None:
+        return None
     keywords = (settings.encode_tag_name,) if settings.encode_tag_mode == ENCODE_TAG_MODE_VISIBLE else ()
     return build_encode_plan(
         source_path=job.source_path,

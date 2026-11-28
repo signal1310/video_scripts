@@ -28,10 +28,9 @@ from src.core.config import (
 from src.core.encode.encode_gate import GatePurpose, GateVerdict, OutputSummary, judge_result, summarize_probe
 from src.core.encode.encode_paths import (
     archive_path_of,
-    choose_free_path,
-    in_place_output_path,
     part_path_of,
-    separate_output_path,
+    path_key,
+    resolve_output_path,
 )
 from src.core.encode.encode_plan import ACTION_DROP, DecodeMode, EncodePlan, choose_container
 from src.core.encode.encode_process import ProcessOutcome
@@ -121,6 +120,9 @@ class EncodeRunner:
         self._cpu_count: int = cpu_count if cpu_count is not None else (os.cpu_count() or 1)
         self._clock: Callable[[], float] = clock
         self._lock: threading.Lock = threading.Lock()
+        # - 덮어쓰기 정책에서 이번 배치가 이미 고른 결과 경로. 같은 경로를 고른 다른 항목은 번호로 물러남
+        self._written_lock: threading.Lock = threading.Lock()
+        self._batch_written: set[str] = set()
         self._abort: threading.Event = threading.Event()
         self._stop_requested: bool = False
         self._control: PauseControl = PauseControl(abort=self._abort, clock=clock, notify=self._notify_long_pause)
@@ -403,16 +405,9 @@ class EncodeRunner:
         container = choose_container(
             job.source_ext, layout, settings.container_policy, get_encode_codec_family(settings.encoder)
         )
-        if settings.result_policy == RESULT_POLICY_SEPARATE:
-            candidate = separate_output_path(source, job.root_dir, settings.output_dirname, container)
-        else:
-            candidate = in_place_output_path(source, container)
-        final = candidate
-        if final != source:
-            chosen = choose_free_path(candidate, settings.name_conflict, os.path.exists)
-            if chosen is None:
-                return ItemOutcome(EncodeState.SKIPPED, reasons.NAME_EXISTS)
-            final = chosen
+        final = self._choose_output_path(job, container)
+        if final is None:
+            return ItemOutcome(EncodeState.SKIPPED, reasons.NAME_EXISTS)
         archive: str | None = None
         if settings.result_policy == RESULT_POLICY_ARCHIVE:
             archive = archive_path_of(source, settings.archive_dirname)
@@ -431,6 +426,30 @@ class EncodeRunner:
         )
         self._update(batch_id, source, {"part_path": part, "output_path": final, "archive_path": archive})
         return plan, source_rating
+
+    def _choose_output_path(self, job: EncodeJob, container: str) -> str | None:
+        """같은 이름 처리 정책으로 결과 경로를 고르고 이번 배치가 고른 경로로 표시
+
+        - 경로를 고르는 동안 잠금을 잡아 두 항목이 같은 결과 경로를 동시에 고르지 않게 함
+        - 덮어쓰기 정책은 이번 배치가 이미 고른 경로에 덮어쓰지 않고 번호 규칙으로 물러남
+        """
+        settings = self._settings
+        with self._written_lock:
+            final = resolve_output_path(
+                source_path=job.source_path,
+                root_dir=job.root_dir,
+                output_dirname=settings.output_dirname,
+                container=container,
+                name_conflict=settings.name_conflict,
+                result_policy=settings.result_policy,
+                encoder=settings.encoder,
+                quality=job.quality,
+                exists=os.path.exists,
+                reserved=self._batch_written,
+            )
+            if final is not None:
+                self._batch_written.add(path_key(final))
+            return final
 
     def _encode_with_fallback(
         self, batch_id: int, job: EncodeJob, plan: EncodePlan, *, sink_override: RetryWatch | None = None
@@ -584,7 +603,7 @@ class EncodeRunner:
         place_result(
             source=job.source_path, part=part, final=final,
             archive_dirname=self._settings.archive_dirname, policy=self._settings.result_policy,
-            mtime_ns=job.source_mtime_ns)
+            mtime_ns=job.source_mtime_ns, name_conflict=self._settings.name_conflict)
 
     def retry_replace_pending(
         self, batch_id: int, only_source: str | None = None, *, automatic: bool = False

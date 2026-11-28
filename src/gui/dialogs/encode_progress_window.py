@@ -101,6 +101,11 @@ ALL_STOP_CONFIRM_TEXT: str = "인코딩을 중지할까요? 진행 중인 영상
 REPLACE_CONFIRM_TEMPLATE: str = (
     "원본 {count}개를 결과 파일로 바꿉니다. 원본은 보관되지 않으며 되돌릴 수 없습니다. 그래도 시작하시겠습니까?"
 )
+OVERWRITE_CONFIRM_TEMPLATE: str = (
+    "별도 출력 폴더에 같은 이름의 기존 결과 파일이 있으면 인코딩을 마치고 검사를 통과한 뒤 그 파일을 "
+    "교체합니다. 교체된 결과 파일은 되돌릴 수 없으며, 원본과 원본 보관 폴더는 바뀌지 않습니다. "
+    "대상 {count}개로 시작하시겠습니까?"
+)
 FINISHED_HEADER_TEMPLATE: str = "인코딩을 마쳤습니다. 완료 {done}개"
 STOPPED_HEADER_TEMPLATE: str = "인코딩을 중지했습니다. 완료 {done}개"
 PROCESSING_HEADER_TEMPLATE: str = "전체 {processed}/{total} 처리"
@@ -549,6 +554,10 @@ class EncodeProgressWindow(QWidget, ThemeAwareMixin):
     def confirm_replace(self, count: int) -> bool:
         """원본 교체 재확인. 조정자가 시작 시점 설정과 포함 대상 수로 부름. 기본 선택은 취소"""
         return self._replace_confirm(self, REPLACE_CONFIRM_TEMPLATE.format(count=count))
+
+    def confirm_separate_overwrite(self, count: int) -> bool:
+        """별도 폴더 덮어쓰기 재확인. 기존 결과 파일 교체가 되돌릴 수 없음을 시작 때 다시 알림"""
+        return self._replace_confirm(self, OVERWRITE_CONFIRM_TEMPLATE.format(count=count))
 
     def _on_event(self, event: object) -> None:
         if not isinstance(event, EncodeEvent):

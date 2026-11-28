@@ -103,6 +103,25 @@ class TestSourceCandidates(unittest.TestCase):
         self.assertIn(os.path.join(os.sep, "data", "clip.mp4"), candidates)
         self.assertTrue(all(os.path.isabs(path) for path in candidates))
 
+    def test_settings_subdir_part_also_points_at_the_source_folder_below_the_subdir(self) -> None:
+        """중단된 설정별 하위 폴더 작업의 임시 파일도 출력 폴더 아래 한 단계를 뗀 원본을 후보로 가짐"""
+        part = os.path.join("root", "_인코딩결과", "h264_crf22", "sub", "clip.mp4.part")
+        candidates = source_candidates(part, "_인코딩결과", VIDEO_EXTS)
+        self.assertIn(os.path.join("root", "sub", "clip.mp4"), candidates)
+        self.assertIn(os.path.join("root", "sub", "clip.mkv"), candidates)
+
+    def test_settings_subdir_part_directly_under_the_subdir_points_at_the_root_file(self) -> None:
+        """설정별 하위 폴더 바로 아래 결과의 임시 파일은 작업 폴더의 같은 이름을 후보로 가짐"""
+        part = os.path.join("root", "_인코딩결과", "hevc_cq22", "clip.mp4.part")
+        candidates = source_candidates(part, "_인코딩결과", VIDEO_EXTS)
+        self.assertIn(os.path.join("root", "clip.mp4"), candidates)
+
+    def test_plain_separate_part_keeps_the_full_relative_path_as_a_candidate(self) -> None:
+        """설정 하위 폴더 여부를 모르므로 원본 폴더 구조 그대로의 후보도 함께 남김"""
+        part = os.path.join("root", "_인코딩결과", "a", "b", "clip.mp4.part")
+        candidates = source_candidates(part, "_인코딩결과", VIDEO_EXTS)
+        self.assertIn(os.path.join("root", "a", "b", "clip.mp4"), candidates)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -47,7 +47,7 @@ class TestExecutionConfig(unittest.TestCase):
         """잘못된 선택값은 기본값으로, 동시 실행 수는 화면 상한으로 제한됨을 검증"""
         cfg = ClassifierConfig.from_dict({"execution": {
             "result_policy": "unknown", "after_complete": "hibernate", "concurrent_jobs": 99,
-            "process_priority": "realtime", "name_conflict": "overwrite", "container_policy": "avi",
+            "process_priority": "realtime", "name_conflict": "rename", "container_policy": "avi",
         }})
         self.assertEqual(cfg.execution.result_policy, "archive_original")
         self.assertEqual(cfg.execution.after_complete, "none")
@@ -77,6 +77,16 @@ class TestExecutionConfig(unittest.TestCase):
         self.assertEqual(restored.execution.encode_tag_mode, "off")
         self.assertEqual(restored.execution.encode_tag_name, "my_tag")
         self.assertEqual(restored.to_classifier_config().execution.concurrent_jobs, 2)
+
+    def test_new_name_conflict_policies_survive_state_json(self) -> None:
+        """덮어쓰기, 설정별 하위 폴더 선택도 설정 파일 저장과 복원을 거쳐 그대로 유지됨을 검증"""
+        for policy in ("overwrite", "settings_subdir"):
+            with self.subTest(policy=policy):
+                state = AppState()
+                state.execution = ExecutionConfig(name_conflict=policy)
+                text = strip_jsonc_comments(render_state_jsonc(state))
+                restored = parse_state_mapping(json.loads(text))
+                self.assertEqual(restored.execution.name_conflict, policy)
 
 
 class TestConfiguredFfprobe(unittest.TestCase):

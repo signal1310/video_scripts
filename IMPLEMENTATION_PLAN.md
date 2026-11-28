@@ -426,7 +426,7 @@ stateDiagram-v2
 | 3 | `execution` | `prevent_sleep` | bool, true | 보류 |
 | 3 | `execution` | `after_complete` | `none`/`sleep`/`shutdown`/`exit`, 기본 `none` | 보류 |
 | 3 | `execution` | `process_priority` | 5단계, 기본 보통 | 보류 |
-| 3 | `execution` | `name_conflict` | `skip`/`number`, 기본 `skip` | 보류 |
+| 3 | `execution` | `name_conflict` | `skip`/`number`/`overwrite`/`settings_subdir`, 기본 `skip`(덮어쓰기와 설정별 하위 폴더는 별도 폴더에 저장 모드 전용) | 반영 |
 | 3 | `execution` | `decode_mode` 등 | 결정 14 실측 결과로 필요 시 추가 | 보류 |
 | 5 | `analysis.encode` | `max_resolution_basis` | `short_side`/`pixel_area`/`box`, 기본 `short_side` | 보류 |
 | 5 | `execution` | `crop_black_bars` | bool, true | 보류 |

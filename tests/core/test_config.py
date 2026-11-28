@@ -9,14 +9,21 @@ from src.core import paths as paths_mod
 from src.core.config import (
     CORE_SETTING_COUNT,
     DEFAULT_FRAME_ANALYSIS_MODE,
+    DEFAULT_NAME_CONFLICT_POLICY,
     DEFAULT_PATHS,
+    NAME_CONFLICT_NUMBER,
+    NAME_CONFLICT_OVERWRITE,
+    NAME_CONFLICT_SETTINGS_SUBDIR,
+    NAME_CONFLICT_SKIP,
     PRECISE_QUALITY_MODE_SELECTIVE,
     SAVINGS_BASIS_ENCODE,
     SAVINGS_BASIS_PLAYBACK,
+    VALID_NAME_CONFLICT_POLICIES,
     VALID_PRECISE_QUALITY_MODES,
     BitrateModelConfig,
     ClassifierConfig,
     EncodeConfig,
+    ExecutionConfig,
     ThresholdsConfig,
     collect_setting_bounds,
 )
@@ -449,6 +456,45 @@ class TestConfigModule(unittest.TestCase):
                     ).encode.scale_algorithm,
                     DEFAULT_SCALE_ALGORITHM,
                 )
+
+    def test_name_conflict_policies_roundtrip_and_validation(self) -> None:
+        """같은 이름 처리 4종의 기본값, 왕복 직렬화, 알 수 없는 값의 기본 복귀를 검증"""
+        self.assertEqual(DEFAULT_NAME_CONFLICT_POLICY, NAME_CONFLICT_SKIP)
+        self.assertEqual(
+            VALID_NAME_CONFLICT_POLICIES,
+            (
+                NAME_CONFLICT_SKIP,
+                NAME_CONFLICT_NUMBER,
+                NAME_CONFLICT_OVERWRITE,
+                NAME_CONFLICT_SETTINGS_SUBDIR,
+            ),
+        )
+        self.assertEqual(ClassifierConfig().execution.name_conflict, NAME_CONFLICT_SKIP)
+        for policy in VALID_NAME_CONFLICT_POLICIES:
+            with self.subTest(policy=policy):
+                parsed = ClassifierConfig.from_dict({"execution": {"name_conflict": policy}})
+                self.assertEqual(parsed.execution.name_conflict, policy)
+                self.assertEqual(
+                    parsed.to_dict()["execution"]["name_conflict"], policy
+                )
+                self.assertEqual(
+                    ClassifierConfig.from_dict(parsed.to_dict()).execution.name_conflict, policy
+                )
+        unknown = ClassifierConfig.from_dict({"execution": {"name_conflict": "rename"}})
+        self.assertEqual(unknown.execution.name_conflict, DEFAULT_NAME_CONFLICT_POLICY)
+        comment = next(
+            f.metadata["comment"]
+            for f in dataclasses.fields(ExecutionConfig)
+            if f.name == "name_conflict"
+        )
+        for expected in (
+            NAME_CONFLICT_SKIP,
+            NAME_CONFLICT_NUMBER,
+            NAME_CONFLICT_OVERWRITE,
+            NAME_CONFLICT_SETTINGS_SUBDIR,
+        ):
+            with self.subTest(comment=expected):
+                self.assertIn(expected, comment)
 
     def test_savings_selection_basis_roundtrip_and_invalid_fallback(self) -> None:
         """절약 선별 기준은 저장값을 보존하고, 알 수 없는 값은 재생 시간 기준(기본값)으로 되돌리는지 검증"""

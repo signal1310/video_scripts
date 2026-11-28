@@ -8,7 +8,7 @@
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 from src.core.analysis.system_probe import detect_recommended_encode_speed
 from src.core.config import (
     ENCODE_CODEC_CHOICES,
+    NAME_CONFLICT_OVERWRITE,
     PRECISE_QUALITY_MODE_CHOICES,
     RESULT_POLICY_ARCHIVE,
     RESULT_POLICY_SEPARATE,
@@ -42,6 +43,7 @@ from src.gui.settings.execution_texts import (
     CONTAINER_CHOICES,
     KEEP_ENCODE_DESIGNATION_CHOICES,
     NAME_CONFLICT_CHOICES,
+    NAME_CONFLICT_OVERWRITE_WARNING,
     PREVENT_SLEEP_CHOICES,
     PRIORITY_CHOICES,
     RESULT_POLICY_CHOICES,
@@ -106,6 +108,9 @@ _CARD_FFMPEG_TITLE: str = "FFmpeg / FFprobe 경로"
 _CARD_AUTO_TITLE: str = "자동 품질 조절 및 중단 기준"
 _CARD_DETAIL_TITLE: str = "실행 및 파일 세부"
 _TAG_NAME_KEY: str = "execution.encode_tag_name"
+_NAME_CONFLICT_KEY: str = "execution.name_conflict"
+_NAME_CONFLICT_WARNING_ICON: str = "alert-triangle"
+_NAME_CONFLICT_WARNING_SIZE: int = 16
 _KEEP_DESIGNATION_KEY: str = "execution.keep_encode_designation_separate"
 _CODEC_KEY: str = "analysis.encode.encode_codec"
 _SPEED_KEY: str = "analysis.encode.encode_speed_factor"
@@ -332,8 +337,12 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
         )
         self.combo_name_conflict = make_combo_row(
             self.rows, card_detail, ExecutionConfig, "name_conflict", "같은 이름이 있을 때",
-            TOOLTIP_NAME_CONFLICT, NAME_CONFLICT_CHOICES, row_key="execution.name_conflict",
+            TOOLTIP_NAME_CONFLICT, NAME_CONFLICT_CHOICES, row_key=_NAME_CONFLICT_KEY,
         )
+        self.warning_name_conflict, self.lbl_name_conflict_warning_icon, self.lbl_name_conflict_warning = (
+            self._build_name_conflict_warning(card_detail)
+        )
+        card_detail.add_row(self.warning_name_conflict)
         self.edit_tag_name = make_text_row(
             self.rows, card_detail, ExecutionConfig, "encode_tag_name", "인코딩 태그 이름",
             TOOLTIP_TAG_NAME, width=_TEXT_EDIT_WIDTH, row_key=_TAG_NAME_KEY,
@@ -350,9 +359,61 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
         self.rows[_CODEC_KEY].value_changed.connect(self._on_codec_row_changed)
         self.rows[_RESULT_POLICY_KEY].value_changed.connect(self._on_result_policy_changed)
         self.rows[_TAG_NAME_KEY].value_changed.connect(self._on_tag_name_edited)
+        self.rows[_NAME_CONFLICT_KEY].value_changed.connect(self._on_name_conflict_changed)
+        # - 설정 검색이 같은 이름 행을 숨길 때 덮어쓰기 경고도 함께 숨기도록 행의 표시 이벤트를 지켜봄
+        self.rows[_NAME_CONFLICT_KEY].installEventFilter(self)
         for key, row in self.rows.items():
-            if key not in (_CODEC_KEY, _RESULT_POLICY_KEY, _TAG_NAME_KEY):
+            if key not in (_CODEC_KEY, _RESULT_POLICY_KEY, _TAG_NAME_KEY, _NAME_CONFLICT_KEY):
                 row.value_changed.connect(self._on_row_changed)
+
+
+    def _build_name_conflict_warning(self, card: SettingsGroupCard) -> tuple[QFrame, QLabel, QLabel]:
+        """덮어쓰기 선택을 색이 아니라 아이콘과 문구로 알리는 경고 영역. 처음에는 숨김"""
+        box = QFrame(card)
+        box.setObjectName("EncodeWarningBox")
+        layout = QHBoxLayout(box)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(8)
+        icon = QLabel(box)
+        icon.setFixedSize(_NAME_CONFLICT_WARNING_SIZE, _NAME_CONFLICT_WARNING_SIZE)
+        text = QLabel(NAME_CONFLICT_OVERWRITE_WARNING, box)
+        text.setObjectName("WarningHintLabel")
+        text.setWordWrap(True)
+        layout.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addWidget(text, 1)
+        box.setVisible(False)
+        return box, icon, text
+
+    def _is_overwrite_selected(self) -> bool:
+        return str(self.combo_name_conflict.currentData()) == NAME_CONFLICT_OVERWRITE
+
+    def _refresh_name_conflict_warning(self) -> None:
+        """별도 폴더에 저장 + 덮어쓰기를 골랐고 그 행이 보일 때만 경고 영역을 보임
+
+        - 다른 결과 처리 방식에서는 실제로 번호 규칙으로 물러나므로 경고를 띄우지 않음
+        - 설정 검색이 이 행을 숨기면 경고도 함께 숨겨 문구만 남지 않게 함
+        """
+        policy = str(self.combo_result_policy.currentData())
+        visible = (
+            policy == RESULT_POLICY_SEPARATE
+            and self._is_overwrite_selected()
+            and not self.rows[_NAME_CONFLICT_KEY].isHidden()
+        )
+        self.warning_name_conflict.setVisible(visible)
+
+    def eventFilter(self, a0: QObject | None, a1: QEvent | None) -> bool:
+        """같은 이름 행의 표시 상태가 바뀌면 덮어쓰기 경고 표시를 같은 값으로 맞춤"""
+        if (
+            a0 is self.rows[_NAME_CONFLICT_KEY]
+            and a1 is not None
+            and a1.type() in (QEvent.Type.Show, QEvent.Type.Hide)
+        ):
+            self._refresh_name_conflict_warning()
+        return super().eventFilter(a0, a1)
+
+    def _on_name_conflict_changed(self) -> None:
+        self._refresh_name_conflict_warning()
+        self._on_row_changed()
 
 
     def _build_speed_row(self, card: SettingsGroupCard) -> tuple[ScrollSafeDoubleSpinBox, QPushButton]:
@@ -410,8 +471,21 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             size=RESET_ICON_SIZE,
             pad_right=0,
         )
+        self._set_name_conflict_warning_icon(palette)
         if self._capability is not None:
             self._set_status(self._capability, palette)
+
+    def _set_name_conflict_warning_icon(self, palette: ThemePalette | None = None) -> None:
+        """경고 아이콘을 현재 팔레트의 주의 색으로 그림(색 하드코딩 금지)"""
+        active = palette if palette is not None else get_active_palette()
+        icon = get_icon(
+            _NAME_CONFLICT_WARNING_ICON,
+            color=active.fg_maxrate_warn,
+            size=_NAME_CONFLICT_WARNING_SIZE,
+        )
+        self.lbl_name_conflict_warning_icon.setPixmap(
+            icon.pixmap(_NAME_CONFLICT_WARNING_SIZE, _NAME_CONFLICT_WARNING_SIZE)
+        )
 
     def set_baseline_cq(self, value: float) -> None:
         """인코딩 카드 하단에 현재 적용 화질 기준값을 표시"""
@@ -447,6 +521,7 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
             self.set_baseline_cq(encode.baseline_cq)
             self._on_concurrent_value_changed(cfg.concurrent_jobs)
             self._refresh_result_rows()
+            self._refresh_name_conflict_warning()
             self._refresh_container_desc()
             self._refresh_codec_status()
         finally:
@@ -584,6 +659,7 @@ class ExecutionTabPanel(QWidget, ThemeAwareMixin):
 
     def _on_result_policy_changed(self) -> None:
         self._refresh_result_rows()
+        self._refresh_name_conflict_warning()
         self.result_policy_changed.emit()
         self._on_row_changed()
 

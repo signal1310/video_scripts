@@ -425,7 +425,15 @@ VALID_PROCESS_PRIORITIES: tuple[str, ...] = (
 )
 NAME_CONFLICT_SKIP: str = "skip"
 NAME_CONFLICT_NUMBER: str = "number"
-VALID_NAME_CONFLICT_POLICIES: tuple[str, ...] = (NAME_CONFLICT_SKIP, NAME_CONFLICT_NUMBER)
+# - 별도 폴더에 저장 결과에만 쓰는 정책. 다른 결과 처리 방식에서는 같은 이름 처리에 number 규칙을 씀
+NAME_CONFLICT_OVERWRITE: str = "overwrite"
+NAME_CONFLICT_SETTINGS_SUBDIR: str = "settings_subdir"
+VALID_NAME_CONFLICT_POLICIES: tuple[str, ...] = (
+    NAME_CONFLICT_SKIP,
+    NAME_CONFLICT_NUMBER,
+    NAME_CONFLICT_OVERWRITE,
+    NAME_CONFLICT_SETTINGS_SUBDIR,
+)
 DEFAULT_PROCESS_PRIORITY: str = "normal"
 DEFAULT_NAME_CONFLICT_POLICY: str = NAME_CONFLICT_SKIP
 # - 동시 인코딩 수 설정 입력 상한. 장치 사양과 무관한 화면 범위 값이며 자동 규칙은 encode_concurrency 참조
@@ -488,7 +496,11 @@ class ExecutionConfig:
     )
     name_conflict: str = field(
         default=DEFAULT_NAME_CONFLICT_POLICY,
-        metadata=setting_meta('같은 이름의 파일이 있을 때: "skip"(건너뜀) | "number"(번호 붙여 저장)'),
+        metadata=setting_meta(
+            '같은 이름의 파일이 있을 때: "skip"(건너뜀) | "number"(번호 붙여 저장) | '
+            '"overwrite"(별도 폴더 결과 덮어쓰기) | '
+            '"settings_subdir"(설정별 하위 폴더에 저장, 별도 폴더 전용)'
+        ),
     )
     encode_tag_mode: str = field(
         default=ENCODE_TAG_MODE_VISIBLE,

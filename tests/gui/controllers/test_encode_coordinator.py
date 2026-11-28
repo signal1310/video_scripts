@@ -17,7 +17,13 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QApplication, QListWidget, QWidget
 
-from src.core.config import RESULT_POLICY_REPLACE, ClassifierConfig
+from src.core.config import (
+    NAME_CONFLICT_OVERWRITE,
+    RESULT_POLICY_ARCHIVE,
+    RESULT_POLICY_REPLACE,
+    RESULT_POLICY_SEPARATE,
+    ClassifierConfig,
+)
 from src.core.encode.encode_batch_book import (
     CHIP_STATE_FINISHED,
     CHIP_STATE_PAUSED,
@@ -392,6 +398,45 @@ class EncodeCoordinatorTests(unittest.TestCase):
             window._start_new_batch()
         confirm.assert_called_once_with(1)
         start.assert_not_called()
+
+    def test_start_from_window_confirms_separate_overwrite(self) -> None:
+        """별도 폴더 + 덮어쓰기면 시작 시점에 기존 결과 교체를 다시 확인하고, 취소하면 시작하지 않음"""
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
+        self.config.execution.result_policy = RESULT_POLICY_SEPARATE
+        self.config.execution.name_conflict = NAME_CONFLICT_OVERWRITE
+        with (
+            mock.patch.object(EncodeController, "start", return_value=1) as start,
+            mock.patch.object(EncodeProgressWindow, "confirm_separate_overwrite", return_value=False) as confirm,
+        ):
+            window._start_new_batch()
+        confirm.assert_called_once_with(1)
+        start.assert_not_called()
+        with (
+            mock.patch.object(EncodeController, "start", return_value=1) as start,
+            mock.patch.object(EncodeProgressWindow, "confirm_separate_overwrite", return_value=True) as confirm,
+        ):
+            window._start_new_batch()
+        confirm.assert_called_once_with(1)
+        start.assert_called_once()
+
+    def test_start_from_window_skips_the_overwrite_confirm_for_other_policies(self) -> None:
+        """원본 교체나 다른 같은 이름 처리 정책에서는 덮어쓰기 확인을 띄우지 않음"""
+        self.coordinator.start_from_menu()
+        window = self.coordinator._progress_window
+        assert window is not None
+        for policy in (RESULT_POLICY_ARCHIVE, RESULT_POLICY_REPLACE):
+            with self.subTest(policy=policy):
+                self.config.execution.result_policy = policy
+                self.config.execution.name_conflict = NAME_CONFLICT_OVERWRITE
+                with (
+                    mock.patch.object(EncodeController, "start", return_value=1),
+                    mock.patch.object(EncodeProgressWindow, "confirm_replace", return_value=False),
+                    mock.patch.object(EncodeProgressWindow, "confirm_separate_overwrite") as confirm,
+                ):
+                    window._start_new_batch()
+                confirm.assert_not_called()
 
     def test_start_button_leaves_the_excluded_targets_out_of_the_plan(self) -> None:
         """시작 전 대기열에서 체크를 푼 영상은 배치 계획과 요약 브리핑에서 함께 빠짐"""

@@ -9,6 +9,8 @@ from src.core.config import (
     CONTAINER_POLICY_KEEP,
     CONTAINER_POLICY_MP4,
     NAME_CONFLICT_NUMBER,
+    NAME_CONFLICT_OVERWRITE,
+    NAME_CONFLICT_SETTINGS_SUBDIR,
     NAME_CONFLICT_SKIP,
     RESULT_POLICY_ARCHIVE,
     RESULT_POLICY_REPLACE,
@@ -74,7 +76,12 @@ TOOLTIP_PRIORITY: str = (
 )
 TOOLTIP_NAME_CONFLICT: str = (
     "결과 파일 이름이 이미 있을 때의 처리입니다. 건너뜀: 그 영상은 인코딩하지 않고 건너뜀으로 남깁니다. "
-    "번호 붙여 저장: 파일 이름 뒤에 번호를 붙여 저장하며, 기존 파일은 덮어쓰지 않습니다."
+    "번호 붙여 저장: 파일 이름 뒤에 번호를 붙여 저장하며, 기존 파일은 덮어쓰지 않습니다. "
+    "덮어쓰기: 별도 폴더에 저장 모드에서만 쓸 수 있으며, 인코딩을 마치고 검사를 통과한 뒤에만 기존 결과 "
+    "파일을 교체합니다. 검사에서 떨어지면 기존 결과 파일과 원본을 그대로 둡니다. "
+    "설정별 하위 폴더에 저장: 별도 폴더에 저장 모드에서 출력 폴더 아래에 코덱과 품질값으로 된 하위 폴더를 "
+    "하나 더 만들어 설정이 다른 결과와 섞이지 않게 합니다. 같은 하위 폴더 안에 같은 이름이 있으면 번호를 "
+    "붙여 저장합니다. 원본 보관 폴더와 원본 파일은 어떤 선택에서도 덮어쓰지 않습니다."
 )
 TOOLTIP_TAG_MODE: str = (
     "결과 파일에 인코딩 표시를 남기는 방식입니다. 태그와 숨은 기록: 탐색기 태그와 숨은 기록을 모두 남깁니다(기본). "
@@ -126,6 +133,13 @@ PRIORITY_CHOICES: tuple[tuple[str, str], ...] = (
 NAME_CONFLICT_CHOICES: tuple[tuple[str, str], ...] = (
     ("건너뜀", NAME_CONFLICT_SKIP),
     ("번호 붙여 저장 (기본)", NAME_CONFLICT_NUMBER),
+    ("덮어쓰기 (별도 폴더만)", NAME_CONFLICT_OVERWRITE),
+    ("설정별 하위 폴더에 저장 (별도 폴더만)", NAME_CONFLICT_SETTINGS_SUBDIR),
+)
+# - 덮어쓰기 선택 시 색만이 아니라 경고 아이콘과 문구로 알리는 안내
+NAME_CONFLICT_OVERWRITE_WARNING: str = (
+    "별도 폴더에 저장된 같은 이름의 기존 결과 파일을 인코딩 완료 후 교체합니다. "
+    "원본과 원본 보관 폴더는 덮어쓰지 않습니다."
 )
 TAG_MODE_CHOICES: tuple[tuple[str, str], ...] = (
     ("태그와 숨은 기록 (기본)", ENCODE_TAG_MODE_VISIBLE),

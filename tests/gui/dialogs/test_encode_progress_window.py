@@ -29,6 +29,7 @@ from src.gui.dialogs.encode_progress_layout import COLLAPSE_ICON_EXPANDED, COLLA
 from src.gui.dialogs.encode_progress_window import (
     ALL_STOP_CONFIRM_TEXT,
     ITEM_STOP_CONFIRM_TEXT,
+    OVERWRITE_CONFIRM_TEMPLATE,
     PAUSE_ALL_TIP,
     RESUME_ALL_TIP,
     START_NAME,
@@ -1091,6 +1092,26 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.answer = True
         self.assertTrue(window.confirm_replace(2))
         question = "원본 2개를 결과 파일로 바꿉니다. 원본은 보관되지 않으며 되돌릴 수 없습니다. 그래도 시작하시겠습니까?"
+        self.assertEqual(self.asked, [question, question])
+
+    def test_confirm_separate_overwrite_uses_the_given_count(self) -> None:
+        """별도 폴더 덮어쓰기 재확인은 대상 수로 문구를 만들고 교체가 되돌릴 수 없음을 알림"""
+        window = EncodeProgressWindow(
+            cast("EncodeController", self.controller),
+            self.book,
+            self.media,
+            None,
+            confirm=self._confirm,
+            replace_confirm=self._confirm,
+        )
+        self.addCleanup(window.deleteLater)
+        self.answer = False
+        self.assertFalse(window.confirm_separate_overwrite(3))
+        self.answer = True
+        self.assertTrue(window.confirm_separate_overwrite(3))
+        question = OVERWRITE_CONFIRM_TEMPLATE.format(count=3)
+        self.assertIn("되돌릴 수 없", question)
+        self.assertIn("원본과 원본 보관 폴더는 바뀌지 않습니다", question)
         self.assertEqual(self.asked, [question, question])
 
     def test_set_resumed_hides_the_brief_and_keeps_the_live_summary(self) -> None:

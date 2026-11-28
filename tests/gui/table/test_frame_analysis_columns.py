@@ -133,7 +133,7 @@ class FrameAnalysisTextTests(unittest.TestCase):
 
     def test_skipped_crop_only_row_shows_skipped_text_and_reason_tooltip(self) -> None:
         """감지 전용 결과만 있는 건너뜀 행도 빈칸 대신 건너뜀 문구와 사유 툴팁을 보여 줌"""
-        crop_only = _result(candidate=None, version=236)
+        crop_only = _result(candidate=None, version=CROP_SCAN_VERSION)
         self.assertEqual(downscale_candidate_text(crop_only), "")
         self.assertEqual(downscale_candidate_text(crop_only, skip_reason=SkipKind.HDR), "건너뜀")
         self.assertEqual(

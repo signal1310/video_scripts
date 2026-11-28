@@ -265,8 +265,7 @@ class VideoTableModel(QAbstractTableModel):
             for ev in self._base_evaluations
         ]
         self._root_dir = root_dir
-        # - 건너뛴 행의 축소 후보 셀에 사유를 보여 주기 위해 평가 결과에서 사유를 다시 모음.
-        #   인터레이스 판정은 스트림 요약을 해석한 결과를 재사용하므로 재적재마다 JSON 파싱이 늘지 않음
+        # - 건너뛴 행의 축소 후보 셀에 사유를 보여 주려고 다시 모음(인터레이스 판정은 해석 결과를 재사용)
         self._frame_view.set_skip_reasons(
             {
                 ev.video.filename: reason

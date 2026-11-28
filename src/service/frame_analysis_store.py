@@ -16,7 +16,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from typing import TypeVar
+from typing import NamedTuple, TypeVar
 
 from src.core.analysis.file_manager import is_video_file
 from src.core.analysis.frame_analysis import ActiveRegion, normalize_manual_active_frame
@@ -55,6 +55,7 @@ from src.service.frame_override_rows import (
     MANUAL_FRAME_MATCH_COLUMNS,
     REVIEW_ACK_MATCH_COLUMNS,
     file_identity,
+    optional_int,
     review_region_box,
     validated_crop_exclusion_rows,
     validated_manual_rows,
@@ -73,6 +74,39 @@ WRITE_RETRY_ATTEMPTS: int = 5
 WRITE_RETRY_BASE_SEC: float = 0.05
 _LOOKUP_CHUNK_SIZE: int = 500
 _LOCKED_MARKERS: tuple[str, ...] = ("locked", "busy")
+
+
+class VrOverrideRow(NamedTuple):
+    """수동 VR 보호 지정 행의 읽기 값(백업용, 경로와 저장 값 그대로)"""
+
+    source_path: str
+    manual_vr: int
+    filesize_bytes: int | None
+    mtime_ns: int | None
+    fingerprint: str | None
+
+
+class CropExclusionRow(NamedTuple):
+    """잘라내기 제외 지정 행의 읽기 값(백업용, 경로와 저장 값 그대로)"""
+
+    source_path: str
+    exclude_crop: int
+    filesize_bytes: int | None
+    mtime_ns: int | None
+    fingerprint: str | None
+
+
+class ManualActiveFrameRow(NamedTuple):
+    """사용자 지정 활성 화면 행의 읽기 값(백업용, 경로와 저장 값 그대로)"""
+
+    source_path: str
+    manual_x: int
+    manual_y: int
+    manual_width: int
+    manual_height: int
+    filesize_bytes: int | None
+    mtime_ns: int | None
+    fingerprint: str | None
 
 
 def _is_locked_error(error: sqlite3.OperationalError) -> bool:
@@ -215,6 +249,42 @@ def _delete_path_rows(conn: sqlite3.Connection, table: str, root_dirs: Sequence[
         conn.execute("ROLLBACK")
         raise
     return len(paths)
+
+
+def _scope_rows(
+    conn: sqlite3.Connection,
+    table: str,
+    columns: Sequence[str],
+    root_dirs: Sequence[str] | None,
+    convert: Callable[[tuple[object, ...]], _T],
+) -> list[_T]:
+    """경로 지정 표에서 정리 범위에 드는 행을 지정한 형으로 읽음"""
+    rows = conn.execute(f"SELECT {', '.join(columns)} FROM {table}").fetchall()
+    return [convert(tuple(row)) for row in rows if root_dirs is None or is_within_roots(str(row[0]), root_dirs)]
+
+
+def _vr_override_row(row: tuple[object, ...]) -> VrOverrideRow:
+    """질의 행을 수동 VR 보호 읽기 값으로 바꿈"""
+    return VrOverrideRow(str(row[0]), int(str(row[1])), optional_int(row[2]), optional_int(row[3]), optional_text(row[4]))
+
+
+def _crop_exclusion_row(row: tuple[object, ...]) -> CropExclusionRow:
+    """질의 행을 잘라내기 제외 읽기 값으로 바꿈"""
+    return CropExclusionRow(str(row[0]), int(str(row[1])), optional_int(row[2]), optional_int(row[3]), optional_text(row[4]))
+
+
+def _manual_active_frame_row(row: tuple[object, ...]) -> ManualActiveFrameRow:
+    """질의 행을 사용자 지정 활성 화면 읽기 값으로 바꿈"""
+    return ManualActiveFrameRow(
+        str(row[0]),
+        int(str(row[1])),
+        int(str(row[2])),
+        int(str(row[3])),
+        int(str(row[4])),
+        optional_int(row[5]),
+        optional_int(row[6]),
+        optional_text(row[7]),
+    )
 
 
 def _kept_with_matching_content(
@@ -681,6 +751,59 @@ class FrameAnalysisStore:
                 raise
 
         self._run(_write)
+
+    def read_vr_override_rows(self, root_dirs: Sequence[str] | None = None) -> list[VrOverrideRow]:
+        """수동 VR 보호 지정 행을 정리 범위에서 읽음. 검증 없이 저장 값 그대로 돌려 백업에 씀"""
+
+        def _select(conn: sqlite3.Connection) -> list[VrOverrideRow]:
+            return _scope_rows(
+                conn,
+                FRAME_ANALYSIS_VR_TABLE,
+                ("source_path", "manual_vr", "filesize_bytes", "mtime_ns", "fingerprint"),
+                root_dirs,
+                _vr_override_row,
+            )
+
+        return self._run(_select)
+
+    def read_crop_exclusion_rows(self, root_dirs: Sequence[str] | None = None) -> list[CropExclusionRow]:
+        """잘라내기 제외 지정 행을 정리 범위에서 읽음. 검증 없이 저장 값 그대로 돌려 백업에 씀"""
+
+        def _select(conn: sqlite3.Connection) -> list[CropExclusionRow]:
+            return _scope_rows(
+                conn,
+                FRAME_ANALYSIS_CROP_TABLE,
+                ("source_path", "exclude_crop", "filesize_bytes", "mtime_ns", "fingerprint"),
+                root_dirs,
+                _crop_exclusion_row,
+            )
+
+        return self._run(_select)
+
+    def read_manual_active_frame_rows(
+        self, root_dirs: Sequence[str] | None = None
+    ) -> list[ManualActiveFrameRow]:
+        """사용자 지정 활성 화면 행을 정리 범위에서 읽음. 검증 없이 저장 값 그대로 돌려 백업에 씀"""
+
+        def _select(conn: sqlite3.Connection) -> list[ManualActiveFrameRow]:
+            return _scope_rows(
+                conn,
+                FRAME_ANALYSIS_MANUAL_FRAME_TABLE,
+                (
+                    "source_path",
+                    "manual_x",
+                    "manual_y",
+                    "manual_width",
+                    "manual_height",
+                    "filesize_bytes",
+                    "mtime_ns",
+                    "fingerprint",
+                ),
+                root_dirs,
+                _manual_active_frame_row,
+            )
+
+        return self._run(_select)
 
     def load_crop_review_acknowledged(
         self,

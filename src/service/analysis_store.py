@@ -104,12 +104,14 @@ from src.service.analysis_store_schema import (
     expected_table_info as expected_table_info,
 )
 from src.service.analysis_work_records import (
+    ManualTargetRow,
     ManualTargetSync,
     clear_manual_targets,
     clear_table_selections,
     count_manual_targets,
     count_table_selections,
     manual_target_sizes,
+    read_manual_target_rows,
     read_manual_targets,
     read_table_selection,
     refresh_manual_target_identities,
@@ -750,6 +752,10 @@ class AnalysisStore:
         return self._run_isolated(
             lambda conn: refresh_manual_target_identities(conn, targets), 0
         )
+
+    def read_manual_target_rows(self) -> list[ManualTargetRow]:
+        """출력 해상도 직접 지정 행 전체를 저장 값 그대로 읽음. 백업에 씀"""
+        return self._run(read_manual_target_rows, [])
 
     def read_table_selection(self, root_key: str) -> set[str]:
         """작업 폴더에 마지막으로 선택되어 있던 영상 파일명 집합을 전용 테이블에서 읽음"""

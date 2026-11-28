@@ -12,6 +12,7 @@ import os
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from src.core.workspace_paths import (
     is_within_roots,
@@ -20,8 +21,13 @@ from src.core.workspace_paths import (
     parse_root_dirs,
     resolve_source_filepath,
 )
-from src.service.designation_content import ContentIdentity, file_content_identity, plan_content_moves
-from src.service.frame_override_rows import add_missing_columns
+from src.service.designation_content import (
+    ContentIdentity,
+    file_content_identity,
+    optional_text,
+    plan_content_moves,
+)
+from src.service.frame_override_rows import add_missing_columns, optional_int
 from src.service.sql_transaction import transaction
 
 logger = logging.getLogger(__name__)
@@ -50,6 +56,16 @@ _MANUAL_TARGET_UPSERT_SQL: str = (
 
 # - 출력 해상도 지정 행의 식별자(작업 폴더 키, 논리 파일명)
 TargetId = tuple[str, str]
+
+
+class ManualTargetRow(NamedTuple):
+    """출력 해상도 직접 지정 행의 읽기 값(백업용, 경로와 저장 값 그대로)"""
+
+    root_key: str
+    filename: str
+    tier: str
+    filesize_bytes: int | None
+    fingerprint: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +231,18 @@ def manual_target_sizes(conn: sqlite3.Connection) -> set[int]:
 def count_manual_targets(conn: sqlite3.Connection, root_dirs: Sequence[str] | None = None) -> int:
     """영상별 출력 해상도 직접 지정 건수. root_dirs를 주면 그 작업 폴더 키의 지정만 셈"""
     return len(_manual_target_keys(conn, root_dirs))
+
+
+def read_manual_target_rows(conn: sqlite3.Connection) -> list[ManualTargetRow]:
+    """출력 해상도 직접 지정 행 전체를 저장 값 그대로 읽음. 백업에 씀"""
+    _ensure_manual_target_table(conn)
+    rows = conn.execute(
+        f"SELECT root_key, filename, tier, filesize_bytes, fingerprint FROM {MANUAL_TARGET_TABLE_NAME}"
+    ).fetchall()
+    return [
+        ManualTargetRow(str(row[0]), str(row[1]), str(row[2]), optional_int(row[3]), optional_text(row[4]))
+        for row in rows
+    ]
 
 
 def clear_manual_targets(

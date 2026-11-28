@@ -4,8 +4,11 @@ from src.core.formatting import format_duration_hms
 from src.core.messages import LABEL_UNMEASURED_DETAIL
 from src.core.models import VideoEvaluation
 from src.core.quality_target import format_cq_value
+from src.core.resolution_tiers import ENCODE_DESIGNATION_KEY
 from src.core.smart_action import SmartAction
 from src.service.encode.encode_preview import PlannedCommand, plan_approximation_note
+
+ENCODE_DESIGNATION_REASON_TIP: str = "인코딩하도록 직접 지정한 영상입니다."
 
 _REFERENCE_NOTE: str = " (원본 보존 행, 인코딩 가정 참고값)"
 _NOT_TARGET_TIP: str = "인코딩 배치 대상이 아닙니다."
@@ -135,6 +138,8 @@ def quality_value_cell_tip(ev: VideoEvaluation) -> str:
 
 def reason_cell_tip(ev: VideoEvaluation) -> str:
     """판정 사유 셀 툴팁, 이 영상의 사유와 그 설명만 표시"""
+    if ev.manual_target == ENCODE_DESIGNATION_KEY:
+        return ENCODE_DESIGNATION_REASON_TIP
     return f"{ev.reason_label}: {ev.smart_action.reason_description}"
 
 

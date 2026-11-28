@@ -160,6 +160,7 @@ SHORTCUT_SPECS: tuple[ShortcutSpec, ...] = (
     ShortcutSpec("manual_target", "manual_target.auto", "출력 해상도 지정: 자동", "Ctrl+0", "선택한 영상의 출력 해상도 직접 지정을 해제하고 자동 판정으로 되돌립니다."),
     ShortcutSpec("manual_target", "manual_target.keep", "출력 해상도 지정: 축소 안 함", "Ctrl+9", "선택한 영상을 해상도 축소 없이 원본 해상도로 유지합니다."),
     *_TIER_SPECS,
+    ShortcutSpec("manual_target", "manual_target.encode", "인코딩 지정", "", "선택한 영상을 판정과 관계없이 인코딩하도록 지정합니다. 인코딩이 끝나거나 다시 누르면 해제됩니다."),
     ShortcutSpec("manual_target", "manual_target.clear_all", "출력 해상도 직접 지정 모두 해제", "Ctrl+Shift+0", "현재 작업 폴더의 모든 출력 해상도 직접 지정을 한꺼번에 해제합니다."),
     ShortcutSpec("exception", "edit.exception_editor", "예외 규칙 편집기", "Ctrl+Shift+E", "여러 줄 예외 규칙 목록과 활성 여부를 편집합니다."),
     ShortcutSpec("exception", "classify.add_exception", "선택 항목 예외 규칙에 추가", "Delete", "선택한 파일의 이름 키워드를 예외 규칙에 추가합니다."),

@@ -35,7 +35,7 @@ class ManualTargetMenuTests(unittest.TestCase):
     def test_options_cover_auto_keep_and_tiers(self) -> None:
         options = build_manual_target_options([make_eval()])
         labels = [option.label for option in options]
-        self.assertEqual(labels[:2], [MANUAL_TARGET_AUTO_LABEL, MANUAL_TARGET_KEEP_LABEL])
+        self.assertEqual(labels[:3], ["인코딩 지정", MANUAL_TARGET_AUTO_LABEL, MANUAL_TARGET_KEEP_LABEL])
         self.assertTrue(build_manual_target_options([])[0].enabled is False)
         self.assertTrue(any(option.value == "720p" for option in options))
         self.assertEqual(tier_menu_label(next(t for t in RESOLUTION_TIERS if t.key == "720p")), "720p (1280x720)")
@@ -46,8 +46,9 @@ class ManualTargetMenuTests(unittest.TestCase):
         self.assertTrue(is_manual_target_blocked(hdr))
         self.assertTrue(is_manual_target_blocked(exception))
         options = build_manual_target_options([hdr, exception])
-        self.assertFalse(options[1].enabled)
-        self.assertIn("예외 규칙", options[1].tooltip)
+        self.assertFalse(options[0].enabled)
+        self.assertFalse(options[2].enabled)
+        self.assertIn("예외 규칙", options[2].tooltip)
 
     def test_active_frame_sets_the_meaningful_downscale_limit(self) -> None:
         """잘라내기 확정 행은 원본 해상도가 아니라 활성 화면 크기로 규격 항목을 여는지 검증"""
@@ -63,9 +64,47 @@ class ManualTargetMenuTests(unittest.TestCase):
     def test_action_ids_and_menu_text(self) -> None:
         self.assertEqual(manual_target_action_id(None), "manual_target.auto")
         self.assertEqual(manual_target_action_id("keep"), "manual_target.keep")
+        self.assertEqual(manual_target_action_id("encode"), "manual_target.encode")
         self.assertEqual(manual_target_action_id("720p"), "manual_target.720p")
         self.assertEqual(_menu_text("자동", "Ctrl+0"), "자동\tCtrl+0")
         self.assertEqual(_menu_text("자동", ""), "자동")
+
+    def test_encode_designation_option_state_and_tooltip(self) -> None:
+        """인코딩 지정 항목이 자동보다 위에 있고, 선택 행이 모두 지정됐을 때만 체크되며 승인 툴팁을 가짐"""
+        from src.core.resolution_tiers import ENCODE_DESIGNATION_KEY
+        from src.gui.menus.manual_target_menu import (
+            ENCODE_DESIGNATION_LABEL,
+            ENCODE_DESIGNATION_TIP,
+        )
+
+        options = build_manual_target_options([make_eval()])
+        self.assertEqual(options[0].value, ENCODE_DESIGNATION_KEY)
+        self.assertEqual(options[0].label, ENCODE_DESIGNATION_LABEL)
+        self.assertTrue(options[0].enabled)
+        self.assertFalse(options[0].checked)
+        designated = make_eval(manual_target=ENCODE_DESIGNATION_KEY)
+        options = build_manual_target_options([designated])
+        self.assertTrue(options[0].checked)
+        options = build_manual_target_options([designated, make_eval()])
+        self.assertFalse(options[0].checked)
+        hdr = make_eval(video=make_video(filename="hdr.mp4"), smart_action=SmartAction.PASS_HDR)
+        self.assertFalse(build_manual_target_options([hdr])[0].enabled)
+        menu = QMenu()
+        self.addCleanup(menu.deleteLater)
+        fill_manual_target_menu(menu, [make_eval()], lambda _value: None)
+        encode_action = next(
+            action for action in menu.actions() if action.text().split("\t")[0] == ENCODE_DESIGNATION_LABEL
+        )
+        self.assertTrue(encode_action.isCheckable())
+        self.assertEqual(encode_action.toolTip(), ENCODE_DESIGNATION_TIP)
+
+    def test_encode_designation_action_id_has_no_default_key(self) -> None:
+        """인코딩 지정 명령이 단축키 목록에 ID 전용으로 등록되고 기본 키는 없음"""
+        from src.core.settings.shortcuts import DEFAULT_SHORTCUTS, SHORTCUT_SPEC_BY_ID
+
+        spec = SHORTCUT_SPEC_BY_ID["manual_target.encode"]
+        self.assertEqual(spec.group_key, "manual_target")
+        self.assertEqual(DEFAULT_SHORTCUTS["manual_target.encode"], "")
 
     def test_fill_marks_the_frame_analysis_candidate_tier(self) -> None:
         """비교 창 출력 드롭다운에서 후보 규격만 (축소 후보) 표기를 받는지 검증"""

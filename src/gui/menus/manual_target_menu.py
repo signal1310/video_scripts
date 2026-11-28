@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QMenu
 
 from src.core.models import VideoEvaluation
 from src.core.resolution_tiers import (
+    ENCODE_DESIGNATION_KEY,
     KEEP_RESOLUTION_KEY,
     RESOLUTION_TIER_BY_KEY,
     RESOLUTION_TIERS,
@@ -20,6 +21,11 @@ from src.core.smart_action import SmartAction
 MANUAL_TARGET_MENU_TITLE: str = "출력 해상도 지정"
 MANUAL_TARGET_AUTO_LABEL: str = "자동"
 MANUAL_TARGET_KEEP_LABEL: str = "축소 안 함"
+ENCODE_DESIGNATION_LABEL: str = "인코딩 지정"
+ENCODE_DESIGNATION_TIP: str = (
+    "판정과 관계없이 이 영상을 인코딩하도록 지정합니다. "
+    "인코딩이 끝나거나 다시 누르면 해제됩니다."
+)
 MANUAL_TARGET_CLEAR_ALL_LABEL: str = "직접 지정 모두 해제"
 FRAME_CANDIDATES_LABEL: str = "화질 분석 후보 적용"
 FRAME_CANDIDATE_SUFFIX: str = " (축소 후보)"
@@ -27,7 +33,7 @@ FRAME_CANDIDATES_TIP: str = (
     "화질 분석에서 축소 후보가 있는 영상의 출력 해상도를 후보 규격으로 지정합니다. "
     "후보가 없거나 예외 규칙, HDR 영상은 건너뜁니다."
 )
-_SEPARATOR_BEFORE_INDEX: int = 2
+_SEPARATOR_BEFORE_INDEX: int = 3
 _EXCEPTION_BLOCK_TEXT: str = "예외 규칙 대상이라 처리하지 않습니다."
 _HDR_BLOCK_TEXT: str = "HDR 영상은 색 정보 보호를 위해 처리하지 않습니다."
 _NO_MEANINGFUL_DOWNSCALE_TEXT: str = "선택한 영상 중 이 규격으로 의미 있게 축소되는 영상이 없습니다."
@@ -70,6 +76,8 @@ def manual_target_action_id(value: str | None) -> str:
         return "manual_target.auto"
     if value == KEEP_RESOLUTION_KEY:
         return "manual_target.keep"
+    if value == ENCODE_DESIGNATION_KEY:
+        return "manual_target.encode"
     return f"manual_target.{value}"
 
 
@@ -85,6 +93,8 @@ def manual_target_label(value: str | None) -> str:
         return MANUAL_TARGET_AUTO_LABEL
     if value == KEEP_RESOLUTION_KEY:
         return MANUAL_TARGET_KEEP_LABEL
+    if value == ENCODE_DESIGNATION_KEY:
+        return ENCODE_DESIGNATION_LABEL
     tier = RESOLUTION_TIER_BY_KEY.get(value)
     return tier.display if tier is not None else value
 
@@ -98,13 +108,15 @@ def _manual_target_size(ev: VideoEvaluation) -> tuple[int, int]:
 def build_manual_target_options(evals: Sequence[VideoEvaluation]) -> list[ManualTargetOption]:
     """선택 행 기준으로 자동, 축소 안 함, 규격 항목의 활성, 체크, 비활성 사유를 계산
 
-    - 보존 대상(예외 규칙, HDR)만 선택했으면 축소 안 함과 규격 항목을 모두 비활성화
+    - 보존 대상(예외 규칙, HDR)만 선택했으면 인코딩 지정, 축소 안 함과 규격 항목을 모두 비활성화
     - 그 규격으로 의미 있게 축소되는 보존 대상이 아닌 행이 하나도 없으면 그 규격 항목만 비활성화
     - 자동은 설정 해제 용도이므로 행이 있으면 항상 활성화
+    - 인코딩 지정은 보존 대상이 아닌 행에 판정과 관계없이 지정하고, 선택 행이 모두 지정돼 있으면 체크
     - 규격 판별은 is_meaningful_downscale을 그대로 사용하되 잘라내기 확정 영상은 활성 화면 크기로 판정
     """
     if not evals:
         return [
+            ManualTargetOption(ENCODE_DESIGNATION_KEY, ENCODE_DESIGNATION_LABEL, False, False, ""),
             ManualTargetOption(None, MANUAL_TARGET_AUTO_LABEL, False, False, ""),
             ManualTargetOption(KEEP_RESOLUTION_KEY, MANUAL_TARGET_KEEP_LABEL, False, False, ""),
             *(
@@ -118,6 +130,13 @@ def build_manual_target_options(evals: Sequence[VideoEvaluation]) -> list[Manual
     # - 보존 행은 지정 값을 받지 않으므로 체크 기준에서 제외. "자동"은 보존 행의 옛 값도 풀 수 있어 전체 기준이 필요하면 전체, 보존 행만 있으면 전체를 기준으로 함
     auto_basis = open_evals or list(evals)
     options = [
+        ManualTargetOption(
+            ENCODE_DESIGNATION_KEY,
+            ENCODE_DESIGNATION_LABEL,
+            bool(open_evals),
+            _all_checked(open_evals, ENCODE_DESIGNATION_KEY),
+            all_blocked_tooltip,
+        ),
         ManualTargetOption(None, MANUAL_TARGET_AUTO_LABEL, True, _all_checked(auto_basis, None), ""),
         ManualTargetOption(
             KEEP_RESOLUTION_KEY,
@@ -181,7 +200,10 @@ def fill_manual_target_menu(
         act.setCheckable(True)
         act.setChecked(option.checked)
         act.setEnabled(option.enabled)
-        if option.tooltip:
+        if option.value == ENCODE_DESIGNATION_KEY:
+            act.setToolTip(ENCODE_DESIGNATION_TIP)
+            act.setStatusTip(ENCODE_DESIGNATION_TIP)
+        elif option.tooltip:
             act.setToolTip(option.tooltip)
             act.setStatusTip(option.tooltip)
         act.triggered.connect(lambda _checked=False, v=option.value: on_select(v))

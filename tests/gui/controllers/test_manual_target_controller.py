@@ -141,6 +141,23 @@ class ManualTargetControllerTests(unittest.TestCase):
         self.assertEqual(self.session.applied, [])
         self.assertIn("축소 후보가 없습니다", self.notes[-1])
 
+    def test_encode_designation_toggles_all_and_undo_restores(self) -> None:
+        """인코딩 지정 선택이 모든 선택 행에 지정되고, 이미 모두 지정됐으면 다시 눌렀을 때 해제됨"""
+        from src.core.resolution_tiers import ENCODE_DESIGNATION_KEY
+
+        self.assertTrue(self.controller.request(self.evals, ENCODE_DESIGNATION_KEY))
+        self.assertEqual(self.session.applied, [(["a.mp4", "b.mp4"], ENCODE_DESIGNATION_KEY)])
+        self.assertEqual(self.changes, ["출력 해상도 지정 (인코딩 지정, 2개)"])
+
+        self.session.applied.clear()
+        self.changes.clear()
+        designated = [
+            make_eval(video=make_video(filename="a.mp4"), manual_target=ENCODE_DESIGNATION_KEY),
+            make_eval(video=make_video(filename="b.mp4"), manual_target=ENCODE_DESIGNATION_KEY),
+        ]
+        self.assertTrue(self.controller.request(designated, ENCODE_DESIGNATION_KEY))
+        self.assertEqual(self.session.applied, [(["a.mp4", "b.mp4"], None)])
+
     def test_clear_asks_and_clears_when_confirmed(self) -> None:
         with mock.patch("src.gui.controllers.manual_target_controller.QMessageBox.question", return_value=mock.ANY) as ask:
             self.controller.clear()

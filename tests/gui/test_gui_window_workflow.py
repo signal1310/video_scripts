@@ -775,6 +775,62 @@ class TestGUIWindowWorkflow(GuiWindowTestCase):
         mw.table_view.set_manual_target_for(None, None)
         self.assertEqual(load_manual_target_store({}), {})
 
+    def test_encode_designation_toggle_undo_and_clear_all(self) -> None:
+        """인코딩 지정 항목이 두 행에 지정되고 다시 누르면 해제되며, 되돌리기와 모두 해제가 저장 상태를 바로잡음"""
+        from src.core.resolution_tiers import ENCODE_DESIGNATION_KEY
+        from src.core.smart_action import SmartAction
+        from src.gui.table.table_cell_tooltips import ENCODE_DESIGNATION_REASON_TIP, reason_cell_tip
+        from src.service.session import normalize_root_key
+
+        work = tempfile.TemporaryDirectory()
+        self.addCleanup(work.cleanup)
+        isolate_app_state(self, work.name)
+        clf = VideoClassifier(root_dir=work.name)
+        videos = [
+            make_video(filename="a.mp4", codec="hevc", vid_kbps=9000, vid_size_MB=500.0, duration=120.0),
+            make_video(filename="b.mp4", vid_kbps=9000, vid_size_MB=500.0, duration=120.0),
+        ]
+        DEFAULT_CACHE_REGISTRY.put(work.name, TableCache(work.name, videos, include_keyframe=True))
+        mw = MainWindow(classifier=clf)
+        self.addCleanup(mw.close)
+        mw.apply_report(clf.get_summary_report(ensure_keyframe=False))
+        key = normalize_root_key(work.name)
+
+        # - 두 행을 모두 선택해 인코딩 지정을 켜면 판정과 관계없이 두 행 모두 저장됨
+        mw.table_view.selectAll()
+        initial = mw.shortcuts.capture()
+        mw.table_view.set_manual_target_for(None, ENCODE_DESIGNATION_KEY)
+        settle_reevaluation(mw)
+        self.assertEqual(
+            load_manual_target_store({}),
+            {key: {"a.mp4": ENCODE_DESIGNATION_KEY, "b.mp4": ENCODE_DESIGNATION_KEY}},
+        )
+
+        report = mw.current_report
+        assert report is not None
+        for ev in report.evaluations:
+            with self.subTest(filename=ev.video.filename):
+                self.assertEqual(ev.smart_action, SmartAction.ENCODE_MANUAL)
+                self.assertEqual(reason_cell_tip(ev), ENCODE_DESIGNATION_REASON_TIP)
+
+        # - 다시 누르면(선택 행이 모두 지정됨) 해제
+        mw.table_view.set_manual_target_for(None, ENCODE_DESIGNATION_KEY)
+        settle_reevaluation(mw)
+        self.assertEqual(load_manual_target_store({}), {})
+
+        # - 되돌리기로 지정 상태 복원, 모두 해제로 완전히 정리
+        mw.shortcuts.trigger_undo()
+        settle_reevaluation(mw)
+        self.assertEqual(
+            load_manual_target_store({}),
+            {key: {"a.mp4": ENCODE_DESIGNATION_KEY, "b.mp4": ENCODE_DESIGNATION_KEY}},
+        )
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+            mw.manual_targets.clear()
+        settle_reevaluation(mw)
+        self.assertEqual(load_manual_target_store({}), {})
+        self.assertTrue(mw.shortcuts.capture().same_state(initial))
+
     def test_empty_root_analyze_prompts_directory_dialog(self) -> None:
         """작업 폴더가 비어 있을 때 스캔 실행 시 경고 대신 폴더 선택 창을 열고 선택 시 스캔을 시작함을 검증"""
         with tempfile.TemporaryDirectory() as outer_dir:

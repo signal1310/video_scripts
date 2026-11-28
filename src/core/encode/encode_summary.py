@@ -17,6 +17,7 @@ from src.core.encode.encode_batch_book import (
     STATUS_RUNNING,
     STATUS_SKIPPED,
 )
+from src.core.encode.encode_gate import GatePurpose, purpose_for_evaluation
 from src.core.encode.encode_progress_values import saved_summary_text, size_text
 from src.core.encode.encode_state import EncodeState
 from src.core.models import VideoEvaluation
@@ -43,6 +44,10 @@ ATTENTION_STATUS_ORDER: tuple[str, ...] = (STATUS_DISCARDED, STATUS_FAILED, STAT
 ATTENTION_TEMPLATE: str = "주의가 필요한 영상 {count}개: {items}"
 ATTENTION_DETAIL_TEMPLATE: str = "{status} {count}"
 DONE_BADGE_TEMPLATE: str = "{done}/{total}개 완료"
+SAVING_COUNT_NAME: str = "용량 절약"
+TRANSFORM_COUNT_NAME: str = "변환 우선"
+DESIGNATION_LINE_TEMPLATE: str = "직접 지정 / 변환 우선 {count}개"
+DESIGNATION_CAUTION_TEMPLATE: str = "⚠ 이미 인코딩한 영상 {count}개 포함 (직접 지정으로 대상에 들어감)"
 FINAL_SPEED_TEMPLATE: str = "총 소요 {elapsed}, 평균 {average}"
 
 
@@ -163,3 +168,67 @@ def saving_text(actual_mb: float | None, expected_mb: float | None, *, finished:
 def final_speed_text(elapsed: str, average: str) -> str:
     """완료 후 총 소요와 평균 속도 문구"""
     return FINAL_SPEED_TEMPLATE.format(elapsed=elapsed, average=average)
+
+
+@dataclass(frozen=True, slots=True)
+class DesignationCounts:
+    """용량 절약과 변환 우선으로 나눈 대상 수 묶음(제안 2.3절, 2.4절)
+
+    - transform은 절약 선별을 거치지 않은 직접 지정(인코딩 지정, 사용자 지정 활성 화면) 대상
+    - already_designated는 그 가운데 인코딩 표식이 있어 원래 보존 판정이었던 영상 수
+    """
+
+    total: int
+    saving: int
+    transform: int
+    already_designated: int
+
+
+def is_transform_target(evaluation: VideoEvaluation) -> bool:
+    """절약 선별을 거치지 않은 직접 지정 대상인지 판별(제안 2.4절)
+
+    - `jobs_from_evaluations`와 같은 기준으로 게이트 목적을 구해 변환 우선만 셈(인코딩 지정, 사용자 지정 활성 화면,
+      키프레임 초과, 호환 인코딩)
+    """
+    return (
+        purpose_for_evaluation(
+            evaluation.smart_action,
+            evaluation.is_keyframe_exceeded,
+            manual_active_frame_applied=evaluation.manual_active_frame_applied,
+        )
+        is not GatePurpose.SAVING
+    )
+
+
+def designation_counts(evaluations: Sequence[VideoEvaluation]) -> DesignationCounts:
+    """대상 목록을 용량 절약과 변환 우선으로 나눠 셈(제안 2.4절)
+
+    - already_designated는 판정과 같은 인코딩 근거(태그 상세, 태그 이름, 이력 지문)로 셈
+    """
+    transform = sum(1 for ev in evaluations if is_transform_target(ev))
+    already = sum(1 for ev in evaluations if is_transform_target(ev) and ev.encoded_evidence)
+    return DesignationCounts(
+        total=len(evaluations),
+        saving=len(evaluations) - transform,
+        transform=transform,
+        already_designated=already,
+    )
+
+
+def designation_summary_line(counts: DesignationCounts) -> str:
+    """용량 절약과 변환 우선 개수를 나눠 쓴 대상 줄 문구"""
+    return f"전체 인코딩 대상: {counts.total}개 ({SAVING_COUNT_NAME} {counts.saving}개, {TRANSFORM_COUNT_NAME} {counts.transform}개)"
+
+
+def designation_line(counts: DesignationCounts) -> str:
+    """직접 지정으로 절약 선별을 건너뛴 대상 줄 문구. 없으면 빈 문자열"""
+    if counts.transform <= 0:
+        return ""
+    return DESIGNATION_LINE_TEMPLATE.format(count=counts.transform)
+
+
+def designation_caution_line(counts: DesignationCounts) -> str:
+    """이미 인코딩한 영상이 직접 지정으로 섞여 들어왔을 때 주의 줄 문구. 없으면 빈 문자열"""
+    if counts.already_designated <= 0:
+        return ""
+    return DESIGNATION_CAUTION_TEMPLATE.format(count=counts.already_designated)

@@ -97,6 +97,14 @@ class ResumeDialogTests(unittest.TestCase):
         with mock.patch.object(QMessageBox, "exec", return_value=0):
             self.assertFalse(ask_forfeit(self.parent))
 
+    def test_discard_replace_confirmation_asks_before_discarding(self) -> None:
+        """결과 폐기 확인은 폐기 버튼을 만들고, 닫기나 취소는 거짓을 돌려줌"""
+        from src.gui.dialogs.encode_resume_dialogs import ask_discard_replace
+
+        with mock.patch.object(QMessageBox, "exec", return_value=0) as exec_box:
+            self.assertFalse(ask_discard_replace(self.parent))
+        exec_box.assert_called_once()
+
 
 class ResumeCleanupChoiceTests(unittest.TestCase):
     """기록 밖 임시 파일이 있을 때만 정리 버튼이 있고, 누르면 정리 선택을 돌려줌"""

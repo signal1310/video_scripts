@@ -293,19 +293,64 @@ class ResultActionTests(unittest.TestCase):
             ]
         )
 
-    def test_only_replace_pending_rows_have_retry_and_forfeit_buttons(self) -> None:
-        self.assertEqual(len(self.results.action_buttons(0)), 2)
+    def test_only_replace_pending_rows_have_retry_forfeit_and_discard_buttons(self) -> None:
+        self.assertEqual([b.accessibleName() for b in self.results.action_buttons(0)], ["재시도", "교체 포기", "결과 폐기"])
         self.assertEqual(self.results.action_buttons(1), [])
+
+    def test_surge_pending_row_adds_the_replace_designated_button_after_retry(self) -> None:
+        """급증 상한을 넘어 보류한 교체 대기 행만 그대로 교체 버튼을 받고 원본 경로를 보냄(TERMINOLOGY)"""
+        self.results.set_lines(
+            [
+                ResultLine(
+                    "a.mp4",
+                    "",
+                    "교체 대기",
+                    "",
+                    "원본 대비 +42% 급증",
+                    source_path=self.pending,
+                    replace_pending=True,
+                    surge_pending=True,
+                )
+            ]
+        )
+        self.assertEqual(
+            [b.accessibleName() for b in self.results.action_buttons(0)],
+            ["재시도", "그대로 교체", "교체 포기", "결과 폐기"],
+        )
+        replaced: list[str] = []
+        self.results.replace_requested.connect(replaced.append)
+        self.results.action_buttons(0)[1].click()
+        self.assertEqual(replaced, [self.pending])
 
     def test_buttons_emit_the_source_path_of_their_row(self) -> None:
         retried: list[str] = []
         forfeited: list[str] = []
+        discarded: list[str] = []
         self.results.retry_requested.connect(retried.append)
         self.results.forfeit_requested.connect(forfeited.append)
-        retry, forfeit = self.results.action_buttons(0)
+        self.results.discard_requested.connect(discarded.append)
+        retry, forfeit, discard = self.results.action_buttons(0)
         retry.click()
         forfeit.click()
-        self.assertEqual((retried, forfeited), ([self.pending], [self.pending]))
+        discard.click()
+        self.assertEqual((retried, forfeited, discarded), ([self.pending], [self.pending], [self.pending]))
+
+    def test_surge_done_row_shows_the_caution_badge_text_and_pending_colors(self) -> None:
+        """급증 상한을 넘은 완료 행은 주의 배지 글자를 쓰고 주의 배지 색으로 칠해지는지 검증(안 A)"""
+        self.results.set_lines([ResultLine("a.mp4", "", "완료", "", "원본 대비 +42% 급증", source_path=self.done, surge_done=True)])
+        # - 상태 표기 자체는 완료로 두고, 행 배지 글자만 주의 배지로 바꿔 씀
+        self.assertEqual(self.results._lines[0].status, "완료")
+        from src.gui.styles.palettes import DARK_PALETTE
+
+        self.results.apply_palette(DARK_PALETTE)
+        item = self.results._list.item(0)
+        assert item is not None
+        widget = self.results._list.itemWidget(item)
+        assert widget is not None
+        badge = widget.findChildren(QLabel, "EncodeStatusBadge")[0]
+        palette = DARK_PALETTE
+        self.assertIn(palette.badge_pending[0], badge.styleSheet())
+        self.assertIn(palette.badge_pending[1], badge.styleSheet())
 
     def test_refreshing_without_replace_pending_removes_the_buttons(self) -> None:
         self.results.set_lines([ResultLine("a.mp4", "", "실패", "", "", source_path=self.pending)])
@@ -356,7 +401,7 @@ class ResultLeftoverActionTests(unittest.TestCase):
                 ResultLine("c.mp4", "", "완료", "", "", source_path="/r/c.mp4"),
             ]
         )
-        self.assertEqual([b.accessibleName() for b in self.list.action_buttons(0)], ["재시도", "교체 포기", "위치 열기"])
+        self.assertEqual([b.accessibleName() for b in self.list.action_buttons(0)], ["재시도", "교체 포기", "결과 폐기", "위치 열기"])
         self.assertEqual(self.list.action_buttons(1), [])
 
 
@@ -394,7 +439,7 @@ class ResultCompareTests(unittest.TestCase):
         self.assertEqual([b.accessibleName() for b in self.results.action_buttons(0)], ["화질 비교"])
         self.assertEqual(
             [b.accessibleName() for b in self.results.action_buttons(1)],
-            ["화질 비교", "재시도", "교체 포기", "위치 열기"],
+            ["화질 비교", "재시도", "교체 포기", "결과 폐기", "위치 열기"],
         )
 
     def test_compare_button_enabled_state_and_reason(self) -> None:

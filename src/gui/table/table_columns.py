@@ -17,6 +17,7 @@ from src.core.encode.encode_batch_book import (
     STATUS_RUNNING_PAUSED,
     STATUS_SKIPPED,
 )
+from src.core.encode.encode_gate import DONE_SURGE_BADGE
 from src.core.formatting import (
     format_fps,
     format_ratio,
@@ -121,6 +122,7 @@ ENCODE_STATE_LABELS: tuple[str, ...] = (
     STATUS_RUNNING,
     STATUS_RUNNING_PAUSED,
     STATUS_DONE,
+    DONE_SURGE_BADGE,
     STATUS_DISCARDED,
     STATUS_FAILED,
     STATUS_SKIPPED,

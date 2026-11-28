@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from src.core.encode.encode_batch_book import STATUS_BY_STATE
+from src.core.encode.encode_gate import is_transform_surge_reason, surge_done_badge
 from src.core.encode.encode_progress import BITS_PER_BYTE, KBIT
 from src.core.encode.encode_progress_view import NO_VALUE_TEXT, progress_fraction, speed_text
 from src.core.encode.encode_state import EncodeState
@@ -98,6 +99,8 @@ class ResultLine:
     tone: int = TONE_NONE
     compare_target: bool = False
     compare_ready: bool = False
+    surge_done: bool = False
+    surge_pending: bool = False
 
 
 _UNFINISHED_STATES: frozenset[EncodeState] = frozenset({EncodeState.PENDING, EncodeState.RUNNING})
@@ -182,6 +185,9 @@ def result_lines(
                 part_left=part_left,
                 compare_target=state in (EncodeState.DONE, EncodeState.REPLACE_PENDING),
                 compare_ready=row is not None and row.compare_ready,
+                surge_done=surge_done_badge(state, reason) is not None,
+                # - 급증 상한 초과로 보류한 교체 대기 행만 그대로 교체 버튼을 받음(TERMINOLOGY 그대로 교체)
+                surge_pending=state is EncodeState.REPLACE_PENDING and is_transform_surge_reason(reason),
             )
         )
     return lines

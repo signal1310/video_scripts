@@ -167,6 +167,49 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.assertEqual(self.view.brief_target_line.text(), "대상 2개, 4.0 GB -> 3.5 GB")
         self.assertEqual(self.view.brief_encoder_line.text(), "HEVC (NVENC), 화질 기준값 28.0")
 
+    def test_designation_lines_split_targets_and_hide_when_empty(self) -> None:
+        """직접 지정 대상이 있으면 직접 지정 줄을, 표식이 섞였으면 주의 줄을 보이고 없으면 숨김"""
+        from src.core.smart_action import SmartAction
+
+        plain = make_eval(
+            video=make_video(filename="plain.mp4", width=1920, height=1080),
+            expected_after_mb=50.0,
+            expected_delta_mb=50.0,
+        )
+        manual = make_eval(
+            video=make_video(filename="manual.mp4", width=1920, height=1080, has_encode_tag=True),
+            smart_action=SmartAction.ENCODE_MANUAL,
+            encoded_evidence=True,
+        )
+        settings = EncodeSettings.from_config(ClassifierConfig())
+        summary = summarize_encode_impact([plain, manual], CONTAINER_POLICY_KEEP, "h264")
+        plan = EncodeStartPlan(
+            evaluations=(plain, manual),
+            paths=(os.path.join(self.root, "plain.mp4"), os.path.join(self.root, "manual.mp4")),
+            summary=summary,
+            settings=settings,
+            root_dir=self.root,
+            target_codec_label="HEVC NVENC",
+            baseline_quality=22.0,
+        )
+        self.view.set_plan(plan)
+        self.assertEqual(
+            self.view.designation_line.text(),
+            "직접 지정 / 변환 우선 1개",
+        )
+        self.assertFalse(self.view.designation_line.isHidden())
+        self.assertEqual(
+            self.view.designation_caution.text(),
+            "⚠ 이미 인코딩한 영상 1개 포함 (직접 지정으로 대상에 들어감)",
+        )
+        self.assertFalse(self.view.designation_caution.isHidden())
+        # - 팔레트 토큰으로 주의색을 칠함
+        self.view.apply_theme(DARK_PALETTE)
+        self.assertIn(DARK_PALETTE.fg_maxrate_warn, self.view.designation_caution.styleSheet())
+        self.view.set_plan(_plan(self.path))
+        self.assertTrue(self.view.designation_line.isHidden())
+        self.assertTrue(self.view.designation_caution.isHidden())
+
     def test_brief_net_value_font_uses_the_approved_pixel_size(self) -> None:
         """큰 순 절약 값 글꼴은 승인된 20px 크기를 씀"""
         self.assertEqual(BRIEF_NET_VALUE_PX, 20)
@@ -185,13 +228,14 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.assertEqual(self.view.brief_net_value.toolTip(), BRIEF_NET_TIP)
         self.assertEqual(
             self.view.brief_target_line.toolTip(),
-            "이번 인코딩 대상 영상 수와, 대상 영상의 현재 용량 합계 및 판정 단계의 예상 용량입니다.",
+            "이번 인코딩 대상 영상 수와, 대상 영상의 현재 용량 합계 및 판정 단계의 예상 용량입니다.\n"
+            "전체 인코딩 대상: 1개 (용량 절약 1개, 변환 우선 0개)",
         )
         self.assertEqual(
             self.view.brief_encoder_line.toolTip(),
             "이번 배치에 쓸 목표 인코딩 방식과 화질 기준값입니다. 환경 설정의 인코딩 탭에서 바꿀 수 있습니다.",
         )
-        self.assertEqual(self.view.brief_target_line.toolTip(), BRIEF_TARGET_TIP)
+        self.assertEqual(self.view.brief_target_line.toolTip(), BRIEF_TARGET_TIP + "\n전체 인코딩 대상: 1개 (용량 절약 1개, 변환 우선 0개)")
         self.assertEqual(self.view.brief_encoder_line.toolTip(), BRIEF_ENCODER_TIP)
 
     def test_new_card_is_shorter_and_not_wider_than_the_old_grid(self) -> None:
@@ -298,8 +342,10 @@ class EncodeSummaryViewTests(unittest.TestCase):
         self.view.set_excluded_count(0, 1)
         self.assertEqual(self.view.target_text, "0/1개")
         self.assertEqual(self.view.brief_target_line.text(), "대상 0/1개, 100.0 MB -> 50.0 MB")
+        self.assertIn("전체 인코딩 대상: 1개", self.view.brief_target_line.toolTip())
         self.view.set_excluded_count(1, 2)
         self.assertEqual(self.view.brief_target_line.text(), "대상 1/2개, 100.0 MB -> 50.0 MB")
+        self.assertIn("전체 인코딩 대상: 1개", self.view.brief_target_line.toolTip())
         self.view.set_resumed()
         self.assertTrue(self.view.brief_card.isHidden())
         self.assertTrue(self.view.tree.isHidden())

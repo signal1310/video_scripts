@@ -17,7 +17,12 @@ from typing import Any
 from unittest import mock
 
 from src.core.config import RESULT_POLICY_ARCHIVE, RESULT_POLICY_REPLACE, RESULT_POLICY_SEPARATE, ClassifierConfig
-from src.core.encode.encode_gate import GatePurpose
+from src.core.encode.encode_gate import (
+    DONE_SURGE_BADGE,
+    GatePurpose,
+    is_transform_surge_reason,
+    surge_done_badge,
+)
 from src.core.encode.encode_paths import part_path_of
 from src.core.encode.encode_process import ProcessOutcome
 from src.core.encode.encode_progress import EARLY_STOP_MARGIN, EARLY_STOP_MIN_PROGRESS, LONG_RUN_NOTICE_SEC
@@ -54,6 +59,7 @@ from src.service.encode.encode_job import (
 )
 from src.service.encode.encode_precise_tune import PreciseQualityTuner, PreciseTuneOutcome
 from src.service.encode.encode_reasons import (
+    DISCARDED_BY_USER,
     EARLY_STOP_REASON,
     PART_LEFT,
     REPLACE_FORFEITED,
@@ -333,6 +339,7 @@ class _ServiceCase(unittest.TestCase):
         )
         if tuner is not None:
             runner.set_precise_tuner(tuner)
+        self.addCleanup(runner.close_output_history)
         return runner
 
     def _run_one(
@@ -652,6 +659,89 @@ class TestCancelStopAndReplace(_ServiceCase):
         self.assertEqual(states[second], EncodeState.REPLACE_PENDING)
 
 
+class TestReplaceOverCapActions(_ServiceCase):
+    """급증 상한을 넘어 교체 대기로 보류한 항목의 그대로 교체와 폐기(제안 2.3절 3단계)"""
+
+    def _replace_pending_surge(self, path: str) -> ItemRow:
+        job = dataclasses.replace(self._job(path), purpose=GatePurpose.TRANSFORM)
+        settings = self._settings(result_policy=RESULT_POLICY_REPLACE)
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        self._runner(settings, encoder=_FakeEncoder(output_bytes=int(SOURCE_BYTES * 1.4))).run(batch_id)
+        return self.history.list_items(batch_id)[0]
+
+    def test_replace_designated_places_the_result_and_marks_the_done_reason(self) -> None:
+        """사용자가 그대로 교체를 고른 교체 대기 항목은 결과를 배치하고 급증 표식이 남은 완료가 됨"""
+        path = self._source("clip.mkv")
+        item = self._replace_pending_surge(path)
+        self.assertIs(item.state, EncodeState.REPLACE_PENDING)
+        part = item.part_path or ""
+
+        runner = self._runner(self._settings(result_policy=RESULT_POLICY_REPLACE))
+        self.assertTrue(runner.replace_designated_pending(item.batch_id, path))
+        replaced = self.history.list_items(item.batch_id)[0]
+        self.assertIs(replaced.state, EncodeState.DONE)
+        self.assertIn("급증", replaced.reason)
+        self.assertIn("사용자 확인", replaced.reason)
+        self.assertFalse(os.path.exists(part))
+        self.assertGreaterEqual(os.path.getsize(path), int(SOURCE_BYTES * 1.2))
+        self.assertFalse(runner.replace_designated_pending(item.batch_id, path))
+
+    def test_replace_designated_clears_the_encode_designation(self) -> None:
+        """그대로 교체로 완료된 지정 영상은 `_finish`와 같이 인코딩 지정이 해제됨"""
+        path = self._source("clip.mkv")
+        job = dataclasses.replace(
+            self._job(path), purpose=GatePurpose.TRANSFORM, encode_designation=True
+        )
+        settings = self._settings(result_policy=RESULT_POLICY_REPLACE)
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        self._runner(settings, encoder=_FakeEncoder(output_bytes=int(SOURCE_BYTES * 1.4))).run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.REPLACE_PENDING)
+        store = mock.Mock()
+
+        runner = self._runner(settings, store=store)
+        self.assertTrue(runner.replace_designated_pending(item.batch_id, path))
+        store.clear_manual_targets.assert_called_once_with([self.root], ["clip.mkv"])
+
+    def test_discard_designated_deletes_the_temp_result_and_keeps_the_original(self) -> None:
+        """사용자가 폐기를 고른 교체 대기 항목은 임시 결과를 지우고 폐기로 바꾸며 원본은 그대로임"""
+        path = self._source("clip.mkv")
+        item = self._replace_pending_surge(path)
+        self.assertIs(item.state, EncodeState.REPLACE_PENDING)
+        part = item.part_path or ""
+        self.assertTrue(os.path.exists(part))
+
+        runner = self._runner(self._settings(result_policy=RESULT_POLICY_REPLACE))
+        self.assertEqual(runner.discard_replace_pending(item.batch_id, path), (True, ""))
+        discarded = self.history.list_items(item.batch_id)[0]
+        self.assertIs(discarded.state, EncodeState.DISCARDED)
+        self.assertEqual(discarded.reason, DISCARDED_BY_USER)
+        self.assertFalse(os.path.exists(part))
+        self.assertEqual(os.path.getsize(path), SOURCE_BYTES)
+        self.assertEqual(runner.discard_replace_pending(item.batch_id, path), (False, ""))
+
+    def test_discard_keeps_the_row_and_reports_when_the_part_file_is_locked(self) -> None:
+        """임시 파일을 지우지 못하면 예외를 올리지 않고 교체 대기를 유지한 채 실패 사유를 돌려줌"""
+        path = self._source("clip.mkv")
+        item = self._replace_pending_surge(path)
+        runner = self._runner(self._settings(result_policy=RESULT_POLICY_REPLACE))
+        with mock.patch.object(runner, "_remove_part", side_effect=PermissionError("공유 위반")):
+            changed, failure = runner.discard_replace_pending(item.batch_id, path)
+        self.assertFalse(changed)
+        self.assertIn("공유 위반", failure)
+        kept = self.history.list_items(item.batch_id)[0]
+        self.assertIs(kept.state, EncodeState.REPLACE_PENDING)
+        self.assertTrue(os.path.exists(kept.part_path or ""))
+
+    def test_user_discard_is_not_recorded_as_a_previous_discard_fact(self) -> None:
+        """교체 대기 행의 사용자 폐기는 이전 폐기 사실로 남지 않아 다음 배치 대상에서 빠지지 않음"""
+        path = self._source("clip.mkv")
+        item = self._replace_pending_surge(path)
+        runner = self._runner(self._settings(result_policy=RESULT_POLICY_REPLACE))
+        self.assertEqual(runner.discard_replace_pending(item.batch_id, path), (True, ""))
+        self.assertEqual(self.history.discarded_facts(), {})
+
+
 class TestTransformSurge(_ServiceCase):
     """변환 우선 목적의 크기 급증 상한 처리(제안 2.3절)"""
 
@@ -694,6 +784,26 @@ class TestTransformSurge(_ServiceCase):
         self.assertIs(item.state, EncodeState.DONE)
         self.assertIn("변환 우선", item.reason)
         self.assertIn("+20%", item.reason)
+
+    def test_surge_reason_keeps_the_marker_in_front_of_a_tuning_reason(self) -> None:
+        """품질값 조정 사유가 붙어도 급증 사유가 앞에 남아 주의 배지 판정이 참이 됨"""
+        path = self._source("clip.mkv")
+        job = dataclasses.replace(
+            self._job(path), purpose=GatePurpose.TRANSFORM, precise_tune=True
+        )
+        settings = self._settings(result_policy=RESULT_POLICY_ARCHIVE)
+        batch_id = create_batch(self.history, settings, self.root, [job])
+        runner = self._runner(
+            settings,
+            encoder=_FakeEncoder(output_bytes=int(SOURCE_BYTES * 1.4)),
+            tuner=_FakePreciseTuner(adopted=22.0),
+        )
+        runner.run(batch_id)
+        item = self.history.list_items(batch_id)[0]
+        self.assertIs(item.state, EncodeState.DONE)
+        self.assertTrue(is_transform_surge_reason(item.reason), item.reason)
+        self.assertIn("품질값 22.0 유지", item.reason)
+        self.assertEqual(surge_done_badge(item.state, item.reason), DONE_SURGE_BADGE)
 
     def test_saving_purpose_still_discards_larger_result(self) -> None:
         """절약 목적은 변환 상한과 무관하게 원본보다 크면 폐기"""
@@ -745,6 +855,9 @@ class TestTransformSurge(_ServiceCase):
         replaced = self.history.list_items(batch_id)[0]
         self.assertIs(replaced.state, EncodeState.DONE)
         self.assertEqual(os.path.getsize(path), int(SOURCE_BYTES * 1.4))
+        # - 재시도로 배치한 급증 항목도 주의 배지와 사유가 남아야 함
+        self.assertTrue(is_transform_surge_reason(replaced.reason), replaced.reason)
+        self.assertIn("사용자 확인", replaced.reason)
 
 
 class TestPauseAndLongPauseNotice(_ServiceCase):

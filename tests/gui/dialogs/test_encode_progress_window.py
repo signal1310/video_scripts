@@ -106,7 +106,9 @@ class _FakeMedia:
         self.opened: list[str] = []
         self.previewed: list[str] = []
         self.retried: list[str] = []
+        self.replaced: list[str] = []
         self.forfeited: list[str] = []
+        self.discarded: list[str] = []
         self.leftovers: set[str] = set()
         self.revealed: list[str] = []
         self.trashed: list[str] = []
@@ -127,8 +129,14 @@ class _FakeMedia:
     def retry_replace(self, source: str) -> None:
         self.retried.append(source)
 
+    def replace_designated(self, source: str) -> None:
+        self.replaced.append(source)
+
     def forfeit_replace(self, source: str) -> None:
         self.forfeited.append(source)
+
+    def discard_replace(self, source: str) -> None:
+        self.discarded.append(source)
 
     def trash_leftover(self, source: str) -> None:
         self.trashed.append(source)
@@ -878,10 +886,12 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.assertIn("→", self.window._results.size_text(0))
 
     def test_result_row_actions_forward_retry_and_forfeit_for_the_source(self) -> None:
-        """교체 대기 행의 재시도와 교체 포기 신호는 원본 경로와 함께 미디어 조정자로 전달됨"""
+        """교체 대기 행의 재시도, 그대로 교체, 교체 포기 신호는 원본 경로와 함께 미디어 조정자로 전달됨"""
         self.window._results.retry_requested.emit(self.job_path)
+        self.window._results.replace_requested.emit(self.job_path)
         self.window._results.forfeit_requested.emit(self.job_path)
         self.assertEqual(self.media.retried, [self.job_path])
+        self.assertEqual(self.media.replaced, [self.job_path])
         self.assertEqual(self.media.forfeited, [self.job_path])
 
     def test_open_and_preview_use_the_result_file_once_the_item_is_done(self) -> None:
@@ -988,7 +998,7 @@ class EncodeProgressWindowTests(unittest.TestCase):
         self.book.apply(self.job_path, EncodeState.REPLACE_PENDING, "교체 실패")
         self.window.refresh_rows()
         self.assertEqual(self.window._results.row_count(), 1)
-        self.assertEqual(len(self.window._results.action_buttons(0)), 4)
+        self.assertEqual(len(self.window._results.action_buttons(0)), 5)
 
     def test_empty_progress_event_keeps_previous_last_position(self) -> None:
         """진행 위치와 프레임이 모두 없는 이벤트는 이전 도달 위치를 0으로 덮지 않고, 처음 받으면 0으로 둠"""

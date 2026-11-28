@@ -15,6 +15,7 @@ from src.core.evaluation.classification_policy import (
     ClassificationPolicy,
     EvaluationContext,
     ExceptionRule,
+    has_encoded_evidence,
     should_use_low_quality_preset,
 )
 from src.core.evaluation.downscale_resolver import resolve_downscale
@@ -265,6 +266,7 @@ class VideoEvaluator:
             manual_target=manual_target,
             active_frame=active_frame,
             manual_active_frame_applied=manual_active_frame is not None,
+            encoded_evidence=has_encoded_evidence(vid, known_encode_tag_names, encoded_history_filenames),
         )
 
     @classmethod

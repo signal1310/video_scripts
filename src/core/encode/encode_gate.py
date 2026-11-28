@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from src.core.encode.encode_state import EncodeState
 from src.core.encode.encode_tag_plan import parse_keyword_list
 from src.core.encode_tag import (
     DEFAULT_ENCODE_TAG_NAME,
@@ -17,6 +18,7 @@ from src.core.encode_tag import (
     has_tag_name_keyword,
     parse_encode_tag,
 )
+from src.core.models import PERCENT_MULTIPLIER
 from src.core.probe_parser import format_tags, select_video_stream, video_duration_sec
 from src.core.smart_action import SmartAction
 
@@ -25,6 +27,10 @@ DURATION_TOLERANCE_MIN_SEC: float = 0.5
 DURATION_TOLERANCE_RATIO: float = 0.005
 # - 변환 우선 인코딩 결과가 원본 크기의 이 배수를 넘으면 그대로 배치하지 않고 보류(제안 2.3절 3단계)
 TRANSFORM_SIZE_SURGE_RATIO: float = 1.30
+TRANSFORM_SIZE_SURGE_PREFIX: str = "원본 대비 +"
+TRANSFORM_SIZE_SURGE: str = TRANSFORM_SIZE_SURGE_PREFIX + "{percent}% 급증"
+# - 급증 상한을 넘어도 배치된 완료 행의 주의 배지 글자(안 A). 상태 이름은 기존 완료를 그대로 씀
+DONE_SURGE_BADGE: str = "⚠ 완료"
 
 
 class GatePurpose(Enum):
@@ -163,3 +169,25 @@ def judge_result(
     if exceeds_transform_surge(source_size_bytes, output_size_bytes):
         return GateVerdict.PASS_SURGE
     return GateVerdict.PASS
+
+
+def is_transform_surge_reason(reason: str) -> bool:
+    """사유가 급증 상한 초과로 교체를 보류했거나 상한을 넘고 배치된 결과인지 판별
+
+    - 배치 끝의 자동 교체 재시도가 사용자 결정 없이 원본을 바꾸지 않게 하는 표식
+    """
+    return reason.startswith(TRANSFORM_SIZE_SURGE_PREFIX)
+
+
+def surge_done_badge(state: EncodeState, reason: str) -> str | None:
+    """완료 행이 급증 상한을 넘고 배치된 결과면 주의 배지 글자를, 아니면 None(안 A)"""
+    if state is EncodeState.DONE and is_transform_surge_reason(reason):
+        return DONE_SURGE_BADGE
+    return None
+
+
+def transform_surge_percent(output_size_bytes: int, source_size_bytes: int) -> int:
+    """원본 대비 결과 용량 증가율(퍼센트 정수). 원본 크기를 모르면 0"""
+    if source_size_bytes <= 0:
+        return 0
+    return round((output_size_bytes / source_size_bytes - 1.0) * PERCENT_MULTIPLIER)

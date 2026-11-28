@@ -104,8 +104,14 @@ class ProgressMedia(Protocol):
     def retry_replace(self, source: str) -> None:
         """교체 대기 항목 하나를 다시 배치"""
 
+    def replace_designated(self, source: str) -> None:
+        """교체 대기 항목 하나를 확인 없이 그대로 교체"""
+
     def forfeit_replace(self, source: str) -> None:
         """교체 대기 항목 하나를 포기해 실패로 바꿈"""
+
+    def discard_replace(self, source: str) -> None:
+        """교체 대기 항목의 임시 결과를 확인 뒤 지우고 폐기로 바꿈"""
 
     def trash_leftover(self, source: str) -> None:
         """같은 자리 임시 파일 때문에 실패한 항목이 쓰려던 임시 파일을 확인 뒤 휴지통으로 옮김"""

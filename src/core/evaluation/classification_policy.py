@@ -1,6 +1,6 @@
 """분류 정책 계층 모듈: 판정 문맥과 결정 타입, 절약 선별, 구간별 정책 함수와 기본 정책 순서"""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from src.core.config import SAVINGS_BASIS_ENCODE, ClassifierConfig
@@ -197,14 +197,28 @@ def _policy_exception_rule(ctx: EvaluationContext) -> ClassificationDecision | N
     return None
 
 
-def _has_encoded_evidence(ctx: EvaluationContext) -> bool:
-    """상세 항목, 현재+이전 태그 이름(대소문자 무시), 이력 지문 중 하나라도 일치하면 참"""
-    if ctx.video.has_encode_tag or ctx.video.filename in ctx.encoded_history_filenames:
+def has_encoded_evidence(
+    video: VideoProps,
+    known_encode_tag_names: Sequence[str] = (),
+    encoded_history_filenames: frozenset[str] = frozenset(),
+) -> bool:
+    """상세 항목, 현재+이전 태그 이름(대소문자 무시), 이력 지문 중 하나라도 일치하면 참
+
+    - 판정 정책과 대상 요약이 같은 근거를 쓰도록 하나만 둠
+    """
+    if video.has_encode_tag or video.filename in encoded_history_filenames:
         return True
-    if ctx.video.encode_keywords and ctx.known_encode_tag_names:
-        keywords = (part.strip() for part in ctx.video.encode_keywords.split(";") if part.strip())
-        return has_tag_name_keyword(keywords, ctx.known_encode_tag_names)
+    if video.encode_keywords and known_encode_tag_names:
+        keywords = (part.strip() for part in video.encode_keywords.split(";") if part.strip())
+        return has_tag_name_keyword(keywords, known_encode_tag_names)
     return False
+
+
+def _has_encoded_evidence(ctx: EvaluationContext) -> bool:
+    """평가 문맥의 인코딩 근거. 문맥이 지닌 태그 이름과 이력 지문을 함께 봄"""
+    return has_encoded_evidence(
+        ctx.video, ctx.known_encode_tag_names, ctx.encoded_history_filenames
+    )
 
 
 def _has_manual_active_frame(ctx: EvaluationContext) -> bool:

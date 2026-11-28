@@ -1,4 +1,4 @@
-"""인코딩 진행 창의 항목 조작: 영상 열기와 미리 보기, 교체 대기 재시도와 포기, 임시 파일 위치 열기와 옮기기
+"""인코딩 진행 창의 항목 조작: 영상 열기와 미리 보기, 교체 대기 재시도와 그대로 교체와 포기, 임시 파일 위치 열기와 옮기기
 
 - 진행 창의 ProgressMedia 인터페이스를 구현하고, 현재 배치는 호출 시점에 받음
 - 확인 창과 안내는 진행 창을 부모로 함
@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QMessageBox, QWidget
 from src.gui.controllers.encode_cleanup import LeftoverCleanup
 from src.gui.controllers.encode_controller import EncodeController
 from src.gui.dialogs.encode_progress_window import WINDOW_TITLE, EncodeProgressWindow
-from src.gui.dialogs.encode_resume_dialogs import ask_forfeit
+from src.gui.dialogs.encode_resume_dialogs import ask_discard_replace, ask_forfeit
 from src.gui.preview.preview_controller import PreviewController
 from src.gui.table.table_actions import missing_notice, open_media_path, reveal_path
 from src.service.encode.encode_history import EncodeHistory
@@ -22,6 +22,9 @@ from src.service.encode.encode_resume import leftover_part_path
 
 RETRY_BUSY_TEXT: str = "인코딩이 끝난 뒤 다시 시도할 수 있습니다."
 FORFEIT_BUSY_TEXT: str = "인코딩이 끝난 뒤 포기할 수 있습니다."
+DISCARD_BUSY_TEXT: str = "인코딩이 끝난 뒤 결과를 폐기할 수 있습니다."
+REPLACE_BUSY_TEXT: str = "인코딩이 끝난 뒤 그대로 교체할 수 있습니다."
+REPLACE_FAILED_TEXT: str = "결과 파일을 원본 자리에 옮기지 못했습니다. 교체 대기로 남겨 두었습니다."
 LEFTOVER_MISSING_TEXT: str = "임시 파일을 찾을 수 없습니다. 이미 지워졌거나 옮겨졌을 수 있습니다."
 
 
@@ -94,6 +97,33 @@ class EncodeItemActions:
             self._refresh_batch(batch_id)
         else:
             self._notify(FORFEIT_BUSY_TEXT)
+
+    def replace_designated(self, source: str) -> None:
+        """교체 대기 항목을 확인 없이 그대로 교체(TERMINOLOGY 그대로 교체). 실행 중이면 안내"""
+        batch = self._active_batch()
+        if batch is None:
+            return
+        batch_id, settings = batch
+        if self._controller.replace_designated(batch_id, settings, source):
+            self._refresh_batch(batch_id)
+            return
+        self._notify(REPLACE_BUSY_TEXT)
+
+    def discard_replace(self, source: str) -> None:
+        """교체 대기 항목의 임시 결과를 지우고 폐기로 바꿈. 되돌릴 수 없으므로 확인 창을 거침"""
+        batch = self._active_batch()
+        if batch is None:
+            return
+        batch_id, settings = batch
+        if not ask_discard_replace(self._window()):
+            return
+        changed, failure = self._controller.discard_replace(batch_id, settings, source)
+        if changed:
+            self._refresh_batch(batch_id)
+        elif failure:
+            self._notify(failure)
+        else:
+            self._notify(DISCARD_BUSY_TEXT)
 
     def reveal_leftover(self, source: str) -> bool:
         """임시 파일이 남은 행(교체 대기, 임시 파일 때문에 실패)은 그 파일을 탐색기에서 선택하고 참을 돌려줌. 그 밖의 행은 거짓"""

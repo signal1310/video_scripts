@@ -76,6 +76,41 @@ class ItemActionsWithBatchTests(_ItemActionCase):
             self.assertTrue(self.actions.reveal_leftover("a.mp4"))
         self.assertEqual(notice.call_args.args[2], LEFTOVER_MISSING_TEXT)
 
+    def test_replace_designated_confirms_nothing_and_refreshes_after_it(self) -> None:
+        """그대로 교체는 확인 없이 실행기에 넘기고 성공하면 행을 다시 읽으며, 거부되면 실행 중 안내"""
+        self.batch = (7, EncodeSettings.from_config(ClassifierConfig()))
+        self.controller.replace_designated.return_value = True
+        with mock.patch.object(encode_item_actions.QMessageBox, "information") as notice:
+            self.actions.replace_designated("a.mp4")
+        self.controller.replace_designated.assert_called_once_with(7, self.batch[1], "a.mp4")
+        self.refresh.assert_called_once_with(7)
+        notice.assert_not_called()
+
+        self.controller.replace_designated.return_value = False
+        with mock.patch.object(encode_item_actions.QMessageBox, "information") as notice:
+            self.actions.replace_designated("a.mp4")
+        self.assertEqual(notice.call_args.args[2], encode_item_actions.REPLACE_BUSY_TEXT)
+
+    def test_discard_failure_notice_is_about_discarding_not_forfeiting(self) -> None:
+        """폐기가 실패하면 지운 결과 파일을 지우지 못했다는 사유를 안내하고, 거부되면 폐기 전용 안내를 씀"""
+        self.batch = (7, EncodeSettings.from_config(ClassifierConfig()))
+        self.controller.discard_replace.return_value = (False, "임시 결과 파일을 삭제하지 못했습니다: 공유 위반")
+        with (
+            mock.patch.object(encode_item_actions, "ask_discard_replace", return_value=True),
+            mock.patch.object(encode_item_actions.QMessageBox, "information") as notice,
+        ):
+            self.actions.discard_replace("a.mp4")
+        self.assertIn("공유 위반", notice.call_args.args[2])
+        self.assertNotIn(encode_item_actions.FORFEIT_BUSY_TEXT, notice.call_args.args[2])
+
+        self.controller.discard_replace.return_value = (False, "")
+        with (
+            mock.patch.object(encode_item_actions, "ask_discard_replace", return_value=True),
+            mock.patch.object(encode_item_actions.QMessageBox, "information") as notice,
+        ):
+            self.actions.discard_replace("a.mp4")
+        self.assertEqual(notice.call_args.args[2], encode_item_actions.DISCARD_BUSY_TEXT)
+
     def test_compare_files_delegates_to_the_injected_opener(self) -> None:
         """화질 비교 요청은 주입한 열기 함수로 원본 경로를 넘김"""
         calls: list[str] = []

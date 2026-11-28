@@ -20,6 +20,7 @@ from typing import TypeVar
 from src.core.encode.encode_previous_discard import DiscardFact
 from src.core.encode.encode_state import BATCH_STATE_CLOSED, BATCH_STATE_OPEN, EncodeState
 from src.core.workspace_paths import is_within_roots, parse_root_dirs
+from src.service.encode.encode_reasons import DISCARDED_BY_USER
 
 logger = logging.getLogger(__name__)
 
@@ -293,14 +294,17 @@ class EncodeHistory:
         return self._run(_query)
 
     def discarded_facts(self) -> dict[str, DiscardFact]:
-        """결과 폐기로 끝난 원본 경로별 폐기 사실. 같은 경로가 여러 번이면 나중 배치의 값을 씀"""
+        """결과 폐기로 끝난 원본 경로별 폐기 사실. 같은 경로가 여러 번이면 나중 배치의 값을 씀
+
+        - 사용자가 교체 대기 행을 폐기한 것은 "결과가 원본보다 커서 폐기" 한 사실이 아니므로 뺌(이전 폐기 판정에 쓰지 않음)
+        """
 
         def _query(conn: sqlite3.Connection) -> dict[str, DiscardFact]:
             rows = conn.execute(
                 "SELECT i.source_path, i.source_size, i.source_mtime_ns, i.plan_json, b.settings_json "
                 f"FROM {ENCODE_ITEM_TABLE} AS i JOIN {ENCODE_BATCH_TABLE} AS b ON b.batch_id = i.batch_id "
-                "WHERE i.state = ? ORDER BY i.batch_id, i.source_path",
-                (EncodeState.DISCARDED.value,),
+                "WHERE i.state = ? AND i.reason <> ? ORDER BY i.batch_id, i.source_path",
+                (EncodeState.DISCARDED.value, DISCARDED_BY_USER),
             ).fetchall()
             return {str(r[0]): _discard_fact(r) for r in rows}
 

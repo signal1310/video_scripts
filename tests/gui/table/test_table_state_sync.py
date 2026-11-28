@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QApplication, QHeaderView
 from src.core.analysis.frame_analysis import ActiveRegion
 from src.core.analysis.frame_analysis_runner import FrameAnalysisResult
 from src.core.encode.encode_batch_book import EncodeBatchBook
+from src.core.encode.encode_gate import DONE_SURGE_BADGE
 from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL
 from src.core.encode.encode_state import EncodeState
 from src.core.settings.ui_state import TEXT_MODE_STARTS_WITH, ColumnFilterSnapshot
@@ -19,7 +20,7 @@ from src.gui.table.column_filters import ColumnFilterRule, rule_to_snapshot
 from src.gui.table.frame_analysis_columns import ACTIVE_FRAME_FULL_TEXT, ACTIVE_FRAME_VR_TEXT
 from src.gui.table.numeric_buckets import NumericBucketKind, build_numeric_buckets, resolve_numeric_bucket
 from src.gui.table.proxy_model import VideoSortFilterProxyModel
-from src.gui.table.table_columns import ENCODE_STATE_LABELS
+from src.gui.table.table_columns import COL_DEF_MAP, ENCODE_STATE_LABELS
 from src.gui.table.table_model import VideoTableModel
 from src.gui.table.table_state_sync import (
     apply_saved_filters,
@@ -337,6 +338,41 @@ class FrameAnalysisFilterRestoreTests(unittest.TestCase):
         selected = rule.selected_values if rule is not None else None
         self.assertEqual(selected, frozenset({""}))
         self.assertEqual(_visible(proxy), ["a.mp4", "b.mp4"])
+
+    def test_surge_done_badge_is_a_current_encode_state_value(self) -> None:
+        """급증 상한을 넘고 배치된 완료 표기도 현재 값으로 인정해 필터에서 버리지 않고 그 행만 남기는지 검증(안 A)"""
+        proxy = _build_proxy()
+        model = proxy.sourceModel()
+        assert isinstance(model, VideoTableModel)
+        book = EncodeBatchBook()
+        book.start(
+            [
+                resolve_source_filepath("C:/work", "a.mp4"),
+                resolve_source_filepath("C:/work", "b.mp4"),
+            ]
+        )
+        book.apply(
+            resolve_source_filepath("C:/work", "a.mp4"),
+            EncodeState.DONE,
+            "원본 대비 +42% 급증 / 사용자 확인 후 원본을 결과 파일로 교체했습니다",
+        )
+        book.apply(resolve_source_filepath("C:/work", "b.mp4"), EncodeState.DONE)
+        model.set_encode_book(book)
+        columns = {"encode_state": ColumnFilterSnapshot(selected_values=(DONE_SURGE_BADGE,))}
+        with self.assertNoLogs(_LOGGER_NAME, level="INFO"):
+            changes = apply_saved_filters(proxy, columns)
+        self.assertEqual(changes, {})
+        rule = proxy.get_column_filter(VideoTableModel.COL_ENCODE_STATE)
+        self.assertIsNotNone(rule)
+        selected = rule.selected_values if rule is not None else None
+        self.assertEqual(selected, frozenset({DONE_SURGE_BADGE}))
+        self.assertEqual(_visible(proxy), ["a.mp4"])
+
+    def test_surge_done_badge_is_offered_in_the_encode_state_presets(self) -> None:
+        """인코딩 상태 열의 선택 목록에 급증 완료 주의 배지가 들어 있어 필터로 고를 수 있음"""
+        self.assertIn(DONE_SURGE_BADGE, ENCODE_STATE_LABELS)
+        spec = COL_DEF_MAP[VideoTableModel.COL_ENCODE_STATE].spec
+        self.assertIn(DONE_SURGE_BADGE, spec.preset_values)
 
     def test_previous_discard_label_is_a_current_encode_state_value(self) -> None:
         """선언된 상태 문구와 이전 폐기 문구도 현재 값으로 인정해 버리지 않고 해당 행만 남기는지 검증"""

@@ -11,7 +11,9 @@ from src.core.encode.encode_gate import (
     purpose_for_action,
     purpose_for_evaluation,
     summarize_probe,
+    surge_done_badge,
 )
+from src.core.encode.encode_state import EncodeState
 from src.core.encode_tag import (
     DEFAULT_ENCODE_TAG_NAME,
     ENCODE_TAG_MODE_HIDDEN,
@@ -210,6 +212,20 @@ class TestSizeGate(unittest.TestCase):
                 self.assertIs(
                     _judge(_ok(), size=_SOURCE_SIZE * 3, purpose=purpose), GateVerdict.PASS_SURGE
                 )
+
+
+class TestSurgeDoneBadge(unittest.TestCase):
+    """급증 상한을 넘고 배치된 완료 행의 주의 배지(안 A)를 검증"""
+
+    def test_done_with_surge_reason_shows_the_caution_badge(self) -> None:
+        from src.core.encode.encode_gate import DONE_SURGE_BADGE
+
+        self.assertEqual(surge_done_badge(EncodeState.DONE, "원본 대비 +42% 급증"), DONE_SURGE_BADGE)
+
+    def test_plain_done_and_other_states_show_no_badge(self) -> None:
+        self.assertIsNone(surge_done_badge(EncodeState.DONE, ""))
+        self.assertIsNone(surge_done_badge(EncodeState.REPLACE_PENDING, "원본 대비 +42% 급증"))
+        self.assertIsNone(surge_done_badge(EncodeState.FAILED, "원본 대비 +42% 급증"))
 
 
 class TestPurposeMapping(unittest.TestCase):

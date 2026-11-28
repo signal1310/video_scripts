@@ -81,6 +81,14 @@ class _FakeRunner:
         self.calls.append(f"forfeit:{source_path}")
         return True
 
+    def replace_designated_pending(self, batch_id: int, source_path: str) -> bool:
+        self.calls.append(f"replace:{source_path}")
+        return True
+
+    def discard_replace_pending(self, batch_id: int, source_path: str) -> tuple[bool, str]:
+        self.calls.append(f"discard:{source_path}")
+        return True, ""
+
     def request_stop_after_current(self) -> None:
         self.calls.append("stop")
 
@@ -347,6 +355,32 @@ class ResumeRetryForfeitTests(unittest.TestCase):
         self.assertFalse(self.controller.retry_replace(1, self.settings, None))
         self.controller.cancel_all()
         self.assertTrue(_wait(lambda: not self.controller.is_running))
+
+    def test_discard_replace_reaches_a_runner_built_for_the_batch(self) -> None:
+        """폐기는 되돌릴 수 없는 동작이라 컨트롤러는 확인 없이 실행기에 전달만 하고, 실행 중이면 거부"""
+        self.assertEqual(self.controller.discard_replace(1, self.settings, "a.mp4"), (True, ""))
+        self.assertIn("discard:a.mp4", self.runners[-1].calls)
+        self.controller.resume(1, self.settings)
+        self.assertEqual(self.controller.discard_replace(1, self.settings, "a.mp4"), (False, ""))
+        self.controller.cancel_all()
+        self.assertTrue(_wait(lambda: not self.controller.is_running))
+
+    def test_replace_designated_reaches_a_runner_built_for_the_batch(self) -> None:
+        """그대로 교체는 바로 실행기에 전달되고, 배치가 실행 중이면 거부"""
+        self.assertTrue(self.controller.replace_designated(1, self.settings, "a.mp4"))
+        self.assertIn("replace:a.mp4", self.runners[-1].calls)
+        self.controller.resume(1, self.settings)
+        self.assertFalse(self.controller.replace_designated(1, self.settings, "a.mp4"))
+        self.controller.cancel_all()
+        self.assertTrue(_wait(lambda: not self.controller.is_running))
+
+    def test_discard_and_forfeit_refuse_while_a_replace_retry_runs(self) -> None:
+        """교체 재시도 워커가 도는 동안에는 폐기와 포기가 같은 임시 파일을 건드리지 않게 거부"""
+        with mock.patch.object(ReplaceRetryWorker, "start"):
+            self.assertTrue(self.controller.retry_replace(1, self.settings, "a.mp4"))
+            self.assertEqual(self.controller.discard_replace(1, self.settings, "a.mp4"), (False, ""))
+            self.assertFalse(self.controller.forfeit_replace(1, self.settings, "a.mp4"))
+            self.assertFalse(self.controller.replace_designated(1, self.settings, "a.mp4"))
 
 
 if __name__ == "__main__":

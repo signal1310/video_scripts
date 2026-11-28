@@ -787,6 +787,56 @@ class EncodeCoordinatorTests(unittest.TestCase):
         self.assertEqual(notice.call_count, 2)
         self.assertIn(item_actions_module.RETRY_BUSY_TEXT, notice.call_args_list[0].args)
 
+    def test_discard_replace_needs_confirmation_and_refreshes_after_it(self) -> None:
+        """폐기는 확인 창을 거쳐야 하고, 확인하면 결과 파일을 지운 뒤 행을 갱신함(AGENTS 3.1절)"""
+        self._start_with_views()
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with (
+            mock.patch.object(item_actions_module, "ask_discard_replace", return_value=False) as ask,
+            mock.patch.object(EncodeController, "discard_replace") as discard,
+        ):
+            self.coordinator._items.discard_replace(path)
+            ask.assert_called_once()
+            discard.assert_not_called()
+        with (
+            mock.patch.object(item_actions_module, "ask_discard_replace", return_value=True),
+            mock.patch.object(EncodeController, "discard_replace", return_value=(True, "")) as discard,
+            mock.patch.object(self.coordinator._items, "_refresh_batch") as refresh,
+        ):
+            self.coordinator._items.discard_replace(path)
+        discard.assert_called_once()
+        refresh.assert_called_once()
+
+    def test_failed_discard_notice_keeps_the_row_and_explains_why(self) -> None:
+        """임시 파일을 지우지 못한 폐기는 사유를 안내하고 행을 다시 읽지 않음"""
+        self._start_with_views()
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with (
+            mock.patch.object(item_actions_module, "ask_discard_replace", return_value=True),
+            mock.patch.object(
+                EncodeController,
+                "discard_replace",
+                return_value=(False, "임시 결과 파일을 삭제하지 못했습니다: 공유 위반"),
+            ),
+            mock.patch.object(self.coordinator._items, "_refresh_batch") as refresh,
+            mock.patch.object(item_actions_module.QMessageBox, "information") as notice,
+        ):
+            self.coordinator._items.discard_replace(path)
+        refresh.assert_not_called()
+        self.assertIn("공유 위반", notice.call_args.args[2])
+
+    def test_replace_designated_needs_no_confirmation_and_refreshes_after_it(self) -> None:
+        """그대로 교체는 확인 없이 실행기에 넘기고 성공하면 행을 다시 읽음(TERMINOLOGY)"""
+        self._start_with_views()
+        path = resolve_source_filepath(self.root, "a.mp4")
+        with (
+            mock.patch.object(EncodeController, "replace_designated", return_value=True) as replace,
+            mock.patch.object(self.coordinator._items, "_refresh_batch") as refresh,
+        ):
+            self.coordinator._items.replace_designated(path)
+        replace.assert_called_once()
+        refresh.assert_called_once()
+
     def test_media_actions_open_or_preview_existing_files_and_warn_when_missing(self) -> None:
         """진행 창의 열기와 미리 보기는 파일이 있을 때만 실행하고, 없으면 안내"""
         existing = os.path.join(self.root, "present.mp4")

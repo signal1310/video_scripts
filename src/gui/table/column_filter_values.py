@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 
 from src.core.config import ClassifierConfig
+from src.core.encode.encode_gate import DONE_SURGE_BADGE
 from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL
 from src.core.settings.ui_state import ColumnFilterSnapshot
 from src.gui.table.column_filters import (
@@ -53,9 +54,9 @@ _ACTIVE_FRAME_VALUE_SET: frozenset[str] = frozenset(
         ACTIVE_FRAME_MARGINS_VARY_TEXT,
     }
 )
-# - 인코딩 상태 열의 표시 값: 상태 문구, 이전 폐기 문구, 배치 대상이 아닐 때의 빈 값
+# - 인코딩 상태 열의 표시 값: 상태 문구, 급증 완료 주의 배지, 이전 폐기 문구, 배치 대상이 아닐 때의 빈 값
 _ENCODE_STATE_VALUE_SET: frozenset[str] = frozenset(
-    {"", *ENCODE_STATE_LABELS, PREVIOUS_DISCARD_LABEL}
+    {"", *ENCODE_STATE_LABELS, DONE_SURGE_BADGE, PREVIOUS_DISCARD_LABEL}
 )
 
 

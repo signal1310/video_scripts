@@ -30,6 +30,7 @@ from src.core.encode.encode_batch_book import (
     STATUS_REPLACE_PENDING,
     STATUS_SKIPPED,
 )
+from src.core.encode.encode_gate import DONE_SURGE_BADGE
 from src.core.encode.encode_progress_values import TONE_GREW, TONE_SAVED, ResultLine
 from src.core.encode.encode_progress_view import speed_text
 from src.gui.dialogs.encode_flow_layout import FlowLayout
@@ -62,6 +63,8 @@ RESULT_STATUS_ORDER: tuple[str, ...] = (
 )
 RETRY_ACCESSIBLE_NAME: str = "재시도"
 RETRY_TIP: str = "결과 파일을 원본 자리로 다시 옮깁니다. 실패하면 교체 대기로 남습니다."
+REPLACE_ACCESSIBLE_NAME: str = "그대로 교체"
+REPLACE_TIP: str = "크기가 급증한 결과 파일을 확인 없이 원본 자리에 옮깁니다. 원본은 보관 폴더로 옮겨집니다."
 FORFEIT_ACCESSIBLE_NAME: str = "교체 포기"
 FORFEIT_TIP: str = "이 영상을 실패로 두고 재시도하지 않습니다. 원본과 결과 파일은 그대로 남습니다."
 REVEAL_ACCESSIBLE_NAME: str = "위치 열기"
@@ -72,6 +75,8 @@ COMPARE_DISABLED_TIP: str = "원본 파일이 없어 비교할 수 없습니다.
 COMPARE_ICON: str = "compare"
 TRASH_ACCESSIBLE_NAME: str = "휴지통으로 이동"
 TRASH_TIP: str = "이 영상이 쓰려던 임시 파일을 휴지통으로 옮깁니다. 확인 창을 한 번 거칩니다."
+DISCARD_ACCESSIBLE_NAME: str = "결과 폐기"
+DISCARD_TIP: str = "이 영상의 임시 결과 파일을 지우고 원본을 그대로 둡니다. 확인 창을 한 번 거칩니다."
 
 
 class TotalsPanel(QWidget):
@@ -203,14 +208,16 @@ class ResultList(QWidget):
     """인코딩 결과 목록. 상태 필터 칩으로 보는 상태를 고르고, 행마다 상태 배지, 이름, 크기 줄, 사유 줄을 보여 줌
 
     - activated: 행 더블클릭, preview_requested: 스페이스바. 두 신호는 원본 경로를 넘김
-    - retry_requested, forfeit_requested: 교체 대기 행의 아이콘 버튼
+    - retry_requested, replace_requested, forfeit_requested: 교체 대기 행의 아이콘 버튼. replace_requested는 급증 보류 행만 받음
     - reveal_requested: 임시 파일이 남은 행의 위치 열기, trash_requested: 같은 자리 임시 파일 때문에 실패한 행의 휴지통 이동
     """
 
     activated = pyqtSignal(str)
     preview_requested = pyqtSignal(str)
     retry_requested = pyqtSignal(str)
+    replace_requested = pyqtSignal(str)
     forfeit_requested = pyqtSignal(str)
+    discard_requested = pyqtSignal(str)
     reveal_requested = pyqtSignal(str)
     trash_requested = pyqtSignal(str)
     compare_requested = pyqtSignal(str)
@@ -268,7 +275,7 @@ class ResultList(QWidget):
         return self._lines[row].reason if 0 <= row < len(self._lines) else ""
 
     def action_buttons(self, row: int) -> list[QPushButton]:
-        """행의 조작 버튼. 교체 대기 행은 재시도, 교체 포기, 위치 열기 순이고, 임시 파일 실패 행은 위치 열기와 휴지통 이동"""
+        """행의 조작 버튼. 교체 대기 행은 재시도, (급증 보류면) 그대로 교체, 교체 포기, 결과 폐기 순이고, 임시 파일 실패 행은 위치 열기와 휴지통 이동"""
         item = self._list.item(row)
         if item is None:
             return []
@@ -381,7 +388,7 @@ class ResultList(QWidget):
         outer.setSpacing(ROW_GAP_PX)
         head = QHBoxLayout()
         head.setSpacing(ROW_GAP_PX * 2)
-        badge = QLabel(line.status, row)
+        badge = QLabel(DONE_SURGE_BADGE if line.surge_done else line.status, row)
         badge.setObjectName("EncodeStatusBadge")
         name = QLabel(line.name, row)
         name.setWordWrap(True)
@@ -412,7 +419,8 @@ class ResultList(QWidget):
         palette = self._palette
         if palette is None:
             return
-        colors = encode_state_badge(line.status, palette)
+        badge_label = DONE_SURGE_BADGE if line.surge_done else line.status
+        colors = encode_state_badge(badge_label, palette)
         if colors is not None:
             background, foreground, border = colors
             badge.setStyleSheet(
@@ -461,6 +469,17 @@ class ResultList(QWidget):
                 fixed_size=ACTION_BUTTON_PX,
             )
             set_button_icon(retry, "rotate-cw", pad_right=0)
+            layout.addWidget(retry)
+            if line.surge_pending:
+                replace = create_icon_button(
+                    cell,
+                    REPLACE_TIP,
+                    _emitter(self.replace_requested, source),
+                    accessible_name=REPLACE_ACCESSIBLE_NAME,
+                    fixed_size=ACTION_BUTTON_PX,
+                )
+                set_button_icon(replace, "check", pad_right=0)
+                layout.addWidget(replace)
             forfeit = create_icon_button(
                 cell,
                 FORFEIT_TIP,
@@ -469,8 +488,16 @@ class ResultList(QWidget):
                 fixed_size=ACTION_BUTTON_PX,
             )
             set_button_icon(forfeit, "x", pad_right=0)
-            layout.addWidget(retry)
+            discard = create_icon_button(
+                cell,
+                DISCARD_TIP,
+                _emitter(self.discard_requested, source),
+                accessible_name=DISCARD_ACCESSIBLE_NAME,
+                fixed_size=ACTION_BUTTON_PX,
+            )
+            set_button_icon(discard, "trash", pad_right=0)
             layout.addWidget(forfeit)
+            layout.addWidget(discard)
         if line.leftover:
             reveal = create_icon_button(
                 cell,

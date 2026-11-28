@@ -8,6 +8,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
+from src.core.encode.encode_gate import surge_done_badge
 from src.core.encode.encode_state import EncodeState
 
 STATUS_PENDING: str = "대기"
@@ -129,11 +130,11 @@ def status_label(state: EncodeState, paused: bool) -> str:
 
 
 def status_tooltip(state: EncodeState, paused: bool, reason: str) -> str:
-    """항목 상태의 툴팁 문장. 사유가 있는 상태만 둘째 줄에 결과 사유를 붙임"""
+    """항목 상태의 툴팁 문장. 사유가 있는 상태(급증 표식이 남은 완료 포함)는 둘째 줄에 결과 사유를 붙임"""
     if state is EncodeState.RUNNING and paused:
         return PAUSED_TOOLTIP
     sentence = _SENTENCE_BY_STATE[state]
-    if state in REASON_STATES and reason:
+    if reason and (state in REASON_STATES or state is EncodeState.DONE):
         return f"{sentence}\n사유: {reason}"
     return sentence
 
@@ -216,9 +217,23 @@ class EncodeBatchBook:
         return self._states.get(path)
 
     def label_of(self, path: str) -> str | None:
-        """경로의 상태 표기. 배치 대상이 아니면 None"""
+        """경로의 상태 표기. 배치 대상이 아니면 None
+
+        - 급증 상한을 넘고 배치된 완료 항목은 기존 완료 대신 주의 배지 글자를 씀(안 A)
+        """
         state = self._states.get(path)
-        return None if state is None else status_label(state, self._is_paused(path))
+        if state is None:
+            return None
+        badge = surge_done_badge(state, self._reasons.get(path, ""))
+        if badge is not None:
+            return badge
+        return status_label(state, self._is_paused(path))
+
+    def reason_of(self, path: str) -> str | None:
+        """경로의 결과 사유. 배치 대상이 아니면 None"""
+        if path not in self._states:
+            return None
+        return self._reasons.get(path, "")
 
     def tooltip_of(self, path: str) -> str | None:
         """경로의 상태 툴팁 문장. 배치 대상이 아니면 None"""

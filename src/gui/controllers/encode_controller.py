@@ -64,6 +64,14 @@ class ControllableRunner(Protocol):
         """교체 대기 항목을 실패로 바꿈. 바꾸면 참"""
         ...
 
+    def replace_designated_pending(self, batch_id: int, source_path: str) -> bool:
+        """교체 대기 항목을 그대로 교체(사용자 확인). 배치면 참"""
+        ...
+
+    def discard_replace_pending(self, batch_id: int, source_path: str) -> tuple[bool, str]:
+        """교체 대기 항목의 임시 결과를 지우고 폐기로 바꿈. (성공 여부, 실패 사유)를 돌려줌"""
+        ...
+
 
 RunnerFactory = Callable[[EncodeSettings, QueueSink], ControllableRunner]
 
@@ -187,10 +195,31 @@ class EncodeController(QObject):
         self._launch(batch_id, settings)
 
     def forfeit_replace(self, batch_id: int, settings: EncodeSettings, source: str) -> bool:
-        """교체 대기 항목을 실패로 바꿈. 배치가 실행 중이면 바꾸지 않고 거짓을 돌려줌"""
-        if self.is_running:
+        """교체 대기 항목을 실패로 바꿈. 배치나 교체 재시도가 실행 중이면 바꾸지 않고 거짓을 돌려줌
+
+        - 재시도 워커가 같은 임시 파일을 옮기는 중이면 기록이 뒤섞이므로 함께 막음
+        """
+        if self.is_running or self._retry_worker is not None:
             return False
         return self._make_runner(settings, _discard_event).forfeit_replace_pending(batch_id, source)
+
+    def replace_designated(self, batch_id: int, settings: EncodeSettings, source: str) -> bool:
+        """교체 대기 항목을 그대로 교체. 배치나 교체 재시도가 실행 중이면 바꾸지 않고 거짓을 돌려줌"""
+        if self.is_running or self._retry_worker is not None:
+            return False
+        return self._make_runner(settings, _discard_event).replace_designated_pending(batch_id, source)
+
+    def discard_replace(
+        self, batch_id: int, settings: EncodeSettings, source: str
+    ) -> tuple[bool, str]:
+        """교체 대기 항목의 임시 결과를 지우고 폐기로 바꿈. (성공 여부, 실패 사유)를 돌려줌
+
+        - 배치나 교체 재시도가 실행 중이면 (거짓, 빈 문구)로 거부하고, 임시 파일을 지우지 못하면 사유를 돌려줌
+        - 화면 슬롯에서 바로 불리므로 지우기 실패(OSError)를 예외가 아니라 사유로 돌려줌
+        """
+        if self.is_running or self._retry_worker is not None:
+            return False, ""
+        return self._make_runner(settings, _discard_event).discard_replace_pending(batch_id, source)
 
     def retry_replace(self, batch_id: int, settings: EncodeSettings, only_source: str | None) -> bool:
         """교체 대기 재시도를 워커에서 시작. 배치나 다른 재시도가 실행 중이면 시작하지 않고 거짓을 돌려줌"""

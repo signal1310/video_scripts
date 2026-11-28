@@ -41,11 +41,15 @@ class StatusTextTests(unittest.TestCase):
         self.assertEqual(status_label(EncodeState.DONE, paused=True), STATUS_DONE)
 
     def test_tooltip_sentences_follow_the_approved_wording(self) -> None:
-        """상태별 툴팁 문장이 승인된 문구이고, 사유 상태만 둘째 줄에 결과 사유를 붙이는지 검증"""
+        """상태별 툴팁 문장이 승인된 문구이고, 사유 상태와 사유가 있는 완료만 둘째 줄에 결과 사유를 붙이는지 검증"""
         self.assertEqual(status_tooltip(EncodeState.PENDING, False, ""), "인코딩 순서를 기다리는 중입니다.")
         self.assertEqual(status_tooltip(EncodeState.RUNNING, False, ""), "인코딩하는 중입니다.")
         self.assertEqual(status_tooltip(EncodeState.RUNNING, True, ""), PAUSED_TOOLTIP)
-        self.assertEqual(status_tooltip(EncodeState.DONE, False, "무시되는 사유"), "인코딩을 마쳤습니다.")
+        self.assertEqual(status_tooltip(EncodeState.DONE, False, ""), "인코딩을 마쳤습니다.")
+        self.assertEqual(
+            status_tooltip(EncodeState.DONE, False, "원본 대비 +42% 급증 / 사용자 확인 후 원본을 결과 파일로 교체했습니다"),
+            "인코딩을 마쳤습니다.\n사유: 원본 대비 +42% 급증 / 사용자 확인 후 원본을 결과 파일로 교체했습니다",
+        )
         self.assertEqual(
             status_tooltip(EncodeState.DISCARDED, False, "결과가 원본보다 큼"),
             "인코딩 결과를 쓰지 않고 지웠습니다. 원본은 그대로입니다.\n사유: 결과가 원본보다 큼",
@@ -104,6 +108,14 @@ class EncodeBatchBookTests(unittest.TestCase):
             self.book.tooltip_of(_A),
             "인코딩하지 못했습니다. 원본은 그대로입니다.\n사유: 인코딩 실패(종료 코드 1)",
         )
+
+    def test_surge_done_item_shows_the_caution_badge_label_and_keeps_the_reason(self) -> None:
+        """급증 상한을 넘고 배치된 완료 항목은 주의 배지 글자를 쓰고 사유는 그대로 남는지 검증(안 A)"""
+        self.book.start([_A, _B])
+        self.book.apply(_A, EncodeState.DONE, "원본 대비 +42% 급증")
+        self.assertEqual(self.book.label_of(_A), "⚠ 완료")
+        self.assertEqual(self.book.reason_of(_A), "원본 대비 +42% 급증")
+        self.assertEqual(self.book.label_of(_B), STATUS_PENDING)
 
     def test_pause_changes_only_running_labels(self) -> None:
         """일시중지 전환이 진행 중 표기에만 반영되고 해제하면 원래 표기로 돌아오는지 검증"""

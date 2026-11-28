@@ -48,6 +48,12 @@ FORFEIT_TITLE: str = "교체를 포기할까요?"
 FORFEIT_BODY: str = "결과 파일을 원본 자리에 옮기지 않고 이 영상을 실패로 둡니다. 원본과 결과 파일은 모두 그대로 남습니다."
 FORFEIT_BUTTON_TEXT: str = "교체 포기"
 FORFEIT_CANCEL_TEXT: str = "취소"
+DISCARD_TITLE: str = "결과를 폐기할까요?"
+DISCARD_BODY: str = (
+    "이 영상이 쓰려던 임시 결과 파일을 지웁니다. 지운 결과는 되돌릴 수 없으며 원본 영상 파일은 그대로 남습니다."
+)
+DISCARD_REPLACE_BUTTON_TEXT: str = "폐기"
+DISCARD_CANCEL_TEXT: str = "취소"
 
 
 class ResumeChoice(Enum):
@@ -172,3 +178,16 @@ def ask_forfeit(parent: QWidget) -> bool:
     box.setEscapeButton(cancel)
     box.exec()
     return box.clickedButton() is forfeit
+
+
+def ask_discard_replace(parent: QWidget) -> bool:
+    """결과 폐기 확인. 폐기를 고르면 참, 취소나 닫기는 거짓(기본 포커스는 취소)"""
+    box = QMessageBox(parent)
+    box.setWindowTitle(DISCARD_TITLE)
+    box.setText(DISCARD_BODY)
+    discard = box.addButton(DISCARD_REPLACE_BUTTON_TEXT, QMessageBox.ButtonRole.DestructiveRole)
+    cancel = box.addButton(DISCARD_CANCEL_TEXT, QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(cancel)
+    box.setEscapeButton(cancel)
+    box.exec()
+    return box.clickedButton() is discard

@@ -259,6 +259,13 @@ class EncodeOutputHistory:
                 conn.close()
             self._connections.clear()
 
+    def close_output_history(self) -> None:
+        """현재 스레드가 연 결과 이력 연결만 닫음. 교체 대기 항목을 배치 밖에서 배치한 뒤의 정리용"""
+        with self._lock:
+            conn = self._connections.pop(threading.get_ident(), None)
+        if conn is not None:
+            conn.close()
+
     def _run(self, action: Callable[[sqlite3.Connection], _T]) -> _T:
         attempt = 0
         while True:

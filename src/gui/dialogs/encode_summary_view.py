@@ -36,6 +36,10 @@ from src.core.encode.encode_summary import (
     attention_text,
     brief_values,
     delta_text,
+    designation_caution_line,
+    designation_counts,
+    designation_line,
+    designation_summary_line,
     done_badge,
     done_count,
     final_speed_text,
@@ -102,6 +106,7 @@ BRIEF_ENCODER_TIP: str = (
     "이번 배치에 쓸 목표 인코딩 방식과 화질 기준값입니다. 환경 설정의 인코딩 탭에서 바꿀 수 있습니다."
 )
 SETTINGS_CHIP_TIP: str = "환경 설정의 인코딩 탭을 엽니다."
+DESIGNATION_SUMMARY_TIP: str = "이번 배치 대상을 용량 절약과 변환 우선으로 나눈 개수입니다."
 ATTENTION_ACCESSIBLE_NAME: str = "결과 탭 열기"
 ATTENTION_TIP: str = "결과 탭으로 이동해 주의가 필요한 영상을 확인합니다."
 RESULT_TAB_ICON: str = "file-text"
@@ -143,6 +148,7 @@ class EncodeSummaryView(QWidget):
         self._net_saved_grew: bool = False
         self._target_text: str = ""
         self._size_change_text: str = ""
+        self._designation_tip_suffix: str = ""
         (
             self.brief_card,
             self.brief_tile,
@@ -150,6 +156,8 @@ class EncodeSummaryView(QWidget):
             self.brief_net_value,
             self.brief_target_line,
             self.brief_encoder_line,
+            self.designation_line,
+            self.designation_caution,
             self.btn_settings,
         ) = self._build_brief_card()
         self.live_saving = self._build_live_label()
@@ -245,7 +253,7 @@ class EncodeSummaryView(QWidget):
         banner.setVisible(False)
         return banner, icon, text, button
 
-    def _build_brief_card(self) -> tuple[QFrame, QFrame, QLabel, QLabel, QLabel, QLabel, QPushButton]:
+    def _build_brief_card(self) -> tuple[QFrame, QFrame, QLabel, QLabel, QLabel, QLabel, QLabel, QLabel, QPushButton]:
         """배치 요약 카드. 제목 줄 아래 한 줄에 강조 타일 하나와 보조 두 줄을 나란히 둠"""
         card = QFrame(self)
         card.setObjectName("EncodeBriefCard")
@@ -277,14 +285,32 @@ class EncodeSummaryView(QWidget):
         lines.setSpacing(2)
         target_line_label = self._brief_secondary(label_parent=card, tip=BRIEF_TARGET_TIP)
         encoder_line_label = self._brief_secondary(label_parent=card, tip=BRIEF_ENCODER_TIP)
+        designation_label = self._brief_secondary(label_parent=card, tip=DESIGNATION_SUMMARY_TIP)
+        designation_caution = QLabel(card)
+        designation_caution.setObjectName("EncodeBriefCaution")
+        designation_caution.setWordWrap(True)
+        designation_caution.setTextFormat(Qt.TextFormat.PlainText)
+        designation_caution.setVisible(False)
         lines.addStretch(1)
         lines.addWidget(target_line_label)
         lines.addWidget(encoder_line_label)
+        lines.addWidget(designation_label)
+        lines.addWidget(designation_caution)
         lines.addStretch(1)
         content.addWidget(tile, 0, Qt.AlignmentFlag.AlignVCenter)
         content.addLayout(lines, 1)
         outer.addLayout(content)
-        return card, tile, net_caption, net_value, target_line_label, encoder_line_label, btn_settings
+        return (
+            card,
+            tile,
+            net_caption,
+            net_value,
+            target_line_label,
+            encoder_line_label,
+            designation_label,
+            designation_caution,
+            btn_settings,
+        )
 
     def _brief_net_tile(self, parent: QWidget) -> tuple[QFrame, QLabel, QLabel]:
         """강조 타일 하나. 예상 순 절약 이름과 큰 굵은 값을 가운데에 둠"""
@@ -348,7 +374,7 @@ class EncodeSummaryView(QWidget):
             encoder_label=plan.target_codec_label,
             result_policy_label=result_policy_label(plan.settings.result_policy),
         )
-        self._set_brief(values)
+        self._set_brief(values, plan.evaluations)
         self.brief_card.setVisible(True)
         self.tree.set_summary(plan.summary, plan.evaluations, plan.root_dir, plan.target_codec_label)
         has_items = plan.summary.unknown_count > 0 or any(bucket.count > 0 for bucket in plan.summary.buckets)
@@ -417,6 +443,13 @@ class EncodeSummaryView(QWidget):
         """시작 전 대기열에서 제외한 영상 수를 반영해 대상 수를 다시 표시"""
         self._target_text = f"{total}개" if included >= total else f"{included}/{total}개"
         self.brief_target_line.setText(target_line(self._target_text, self._size_change_text))
+        self._apply_target_tip()
+
+    def _apply_target_tip(self) -> None:
+        """대상 줄 툴팁을 지금 포함 대상의 직접 지정 개수까지 반영해 다시 씀"""
+        self.brief_target_line.setToolTip(
+            f"{BRIEF_TARGET_TIP}\n{self._designation_tip_suffix}"
+        )
 
     def compare_current(self) -> None:
         """현재 트리 영상의 화질 비교를 요청"""
@@ -436,7 +469,7 @@ class EncodeSummaryView(QWidget):
             chip.apply_palette(palette)
         self._paint_net_saved()
 
-    def _set_brief(self, values: BriefValues) -> None:
+    def _set_brief(self, values: BriefValues, evaluations: tuple[VideoEvaluation, ...]) -> None:
         """브리핑 타일 이름과 값, 보조 두 줄을 채움"""
         self._target_text = values.target
         self._size_change_text = values.size_change
@@ -444,6 +477,14 @@ class EncodeSummaryView(QWidget):
         self.brief_net_value.setText(values.net_saved)
         self.brief_target_line.setText(target_line(values.target, values.size_change))
         self.brief_encoder_line.setText(values.encoder)
+        counts = designation_counts(evaluations)
+        self._designation_tip_suffix = designation_summary_line(counts)
+        self._apply_target_tip()
+        self.designation_line.setText(designation_line(counts))
+        self.designation_line.setVisible(bool(designation_line(counts)))
+        caution = designation_caution_line(counts)
+        self.designation_caution.setText(caution)
+        self.designation_caution.setVisible(bool(caution))
         # - 다시 시작한 배치는 완료 후 바뀐 타일 이름과 값을 예상값으로 되돌림
         self._net_saved_grew = values.net_saved_grew
         self._paint_net_saved()
@@ -467,6 +508,14 @@ class EncodeSummaryView(QWidget):
             return
         color = palette.fg_maxrate_warn if self._net_saved_grew else palette.fg_saved_pos
         self.brief_net_value.setStyleSheet(f"color: {color};")
+        self._paint_designation_caution()
+
+    def _paint_designation_caution(self) -> None:
+        """직접 지정 주의 줄을 주의색으로 칠함. 팔레트가 없으면 문구만 둠"""
+        palette = self._palette
+        if palette is None:
+            return
+        self.designation_caution.setStyleSheet(f"color: {palette.fg_maxrate_warn};")
 
     def _set_tag(self, settings: EncodeSettings) -> None:
         """태그 안내 문장과 툴팁을 기록 방식에 맞춤"""

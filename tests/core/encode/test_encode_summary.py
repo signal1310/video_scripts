@@ -17,6 +17,10 @@ from src.core.encode.encode_summary import (
     attention_text,
     brief_values,
     delta_text,
+    designation_caution_line,
+    designation_counts,
+    designation_line,
+    designation_summary_line,
     done_badge,
     done_count,
     final_speed_text,
@@ -28,6 +32,7 @@ from src.core.encode.encode_summary import (
     target_count,
     target_line,
 )
+from src.core.smart_action import SmartAction
 from tests._factories import make_eval, make_video
 
 
@@ -151,6 +156,81 @@ class EncodeSummaryTests(unittest.TestCase):
             "완료분 절약: 실제 60.0 MB, 예상 정보 없음",
         )
         self.assertEqual(final_speed_text("02:30", "1.20배"), "총 소요 02:30, 평균 1.20배")
+
+
+class DesignationCountTests(unittest.TestCase):
+    """용량 절약과 변환 우선으로 나눈 대상 수와 시작 확인 창 요약 줄을 검증(제안 2.3절, 2.4절)"""
+
+    def test_counts_split_saving_and_transform_targets(self) -> None:
+        """절약 선별 대상과 직접 지정 대상을 나눠 세고, 직접 지정 중 인코딩 근거가 있는 영상을 함께 셈"""
+        plain = make_eval(video=make_video(filename="a.mp4"))
+        manual = make_eval(
+            video=make_video(filename="b.mp4", has_encode_tag=False),
+            smart_action=SmartAction.ENCODE_MANUAL,
+        )
+        manual_again = make_eval(
+            video=make_video(filename="c.mp4", has_encode_tag=True),
+            smart_action=SmartAction.ENCODE_MANUAL,
+            encoded_evidence=True,
+        )
+        counts = designation_counts([plain, manual, manual_again])
+        self.assertEqual(counts.total, 3)
+        self.assertEqual(counts.saving, 1)
+        self.assertEqual(counts.transform, 2)
+        self.assertEqual(counts.already_designated, 1)
+
+    def test_already_encoded_count_uses_keyword_evidence_too(self) -> None:
+        """태그 상세는 없고 태그 이름 키워드만 있는 지정 영상도 이미 인코딩한 영상으로 셈(판정과 같은 근거)"""
+        keyword_only = make_eval(
+            video=make_video(filename="b.mp4", has_encode_tag=False, encode_keywords="re_encoded"),
+            smart_action=SmartAction.ENCODE_MANUAL,
+            encoded_evidence=True,
+        )
+        counts = designation_counts([keyword_only])
+        self.assertEqual(counts.transform, 1)
+        self.assertEqual(counts.already_designated, 1)
+
+    def test_transform_count_follows_the_gate_purpose(self) -> None:
+        """게이트 목적이 변환 우선인 키프레임 교정과 호환 인코딩도 직접 지정으로 셈(단일 기준)"""
+        keyframe = make_eval(
+            video=make_video(filename="k.mp4"),
+            smart_action=SmartAction.ENCODE_OPT_KF,
+            is_keyframe_exceeded=True,
+        )
+        compat = make_eval(video=make_video(filename="c.mp4"), smart_action=SmartAction.ENCODE_COMPAT)
+        plain = make_eval(video=make_video(filename="p.mp4"))
+        counts = designation_counts([keyframe, compat, plain])
+        self.assertEqual(counts.transform, 2)
+        self.assertEqual(counts.saving, 1)
+
+    def test_lines_show_the_split_the_designation_and_the_caution(self) -> None:
+        """대상 줄과 직접 지정 줄, 주의 줄 문구를 만들고 대상이 없으면 빈 문자열로 둠"""
+        counts = designation_counts(
+            [
+                make_eval(video=make_video(filename="a.mp4")),
+                make_eval(video=make_video(filename="b.mp4"), smart_action=SmartAction.ENCODE_MANUAL),
+            ]
+        )
+        self.assertEqual(designation_summary_line(counts), "전체 인코딩 대상: 2개 (용량 절약 1개, 변환 우선 1개)")
+        self.assertEqual(designation_line(counts), "직접 지정 / 변환 우선 1개")
+        self.assertEqual(designation_caution_line(counts), "")
+        empty = designation_counts([])
+        self.assertEqual(designation_summary_line(empty), "전체 인코딩 대상: 0개 (용량 절약 0개, 변환 우선 0개)")
+        self.assertEqual(designation_line(empty), "")
+        self.assertEqual(designation_caution_line(empty), "")
+        designated = designation_counts(
+            [
+                make_eval(
+                    video=make_video(filename="c.mp4", has_encode_tag=True),
+                    smart_action=SmartAction.ENCODE_MANUAL,
+                    encoded_evidence=True,
+                )
+            ]
+        )
+        self.assertEqual(
+            designation_caution_line(designated),
+            "⚠ 이미 인코딩한 영상 1개 포함 (직접 지정으로 대상에 들어감)",
+        )
 
 
 if __name__ == "__main__":

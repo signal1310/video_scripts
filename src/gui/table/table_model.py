@@ -666,7 +666,10 @@ class VideoTableModel(QAbstractTableModel):
             self.dataChanged.emit(self.index(0, 0), self.index(last_row, self.columnCount() - 1))
 
     def _encode_label(self, ev: VideoEvaluation) -> str | None:
-        """영상의 인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 그 밖은 None"""
+        """영상의 인코딩 상태 표기. 배치 상태가 있으면 그것을, 없고 이전 폐기 기록이 있으면 이전 폐기, 그 밖은 None
+
+        - 급증 상한을 넘고 배치된 완료 항목은 주의 배지 글자로 바꿔 씀(안 A)
+        """
         filename = ev.video.filename
         if filename in self._encode_label_cache:
             return self._encode_label_cache[filename]

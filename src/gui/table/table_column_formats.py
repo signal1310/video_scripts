@@ -16,6 +16,7 @@ from src.core.encode.encode_batch_book import (
     STATUS_RUNNING_PAUSED,
     STATUS_SKIPPED,
 )
+from src.core.encode.encode_gate import DONE_SURGE_BADGE
 from src.core.encode.encode_previous_discard import PREVIOUS_DISCARD_LABEL
 from src.core.formatting import (
     format_duration_hms,
@@ -195,6 +196,7 @@ _ENCODE_BADGE_BY_LABEL: dict[str, Callable[[ThemePalette], tuple[str, str, str]]
     STATUS_RUNNING: lambda p: p.badge_encode_running,
     STATUS_RUNNING_PAUSED: lambda p: p.badge_pending,
     STATUS_DONE: lambda p: p.badge_pass,
+    DONE_SURGE_BADGE: lambda p: p.badge_pending,
     STATUS_DISCARDED: lambda p: p.badge_low_kf_encode,
     STATUS_FAILED: lambda p: p.badge_over,
     STATUS_SKIPPED: lambda p: p.badge_pass,
@@ -213,7 +215,7 @@ def encode_state_badge(label: str | None, p: ThemePalette) -> tuple[str, str, st
 
 def encode_state_icon_name(label: str | None) -> str | None:
     """인코딩 상태 표기의 아이콘 이름. 완료 표기만 체크 아이콘을 씀"""
-    return _ENCODE_DONE_ICON if label == STATUS_DONE else None
+    return _ENCODE_DONE_ICON if label in (STATUS_DONE, DONE_SURGE_BADGE) else None
 
 
 def encode_state_foreground(label: str | None, p: ThemePalette) -> str | None:

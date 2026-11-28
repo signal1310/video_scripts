@@ -4,9 +4,16 @@
 - 세부 원인(예외 메시지, 태그 기록 실패 이유)은 사유 문구 대신 로그에 남김
 """
 
-from src.core.encode.encode_gate import GateVerdict
+from src.core.encode.encode_gate import (
+    TRANSFORM_SIZE_SURGE as SURGE_TEMPLATE,
+)
+from src.core.encode.encode_gate import TRANSFORM_SIZE_SURGE_PREFIX as SURGE_PREFIX
+from src.core.encode.encode_gate import (
+    GateVerdict,
+    is_transform_surge_reason,
+    transform_surge_percent,
+)
 from src.core.encode.encode_state import EncodeState
-from src.core.models import PERCENT_MULTIPLIER
 
 SOURCE_CHANGED: str = "원본 변경 또는 없음"
 SOURCE_CONTENT_CHANGED: str = "원본 내용이 바뀌어 다시 분석해야 합니다"
@@ -27,14 +34,21 @@ EARLY_STOP_REASON: str = "진행 중 중단, 예상 크기가 원본보다 큼"
 SAMPLE_PREDICT_REASON: str = "사전 예측, 예상 크기가 원본보다 큼"
 REPLACE_FORFEITED: str = "교체를 포기했습니다. 원본과 결과 파일이 모두 남아 있습니다."
 TRANSFORM_PRIORITY: str = "변환 우선"
-TRANSFORM_SIZE_SURGE_PREFIX: str = "원본 대비 +"
-TRANSFORM_SIZE_SURGE: str = TRANSFORM_SIZE_SURGE_PREFIX + "{percent}% 급증"
+TRANSFORM_SIZE_SURGE_PREFIX: str = SURGE_PREFIX
+TRANSFORM_SIZE_SURGE: str = SURGE_TEMPLATE
+# - 사용자가 그대로 교체를 고른 교체 대기 항목의 사유. 급증 표식을 앞에 유지해 자동 재시도가 다시 건드리지 않게 함
+REPLACED_DESIGNATED: str = "사용자 확인 후 원본을 결과 파일로 교체했습니다"
+# - 사용자가 폐기를 고른 교체 대기 항목의 사유
+DISCARDED_BY_USER: str = "임시 결과 파일을 삭제하고 원본을 그대로 유지했습니다"
+
+
+def discard_failed(error: Exception) -> str:
+    """교체 대기 항목의 임시 결과를 지우지 못한 사유"""
+    return f"임시 결과 파일을 삭제하지 못했습니다: {error}"
 
 
 def _surge_percent(output_size_bytes: int, source_size_bytes: int) -> int:
-    if source_size_bytes <= 0:
-        return 0
-    return round((output_size_bytes / source_size_bytes - 1.0) * PERCENT_MULTIPLIER)
+    return transform_surge_percent(output_size_bytes, source_size_bytes)
 
 
 def transform_priority_reason(output_size_bytes: int, source_size_bytes: int) -> str:
@@ -45,14 +59,6 @@ def transform_priority_reason(output_size_bytes: int, source_size_bytes: int) ->
 def transform_surge_reason(output_size_bytes: int, source_size_bytes: int) -> str:
     """변환 우선 결과가 급증 상한을 넘었을 때 사유(제안 2.3절 3단계)"""
     return TRANSFORM_SIZE_SURGE.format(percent=_surge_percent(output_size_bytes, source_size_bytes))
-
-
-def is_transform_surge_reason(reason: str) -> bool:
-    """사유가 급증 상한 초과로 교체를 보류한 것인지 판별
-
-    - 배치 끝의 자동 교체 재시도가 사용자 결정 없이 원본을 바꾸지 않게 하는 표식
-    """
-    return reason.startswith(TRANSFORM_SIZE_SURGE_PREFIX)
 
 
 def processing_error(error: Exception) -> str:
@@ -78,6 +84,13 @@ def encode_retry_failed(returncode: int | None) -> str:
 def replace_pending(error: Exception) -> str:
     """결과 배치에 실패해 교체 대기로 둘 때의 사유"""
     return f"교체 대기: {error}"
+
+
+def replaced_designated(previous_reason: str) -> str:
+    """사용자가 그대로 교체를 고른 교체 대기 항목의 완료 사유. 급증 표식을 앞에 유지"""
+    if is_transform_surge_reason(previous_reason):
+        return f"{previous_reason} / {REPLACED_DESIGNATED}"
+    return REPLACED_DESIGNATED
 
 
 def replace_pending_after_retry(previous_reason: str, error: Exception) -> str:

@@ -178,6 +178,32 @@ class TestDiscardRows(unittest.TestCase):
         self.assertEqual((lines[0].delta, lines[0].tone), ("(원본보다 30.0 MB 큼)", TONE_GREW))
         self.assertEqual(lines[0].path_text, "")
 
+    def test_surge_done_line_is_flagged_for_the_caution_badge(self) -> None:
+        """급증 상한을 넘고 배치된 완료 줄만 주의 배지 표시 플래그가 서는지 검증(안 A)"""
+        root = os.path.join("work", "root")
+        surged = os.path.join(root, "a.mp4")
+        plain = os.path.join(root, "b.mp4")
+        items = [
+            (surged, EncodeState.DONE, "원본 대비 +42% 급증"),
+            (plain, EncodeState.DONE, ""),
+        ]
+        lines = result_lines(items, {}, {surged: root, plain: root})
+        self.assertTrue(lines[0].surge_done)
+        self.assertFalse(lines[1].surge_done)
+
+    def test_surge_pending_line_is_flagged_for_the_replace_designated_button(self) -> None:
+        """급증 상한을 넘어 보류한 교체 대기 줄만 그대로 교체 버튼 플래그가 서는지 검증"""
+        root = os.path.join("work", "root")
+        surged = os.path.join(root, "a.mp4")
+        other = os.path.join(root, "b.mp4")
+        items = [
+            (surged, EncodeState.REPLACE_PENDING, "원본 대비 +42% 급증"),
+            (other, EncodeState.REPLACE_PENDING, "교체 대기: 공유 위반"),
+        ]
+        lines = result_lines(items, {}, {surged: root, other: root})
+        self.assertTrue(lines[0].surge_pending)
+        self.assertFalse(lines[1].surge_pending)
+
 
 class TestBatchLines(unittest.TestCase):
     """결과 줄 만들기와 전체 속도 문구: 끝난 항목만 줄로 만들고, 속도는 현재와 평균을 함께 계산"""

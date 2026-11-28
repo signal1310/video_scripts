@@ -148,6 +148,10 @@ class EncodeRunner:
             )
         return self._tuner
 
+    def close_output_history(self) -> None:
+        """결과 이력 DB의 현재 스레드 연결을 닫음. 배치 밖에서 항목을 배치한 뒤 호출자의 정리용"""
+        self._output_history.close_output_history()
+
     def run(self, batch_id: int) -> None:
         """배치의 대기 항목을 동시 실행하고, 중지하지 않았다면 교체 대기 항목을 다시 시도한 뒤 끝난 배치를 닫음"""
         try:
@@ -532,10 +536,11 @@ class EncodeRunner:
                     decode_retry=attempt.decode_retry,
                     output_size=output_bytes), attempt)
             # - 원본을 남기는 모드는 배치해도 되돌릴 수 있으므로 완료로 두고 사유에 급증 폭을 남김
+            # - 급증 사유를 앞에 두어 `is_transform_surge_reason`(접두사 판정)이 품질값 조정 사유가 붙어도 참이 되게 함
             reason = reasons.transform_surge_reason(output_bytes, job.source_size)
             tuned = attempt.tuning_reason
             if tuned:
-                reason = f"{tuned} / {reason}"
+                reason = f"{reason} / {tuned}"
             return outcome_with_tuning(self._place(job, plan, attempt.decode_retry, reason), attempt)
         self._remove_part(part)
         state, reason = reasons.gate_failure(verdict)
@@ -607,7 +612,9 @@ class EncodeRunner:
                         {"reason": reasons.replace_pending_after_retry(row.reason, error)},
                     )
                     continue
-                done = {"state": EncodeState.DONE, "reason": "", "part_path": None, "ended_at": utc_now_iso(), "output_size": os.path.getsize(row.output_path)}
+                # - 급증 보류 항목은 사용자가 교체를 골랐으므로 완료 사유에 급증 표식을 유지해 주의 배지와 사유를 남김
+                done_reason = reasons.replaced_designated(row.reason) if reasons.is_transform_surge_reason(row.reason) else ""
+                done = {"state": EncodeState.DONE, "reason": done_reason, "part_path": None, "ended_at": utc_now_iso(), "output_size": os.path.getsize(row.output_path)}
                 self._update(batch_id, row.source_path, done)
                 record_done_output(
                     self._output_history, output_path=row.output_path, encoder=self._settings.encoder,
@@ -630,6 +637,67 @@ class EncodeRunner:
             "state": EncodeState.FAILED, "reason": reasons.REPLACE_FORFEITED, "ended_at": utc_now_iso(),
         })
         return True
+
+    def replace_designated_pending(self, batch_id: int, source_path: str) -> bool:
+        """사용자가 그대로 교체를 고른 교체 대기 항목을 배치하고 완료로 둠
+
+        - 급증 상한 초과 항목이므로 완료 사유에 급증 표식을 유지해 재처리 방지 표식이 남게 함
+        - 교체 대기가 아니면 바꾸지 않고 거짓을 돌려줌
+        - 완료 뒤에는 `_finish`와 같이 인코딩 지정을 해제하고, 이 실행기가 연 결과 이력 연결을 닫음
+        """
+        row = self._history.get_item(batch_id, source_path)
+        if row is None or row.state is not EncodeState.REPLACE_PENDING or row.output_path is None:
+            return False
+        job = job_from_json(row.plan_json)
+        try:
+            self._move_into_place(job, row.part_path or "", row.output_path)
+        except OSError as error:
+            self._update(
+                batch_id,
+                row.source_path,
+                {"reason": reasons.replace_pending_after_retry(row.reason, error)},
+            )
+            return False
+        done = {
+            "state": EncodeState.DONE,
+            "reason": reasons.replaced_designated(row.reason),
+            "part_path": None,
+            "ended_at": utc_now_iso(),
+            "output_size": os.path.getsize(row.output_path),
+        }
+        self._update(batch_id, row.source_path, done)
+        try:
+            record_done_output(
+                self._output_history, output_path=row.output_path, encoder=self._settings.encoder,
+                quality=row.tuned_quality if row.tuned_quality is not None else job.quality,
+                tag_mode=self._settings.encode_tag_mode, tag_name=self._settings.encode_tag_name)
+        finally:
+            if self._owns_output_history:
+                self._output_history.close_output_history()
+        self._forget_analysis_row(job)
+        self._clear_encode_designation(job)
+        return True
+
+    def discard_replace_pending(self, batch_id: int, source_path: str) -> tuple[bool, str]:
+        """사용자가 폐기를 고른 교체 대기 항목의 임시 결과를 지우고 폐기로 둠. 원본은 그대로
+
+        - 되돌릴 수 없는 동작이므로 호출자가 먼저 사용자 확인을 받음
+        - 교체 대기가 아니면 바꾸지 않고 (거짓, 빈 문구)를 돌려줌
+        - 화면의 슬롯에서 바로 불리므로 임시 파일을 지우지 못해도 예외를 올리지 않고 사유 문구를 돌려줌
+        """
+        row = self._history.get_item(batch_id, source_path)
+        if row is None or row.state is not EncodeState.REPLACE_PENDING:
+            return False, ""
+        try:
+            self._remove_part(row.part_path or "")
+        except OSError as error:
+            logger.warning("임시 결과 파일을 지우지 못했습니다: %s (%s)", row.part_path, error)
+            return False, reasons.discard_failed(error)
+        self._update(batch_id, source_path, {
+            "state": EncodeState.DISCARDED, "reason": reasons.DISCARDED_BY_USER, "part_path": None,
+            "ended_at": utc_now_iso(),
+        })
+        return True, ""
 
     def _finish(self, batch_id: int, row: ItemRow, job: EncodeJob, outcome: ItemOutcome) -> None:
         self._history.update_item(batch_id, row.source_path, build_finish_fields(outcome, utc_now_iso()))

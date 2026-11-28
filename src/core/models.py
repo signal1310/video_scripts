@@ -162,6 +162,8 @@ class VideoEvaluation:
     active_frame: ActiveFrame | None = None
     # - 사용자 지정 활성 화면이 잘라내기에 적용된 영상인지. 게이트 목적(변환 우선) 판정에 씀
     manual_active_frame_applied: bool = False
+    # - 인코딩 태그 상세, 태그 이름 키워드, 결과 이력 지문 중 하나라도 일치해 이미 인코딩한 영상인지
+    encoded_evidence: bool = False
 
     @property
     def is_encode_target(self) -> bool:

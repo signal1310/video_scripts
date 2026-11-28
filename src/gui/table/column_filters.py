@@ -73,6 +73,9 @@ class ColumnFilterRule:
     max_value: float | None = None
     include_null: bool = True
     null_only: bool = False
+    # - 값 조건 없이 미측정 포함 모드만 고른 상태
+    #   조건이 없어 표시 행은 바뀌지 않지만, 같은 열을 다시 열거나 다시 시작할 때 모드를 되살리려고 남김
+    include_null_only: bool = False
     text_query: str = ""
     text_mode: str = TEXT_MODE_CONTAINS
 
@@ -83,6 +86,7 @@ class ColumnFilterRule:
         if data_type is ColumnDataType.NUMBER:
             return (
                 self.null_only
+                or self.include_null_only
                 or self.selected_values is not None
                 or self.min_value is not None
                 or self.max_value is not None
@@ -145,6 +149,8 @@ class ColumnFilterRule:
         if spec.data_type is ColumnDataType.NUMBER:
             if self.null_only and spec.nullable_label:
                 return f"{spec.nullable_label}만 표시"
+            if self.include_null_only and spec.nullable_label:
+                return f"{spec.nullable_label} 포함"
             unit = f" {spec.unit}" if spec.unit else ""
             parts: list[str] = []
             if self.min_value is not None and self.max_value is not None:
@@ -186,6 +192,7 @@ def rule_to_snapshot(rule: ColumnFilterRule) -> ColumnFilterSnapshot:
         max_value=rule.max_value,
         include_null=rule.include_null,
         null_only=rule.null_only,
+        include_null_only=rule.include_null_only,
         text_query=rule.text_query,
         text_mode=rule.text_mode,
     )
@@ -202,6 +209,7 @@ def snapshot_to_rule(snapshot: ColumnFilterSnapshot) -> ColumnFilterRule:
         max_value=snapshot.max_value,
         include_null=snapshot.include_null,
         null_only=snapshot.null_only,
+        include_null_only=snapshot.include_null_only,
         text_query=snapshot.text_query,
         text_mode=snapshot.text_mode,
     )

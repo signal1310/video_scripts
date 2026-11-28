@@ -54,6 +54,13 @@ class TestColumnFilterSnapshot(unittest.TestCase):
         self.assertIsNone(rule_to_snapshot(ColumnFilterRule()).selected_values)
         self.assertEqual(snapshot_to_rule(rule_to_snapshot(ColumnFilterRule())), ColumnFilterRule())
 
+    def test_include_null_only_roundtrips_through_snapshot(self) -> None:
+        """값 조건 없이 미측정 포함 모드만 고른 규칙도 저장 값 왕복에서 그대로 남음을 검증"""
+        rule = ColumnFilterRule(include_null_only=True)
+        self.assertEqual(snapshot_to_rule(rule_to_snapshot(rule)), rule)
+        self.assertTrue(rule.is_active(ColumnDataType.NUMBER))
+        self.assertEqual(rule.describe(_NUMBER), "미측정 포함")
+
 
 class TestColumnFilterRule(unittest.TestCase):
     """ColumnFilterRule의 일치 판정, 활성 여부, 조건 요약 문구를 검증"""
@@ -121,6 +128,7 @@ class TestColumnFilterRule(unittest.TestCase):
         self.assertFalse(ColumnFilterRule().is_active(number))
         for rule in (
             ColumnFilterRule(null_only=True),
+            ColumnFilterRule(include_null_only=True),
             ColumnFilterRule(selected_values=frozenset()),
             ColumnFilterRule(min_value=0.0),
             ColumnFilterRule(max_value=0.0),

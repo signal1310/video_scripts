@@ -245,6 +245,7 @@ class TestColumnFilterState(unittest.TestCase):
         state.ui.filters.columns = {
             "codec": ColumnFilterSnapshot(selected_values=("H.264", "HEVC"), include_null=False),
             "bitrate": ColumnFilterSnapshot(min_value=1.5, max_value=None, null_only=False),
+            "quality_value": ColumnFilterSnapshot(include_null_only=True),
             "name": ColumnFilterSnapshot(text_query="sample", text_mode=TEXT_MODE_STARTS_WITH),
         }
         restored = parse_state_mapping(json.loads(strip_jsonc_comments(render_state_jsonc(state))))

@@ -100,7 +100,7 @@ class TestColumnFilterPopover(GuiTestCase):
         spin_min, spin_max = _need(popover.spin_min), _need(popover.spin_max)
         cases = [
             ("default", None, None, None),
-            ("include_null", None, None, None),
+            ("include_null", None, None, ColumnFilterRule(include_null_only=True)),
             ("default", 1.0, None, ColumnFilterRule(min_value=1.0, include_null=False)),
             ("include_null", 1.0, 5.0, ColumnFilterRule(min_value=1.0, max_value=5.0, include_null=True)),
             ("measured_only", None, None, ColumnFilterRule(include_null=False)),
@@ -335,6 +335,28 @@ class TestColumnFilterPopover(GuiTestCase):
         self.assertEqual(
             _need(popover.build_rule()).describe(spec), "품질값 없음 제외"
         )
+
+    def test_null_mode_only_rule_is_kept_and_restored(self) -> None:
+        """조건 없이 품질값 없음 포함만 고른 규칙이 적용되고 다시 열 때 같은 모드로 복원됨을 검증"""
+        spec = ColumnSpec(_COL, ColumnDataType.NUMBER, decimals=0, filter_step=0.1, nullable_label="품질값 없음")
+        popover = self._popover(spec, bounds=(None, None, 3))
+        events = self._emissions(popover)
+        self._set_null_mode(popover, "include_null")
+        rule = events[-1][1]
+        self.assertIsNotNone(rule)
+        assert rule is not None
+        self.assertTrue(rule.include_null)
+        self.assertTrue(rule.is_active(ColumnDataType.NUMBER))
+
+        popover.hide()
+        reopened = self._popover(spec, rule=rule)
+        self.assertEqual(_need(reopened.combo_null_mode).currentData(), "include_null")
+
+    def test_null_mode_choice_without_nullable_label_stays_no_filter(self) -> None:
+        """nullable_label 이 없는 수치 열은 조건이 없으면 필터 없음이고 null 전용 모드만 규칙이 됨을 검증"""
+        popover = self._popover(ColumnSpec(_COL, ColumnDataType.NUMBER, decimals=1))
+        self.assertIsNone(popover.combo_null_mode)
+        self.assertIsNone(popover.build_rule())
 
     def test_click_on_the_null_mode_list_keeps_the_popover_open(self) -> None:
         """품질값 없음 선택 목록을 누르는 동안 팝오버가 닫히지 않아 선택이 취소되지 않음을 검증

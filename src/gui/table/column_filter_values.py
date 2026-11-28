@@ -169,6 +169,7 @@ def _has_numeric_constraint(snapshot: ColumnFilterSnapshot) -> bool:
         snapshot.min_value is not None
         or snapshot.max_value is not None
         or snapshot.null_only
+        or snapshot.include_null_only
         or not snapshot.include_null
     )
 

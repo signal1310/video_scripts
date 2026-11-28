@@ -359,7 +359,12 @@ class ColumnFilterPopover(FloatingPopupFrame):
             if null_mode == "null_only":
                 return ColumnFilterRule(null_only=True, include_null=True)
             has_val = min_v is not None or max_v is not None or selected_nums is not None
-            if null_mode != "measured_only" and not has_val:
+            if not has_val:
+                if null_mode == "measured_only":
+                    return ColumnFilterRule(include_null=False)
+                # - 콤보가 있는 열은 포함 모드만 골라도 규칙으로 남겨 다시 열 때 모드를 되살림
+                if null_mode == "include_null" and self.combo_null_mode is not None:
+                    return ColumnFilterRule(include_null_only=True)
                 return None
             return ColumnFilterRule(
                 min_value=min_v,

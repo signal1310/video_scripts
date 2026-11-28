@@ -458,6 +458,22 @@ class SnapshotRoundTripTests(unittest.TestCase):
             [(VideoTableModel.COL_NAME, Qt.SortOrder.DescendingOrder)],
         )
 
+    def test_include_null_only_filter_survives_save_and_restore(self) -> None:
+        """값 조건 없이 미측정 포함만 고른 필터가 저장 값과 복원 모두에서 그대로 남는지 검증"""
+        self.proxy.set_column_filter(
+            VideoTableModel.COL_QUALITY_VALUE, ColumnFilterRule(include_null_only=True)
+        )
+        saved = snapshot_column_filters(self.proxy)
+        self.assertEqual(
+            saved, {"quality_value": ColumnFilterSnapshot(include_null_only=True)}
+        )
+        self.proxy.clear_all_column_filters()
+        apply_saved_filters(self.proxy, saved)
+        rule = self.proxy.get_column_filter(VideoTableModel.COL_QUALITY_VALUE)
+        self.assertEqual(rule, ColumnFilterRule(include_null_only=True))
+        self.assertEqual(self.proxy.active_column_filter_count(), 1)
+        self.assertEqual(_visible(self.proxy), ["a.mp4", "b.mp4"])
+
     def test_unknown_keys_are_ignored(self) -> None:
         """알 수 없는 열 ID는 필터와 정렬 모두에서 무시되는지 검증"""
         apply_saved_filters(self.proxy, {"nope": ColumnFilterSnapshot(min_value=1.0)})

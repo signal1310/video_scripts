@@ -359,6 +359,7 @@ def _sanitize_column_snapshot(raw: dict[str, Any]) -> ColumnFilterSnapshot:
         max_value=_sanitize_number(raw.get("max_value")),
         include_null=_sanitize_bool(raw.get("include_null"), True),
         null_only=_sanitize_bool(raw.get("null_only"), False),
+        include_null_only=_sanitize_bool(raw.get("include_null_only"), False),
         text_query=text_query if isinstance(text_query, str) else "",
         text_mode=_sanitize_choice(raw.get("text_mode"), VALID_TEXT_MODES, TEXT_MODE_CONTAINS),
     )

@@ -126,6 +126,7 @@ class ColumnFilterSnapshot:
     max_value: float | None = None
     include_null: bool = True
     null_only: bool = False
+    include_null_only: bool = False
     text_query: str = ""
     text_mode: str = TEXT_MODE_CONTAINS
 

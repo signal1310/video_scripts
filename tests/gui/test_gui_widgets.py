@@ -1123,6 +1123,30 @@ class TestGUIWidgetsModule(GuiTestCase):
         popover.clear_filter()
         self.assertEqual(view.proxy_model.rowCount(), 2)
 
+    def test_number_popover_include_null_only_mode_is_kept_after_reopen(self) -> None:
+        """조건 없이 미측정 포함만 고른 팝오버를 닫고 다시 열면 같은 모드와 필터가 남는지 검증"""
+        view = self._two_video_table()
+        popover = view.open_column_filter_popover(VideoTableModel.COL_KEYFRAME)
+        assert popover is not None and popover.combo_null_mode is not None
+        self.addCleanup(popover.close)
+        popover.combo_null_mode.setCurrentIndex(
+            popover.combo_null_mode.findData("include_null")
+        )
+        self.assertEqual(view.proxy_model.rowCount(), 2)
+        rule = view.proxy_model.get_column_filter(VideoTableModel.COL_KEYFRAME)
+        self.assertIsNotNone(rule)
+        assert rule is not None
+        self.assertTrue(rule.include_null_only)
+
+        popover.close()
+        reopened = view.open_column_filter_popover(VideoTableModel.COL_KEYFRAME)
+        assert reopened is not None and reopened.combo_null_mode is not None
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.combo_null_mode.currentData(), "include_null")
+        self.assertEqual(
+            view.proxy_model.get_column_filter(VideoTableModel.COL_KEYFRAME), rule
+        )
+
     def test_text_popover_applies_query_and_clears(self) -> None:
         """문자열(이름) 팝오버가 검색어를 적용하고 초기화로 복원함을 검증"""
         view = self._two_video_table()

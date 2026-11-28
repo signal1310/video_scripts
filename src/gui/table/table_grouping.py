@@ -43,6 +43,7 @@ from src.gui.table.delegates import NameAccentDelegate
 from src.gui.table.row_spans import contiguous_row_ranges
 from src.gui.table.table_columns import COL_DEF_MAP, COL_DEFS
 from src.gui.table.table_model import VideoTableModel
+from src.gui.table.table_relayout import LayoutRemapController
 from src.gui.theme import ThemeManager
 
 __all__ = [
@@ -189,9 +190,8 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         self._pending_collapsed: set[str] | None = None
         # - 그룹마다 속한 소스 행 목록, 접기와 펼치기를 다시 계산할 때 전체 행을 훑지 않기 위한 색인
         self._rows_by_group: list[list[int]] = []
-        # - 필터 프록시가 재평가를 알리는 동안에는 행 변경 신호마다 다시 만들지 않고 끝날 때 한 번만 만듦
-        self._batch_depth: int = 0
-        self._batch_pending: bool = False
+        # - 원본 재정렬, 재평가 묶음을 초기화 없는 레이아웃 변경으로 이어 주는 도우미
+        self._layout = LayoutRemapController(self, self._build_rows, self._rebuild)
         # - 마지막으로 병합 상태를 맞춘 머리글 행과 열 수, 그대로면 다시 맞추지 않음
         self._span_key: tuple[str, int, tuple[int, ...]] | None = None
 
@@ -276,8 +276,7 @@ class VideoGroupProxyModel(QAbstractProxyModel):
             for signal, slot in self._incoming_connections(sourceModel):
                 signal.connect(slot)
         else:
-            self._batch_depth = 0
-            self._batch_pending = False
+            self._layout.reset()
         self._rebuild()
 
     def _disconnect_source(self, source: Any) -> None:
@@ -294,7 +293,8 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         """
         connections: list[tuple[Any, Any]] = [
             (source.modelReset, self._rebuild),
-            (source.layoutChanged, self._on_source_structure_changed),
+            (source.layoutAboutToBeChanged, self._on_source_layout_about_to_change),
+            (source.layoutChanged, self._on_source_layout_changed),
             (source.rowsInserted, self._on_source_structure_changed),
             (source.rowsRemoved, self._on_source_structure_changed),
             (source.dataChanged, self._on_source_data_changed),
@@ -367,6 +367,26 @@ class VideoGroupProxyModel(QAbstractProxyModel):
         self._rows = self._expanded_rows()
         self._reindex()
 
+    def display_row_keys(self) -> tuple[list[str], dict[int, str]]:
+        """표시 행마다 이어 주기 기준을 반환, 영상 행은 파일명, 머리글 행은 그룹 이름
+
+        - 재정렬 재구성 전후로 영구 인덱스를 이어 주기 위해 layoutAboutToBeChanged 직전에 씀
+        """
+        filenames: list[str] = []
+        label_of_header_row: dict[int, str] = {}
+        for row, (kind, payload) in enumerate(self._rows):
+            if kind == _HEADER_ROW:
+                label_of_header_row[row] = self._groups[payload].label
+                filenames.append("")
+                continue
+            filenames.append(self._filename_of(payload))
+        return filenames, label_of_header_row
+
+    def _filename_of(self, source_row: int) -> str:
+        """소스 행의 영상 파일명, 평가가 없으면 빈 문자열"""
+        ev = self._evaluation(source_row)
+        return ev.video.filename if ev is not None else ""
+
     def _apply_pending_collapsed(self) -> None:
         """예약한 접힘 이름 중 지금 있는 그룹만 반영하고 남은 이름은 예약에 유지
 
@@ -429,29 +449,38 @@ class VideoGroupProxyModel(QAbstractProxyModel):
             self.endResetModel()
         self.groups_rebuilt.emit()
 
+    def _on_source_layout_about_to_change(self, *_args: Any) -> None:
+        """원본이 재정렬되기 전 표시 행의 이어 주기 기준을 기억
+
+        - layoutChanged가 도달했을 때는 원본이 이미 재정렬된 뒤라 같은 순서로 읽혀
+          이전 위치를 알 수 없으므로, 바뀌기 전에 기준을 먼저 모아 둠
+        """
+        self._layout.remember()
+
+    def _on_source_layout_changed(self, *_args: Any) -> None:
+        """원본 재정렬 시 행 구성을 초기화 대신 레이아웃 변경으로 다시 만듦
+
+        - 초기화는 뷰의 선택과 포커스를 지우므로, 같은 행 집합의 순서 변경은 레이아웃 신호로
+          영구 인덱스를 새 위치로 옮겨 Qt가 선택을 그대로 유지하게 함
+        """
+        if not self._layout.defer_layout():
+            self._layout.apply()
+
     def _on_source_structure_changed(self, *_args: Any) -> None:
         """원본 행 추가, 삭제, 순서 변경 시 행 구성을 다시 만듦
 
         - 필터 재평가 묶음 안에서는 신호마다 만들지 않고 끝날 때 한 번만 만듦
         """
-        if self._batch_depth > 0:
-            self._batch_pending = True
-            return
-        self._rebuild()
+        if not self._layout.defer_structure():
+            self._rebuild()
 
     def _on_batch_started(self) -> None:
         """필터 재평가 시작, 그 사이의 행 변경 신호는 마지막 한 번으로 모음"""
-        self._batch_depth += 1
+        self._layout.start_batch()
 
     def _on_batch_finished(self) -> None:
-        """필터 재평가 끝, 묶여 있던 변경이 있으면 한 번만 다시 만듦"""
-        if self._batch_depth == 0:
-            return
-        self._batch_depth -= 1
-        if self._batch_depth > 0 or not self._batch_pending:
-            return
-        self._batch_pending = False
-        self._rebuild()
+        """필터 재평가 끝, 묶여 있던 변경을 한 번으로 다시 만듦"""
+        self._layout.finish_batch()
 
     def _on_source_data_changed(
         self,
@@ -933,6 +962,8 @@ def install_group_proxy(view: Any) -> VideoGroupProxyModel:
     model = VideoGroupProxyModel(view)
     model.setSourceModel(view.proxy_model)
     view.setModel(model)
+    # - 재정렬은 초기화 대신 레이아웃 변경으로 지나가므로 머리글 행 위치가 바뀔 때도 병합을 맞춤
     model.modelReset.connect(lambda: sync_group_spans(view, model))
+    model.layoutChanged.connect(lambda: sync_group_spans(view, model))
     sync_group_spans(view, model)
     return model

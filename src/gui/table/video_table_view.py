@@ -85,6 +85,7 @@ from src.gui.table.table_search_highlight import (
     SEARCH_QUERY_ATTRIBUTE,
     SearchHighlightDelegate,
 )
+from src.gui.table.table_selection_keeper import PendingSelectionRestore, SelectionKeeper
 from src.gui.table.table_top_restore import TableTopRestoreController
 from src.gui.widgets.edge_fade_overlay import HorizontalEdgeFadeOverlay
 
@@ -139,7 +140,7 @@ class VideoTableView(QTableView):
         self._selection_redo_history: list[frozenset[str]] = []
         self._last_recorded_selection: frozenset[str] = frozenset()
         self._selection_sync_depth: int = 0
-        self._pending_selection: set[str] | None = None
+        self._pending_restore = PendingSelectionRestore(self)
         # - 기본 Return 재생은 이 위젯이 직접 처리하고, 다른 키로 바뀌면 QAction 단축키가 맡음
         self._play_shortcut: str = DEFAULT_SHORTCUTS["classify.play_selected"]
         # - 경로로 평가 결과를 찾는 색인. 표 목록이나 작업 폴더가 바뀌면 다시 만듦
@@ -228,6 +229,8 @@ class VideoTableView(QTableView):
         sel_model = self.selectionModel()
         if sel_model is not None:
             sel_model.selectionChanged.connect(self._on_selection_changed)
+        # - 뷰의 reset 처리 뒤에 복원하도록 선택 모델 연결 다음에 만듦
+        self._selection_keeper = SelectionKeeper(self)
 
         self._init_overlays()
         self.update_empty_state(total_count=0, visible_count=0)
@@ -558,8 +561,13 @@ class VideoTableView(QTableView):
         self.selection_changed.emit(len(self._selected_proxy_rows()))
 
     def currentChanged(self, current: QModelIndex, previous: QModelIndex) -> None:
-        """포커스 행이 클릭, 방향키, 프로그램 호출로 바뀌면 미리 보기 같은 구독자에게 알림"""
+        """포커스 행이 클릭, 방향키, 프로그램 호출로 바뀌면 미리 보기 같은 구독자에게 알림
+
+        - 선택 동기화 보호 중에는 행 집합이 일부만 채워진 순간이라 미리 보기를 옮기지 않음
+        """
         super().currentChanged(current, previous)
+        if self._selection_sync_depth > 0:
+            return
         self.current_video_changed.emit()
 
     def get_evaluation_at(self, proxy_index: QModelIndex) -> VideoEvaluation | None:
@@ -740,6 +748,10 @@ class VideoTableView(QTableView):
             self._last_recorded_selection = frozenset(self.get_selected_filenames())
             self.selection_changed.emit(len(self._selected_proxy_rows()))
 
+    def is_selection_syncing(self) -> bool:
+        """내부 선택 동기화 보호가 걸려 있는지"""
+        return self._selection_sync_depth > 0
+
     def clear_selection_history(self) -> None:
         """작업 폴더 전환 등 기존 선택 문맥이 끊길 때 선택 복원 스택을 비움"""
         had_history = bool(self._selection_history or self._selection_redo_history)
@@ -753,39 +765,22 @@ class VideoTableView(QTableView):
 
     def request_selection_restore(self, filenames: Iterable[str]) -> None:
         """다음에 행이 채워질 때 저장해 둔 선택 파일명 집합을 복원하도록 예약"""
-        names = {name for name in filenames if name}
-        self._pending_selection = names or None
+        self._pending_restore.request(filenames)
 
     def take_pending_selection(self) -> set[str] | None:
         """예약된 시작, 폴더 전환 선택 복원 목록을 꺼내 반환하고 비움"""
-        pending = self._pending_selection
-        self._pending_selection = None
-        return pending
+        return self._pending_restore.take()
+
+    def has_pending_selection(self) -> bool:
+        """예약된 시작, 폴더 전환 선택 복원이 남아 있는지"""
+        return self._pending_restore.has_pending()
 
     def _apply_pending_selection_restore(self) -> None:
-        if self._pending_selection is None or self._selection_sync_depth > 0 or self.group_model.rowCount() == 0:
-            return
-        if pending := self.take_pending_selection():
-            self.select_filenames(pending)
+        self._pending_restore.apply()
 
     def select_filenames(self, filenames: set[str]) -> None:
         """파일명이 일치하는 행만 선택 상태로 복원(재평가로 모델이 초기화된 뒤 선택 유지용)"""
-        sel_model = self.selectionModel()
-        if sel_model is None:
-            return
-        self.set_selection_sync_guard(True)
-        try:
-            sel_model.clearSelection()
-            for row in range(self.group_model.rowCount()):
-                idx = self.group_model.index(row, 0)
-                ev = self.get_evaluation_at(idx)
-                if ev is not None and ev.video.filename in filenames:
-                    sel_model.select(
-                        idx,
-                        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
-                    )
-        finally:
-            self.set_selection_sync_guard(False)
+        self._selection_keeper.select_filenames(filenames)
 
     def _step_selection_history(self, *, forward: bool) -> int | None:
         src = self._selection_redo_history if forward else self._selection_history

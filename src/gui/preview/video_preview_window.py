@@ -543,12 +543,14 @@ class VideoPreviewWindow(QWidget, ThemeAwareMixin):
         self._crop_edit.set_video(self._path, (video.width, video.height), active)
         self._crop_edit.set_enabled(True)
         self._crop_overlay.set_size_label(kept_label(self._crop_edit.frame))
-        self._crop_overlay.set_crop(self._crop_edit.rects())
         self._crop_hud.set_kept(self._crop_edit.frame)
         if self._crop_hud.isVisible():
             self._crop_hud.reposition()
         else:
             self._crop_hud.show_hud()
+        hud_rect = QRect(self._crop_hud.mapToGlobal(QPoint(0, 0)), self._crop_hud.size())
+        self._crop_overlay.set_crop(self._crop_edit.rects(), hud_rect=hud_rect)
+        self._crop_hud.raise_()
 
     def _set_crop_editing(self, editing: bool) -> None:
         """편집 중 여부에 맞춰 영상 둘레 여백과 겹침, 편집 도구 모음 표시를 함께 맞춤

@@ -6,7 +6,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, Qt
+from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt
 from PyQt6.QtGui import QImage, QKeyEvent
 from PyQt6.QtWidgets import QApplication, QLabel, QToolButton
 
@@ -16,10 +16,14 @@ from src.core.settings.shortcuts import DEFAULT_SHORTCUTS
 from src.core.settings.ui_state import UiState
 from src.gui.preview.crop_overlay import (
     OVERLAY_INK_COLOR,
+    OVERLAY_PILL_BG_COLOR,
+    OVERLAY_PILL_BORDER_COLOR,
     OVERLAY_WARN_COLOR,
     CropOverlay,
     CropOverlayRects,
+    crop_label_pill_rect,
     crop_overlay_rects,
+    css_rgba_color,
 )
 from src.gui.preview.preview_controller import PreviewPositionMemory
 from src.gui.preview.preview_info_items import PreviewVideoInfo
@@ -262,6 +266,53 @@ class CropOverlayWidgetTests(GuiTestCase):
     def test_overlay_does_not_change_with_the_stage_background(self) -> None:
         """배경 색 설정이 겹침 표시 색을 바꾸지 않는지 검증"""
         self.assertFalse(hasattr(self.overlay, "set_stage_background"))
+
+    def test_crop_label_pill_avoids_the_hud_rect(self) -> None:
+        """잘림 표기 알약이 HUD 사각형과 겹치지 않는 자리로 밀리는지 검증
+
+        - 위 여백이 가장 넓고 HUD가 그 가운데를 덮으므로, 가운데 대신 위나 아래로 밀려야 함
+        """
+        rects = crop_overlay_rects((1920, 1080), (1920, 1080), ActiveFrame(1920, 800, 0, 200))
+        size = QSize(40, 18)
+        top_cut = max(rects.cuts, key=lambda rect: rect.width() * rect.height())
+        center = top_cut.center()
+        hud = QRect(center.x() - 60, center.y() - 15, 120, 30)
+        pill = crop_label_pill_rect(rects.cuts, size, hud_rect=hud)
+        assert pill is not None
+        self.assertFalse(pill.intersects(hud))
+        self.assertTrue(top_cut.contains(pill))
+        # - 가운데에 그대로 두면 HUD에 가려지므로 그 자리를 피했음
+        self.assertTrue(hud.intersects(QRect(center, size)))
+        self.assertNotEqual(pill.topLeft(), QRect(center, size).topLeft())
+
+    def test_crop_label_pill_without_hud_sits_in_the_largest_margin(self) -> None:
+        """HUD를 피할 필요가 없으면 가장 넓은 여백 가운데에 놓는지 검증"""
+        rects = crop_overlay_rects((1920, 1080), (1920, 1080), ActiveFrame(1920, 800, 0, 140))
+        pill = crop_label_pill_rect(rects.cuts, QSize(40, 18))
+        assert pill is not None
+        largest = max(rects.cuts, key=lambda rect: rect.width() * rect.height())
+        self.assertTrue(largest.contains(pill))
+        self.assertEqual(pill.center().x(), largest.center().x())
+
+    def test_crop_label_pill_is_omitted_when_no_space_avoids_the_hud(self) -> None:
+        """모든 여백이 HUD로 가득 차면 잘림 표기를 생략하는지 검증"""
+        rects = CropOverlayRects(
+            content=QRect(0, 0, 200, 100),
+            kept=QRect(0, 40, 200, 20),
+            cuts=(QRect(0, 0, 200, 40), QRect(0, 60, 200, 40)),
+        )
+        hud = QRect(0, 0, 200, 100)
+        self.assertIsNone(crop_label_pill_rect(rects.cuts, QSize(40, 18), hud_rect=hud))
+
+    def test_css_rgba_color_reads_the_palette_tokens(self) -> None:
+        """팔레트의 `rgba(...)` 표기를 알약 배경과 테두리 색으로 풀어 쓰는지 검증"""
+        self.assertEqual(OVERLAY_PILL_BG_COLOR, DARK_PALETTE.media_hud_bg)
+        self.assertEqual(OVERLAY_PILL_BORDER_COLOR, DARK_PALETTE.media_keycap_border)
+        bg = css_rgba_color(OVERLAY_PILL_BG_COLOR)
+        self.assertTrue(bg.isValid())
+        self.assertEqual((bg.red(), bg.green(), bg.blue(), bg.alpha()), (11, 11, 11, 196))
+        border = css_rgba_color(OVERLAY_PILL_BORDER_COLOR)
+        self.assertEqual(border.alpha(), 42)
 
 
 class CropButtonTests(GuiTestCase):
@@ -621,6 +672,46 @@ class CropPreviewWindowTests(GuiTestCase):
         notice.assert_not_called()
         self.assertFalse(button.isChecked())
         self.assertFalse(_overlay(self.window).isVisible())
+
+    def test_crop_updates_keep_the_hud_above_the_overlay(self) -> None:
+        """겹침 갱신마다 HUD를 다시 위로 올려 사선 무늬에 가려지지 않는지 검증
+
+        - `CropOverlay.set_crop`이 `raise_()`를 부르므로 반대 순서로 HUD를 올려야 함
+        """
+        self.window.set_video_info(_crop_info())
+        button = _crop_button(self.window)
+        button.setChecked(True)
+        _APP.processEvents()
+        hud = self.window._crop_hud
+        calls: list[str] = []
+        with (
+            mock.patch.object(CropOverlay, "raise_", side_effect=lambda: calls.append("overlay")),
+            mock.patch.object(type(hud), "raise_", side_effect=lambda: calls.append("hud")),
+        ):
+            self.window._update_crop_overlay()
+            self.window._update_crop_overlay()
+            _APP.processEvents()
+        self.assertGreaterEqual(calls.count("overlay"), 2)
+        self.assertGreaterEqual(calls.count("hud"), 2)
+        self.assertEqual(calls[-1], "hud")
+        self.assertEqual(hud.size_label.text(), "1920 x 800")
+
+    def test_overlay_pill_is_told_where_the_hud_is(self) -> None:
+        """겹침이 잘림 표기용으로 HUD 사각형을 받아 그 위에 그리지 않는지 검증"""
+        self.window.set_video_info(_crop_info())
+        button = _crop_button(self.window)
+        button.setChecked(True)
+        _APP.processEvents()
+        overlay = _overlay(self.window)
+        hud = self.window._crop_hud
+        hud_rect = QRect(hud.mapToGlobal(QPoint(0, 0)), hud.size())
+        self.assertEqual(overlay._hud_rect, hud_rect)
+        rects = self.window._crop_edit.rects()
+        assert rects is not None
+        hud_local = QRect(overlay.mapFromGlobal(hud_rect.topLeft()), hud_rect.size())
+        pill = crop_label_pill_rect(rects.cuts, QSize(40, 18), hud_rect=hud_local)
+        if pill is not None:
+            self.assertFalse(pill.intersects(hud_local))
 
     def test_overlay_follows_window_resize_and_move(self) -> None:
         self.window.set_video_info(_crop_info())

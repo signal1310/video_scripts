@@ -798,6 +798,90 @@ class TestClassifierServiceEncodedEvidence(unittest.TestCase):
         self.assertEqual(applied.downscale_reason, DownscaleReason.FRAME_ANALYSIS)
         self.assertEqual((applied.target_width, applied.target_height), (960, 540))
 
+    def test_manual_active_frame_on_an_unanalysed_video_judges_as_manual_encode(self) -> None:
+        """화질 분석 행이 없는 영상의 사용자 지정 활성 화면도 직접 지정 판정으로 넘어가는지 검증
+
+        - 화질 분석 표가 비어 있어도 저장된 사용자 지정 활성 화면은 읽어야 함
+        """
+        clip = os.path.join(self.root, "unanalysed.mp4")
+        with open(clip, "wb") as handle:
+            handle.write(b"v" * 2048)
+        manual = ActiveFrame(1280, 720, 0, 180)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            self.assertEqual(frame_store.count(), 0)
+            frame_store.set_manual_active_frame(
+                clip, manual, frame_width=1920, frame_height=1080
+            )
+        finally:
+            frame_store.close()
+
+        vid = make_video(
+            filename="unanalysed.mp4", width=1920, height=1080, vid_kbps=3000, vid_size_MB=23.0
+        )
+        self.registry.put(self.root, TableCache(self.root, [vid], include_keyframe=False))
+        ev = self._service().evaluate_all().evaluations[0]
+        self.assertIs(ev.smart_action, SmartAction.ENCODE_MANUAL)
+        self.assertEqual(ev.active_frame, manual)
+        self.assertTrue(ev.manual_active_frame_applied)
+
+    def test_manual_active_frame_applies_when_only_other_videos_have_records(self) -> None:
+        """다른 영상에만 화질 분석 행이 있어도 이 영상의 사용자 지정 활성 화면은 판정에 쓰이는지 검증"""
+        cached = os.path.join(self.root, "cached.mp4")
+        bare = os.path.join(self.root, "bare.mp4")
+        with open(cached, "wb") as handle:
+            handle.write(b"v" * 2048)
+        # - 지문이 겹치면 같은 분석 행을 공유하므로 내용이 다른 파일로 행 없는 영상을 만듦
+        with open(bare, "wb") as handle:
+            handle.write(b"w" * 2048)
+        cached_stat = os.stat(cached)
+        manual = ActiveFrame(1600, 900, 0, 180)
+        frame_store = FrameAnalysisStore(self.db_path)
+        try:
+            frame_store.save(
+                FrameAnalysisRecord(
+                    filename="cached.mp4",
+                    filesize_bytes=cached_stat.st_size,
+                    mtime_ns=cached_stat.st_mtime_ns,
+                    fingerprint=compute_fingerprint(cached, cached_stat.st_size),
+                    active_width=1600,
+                    active_height=900,
+                    active_x=0,
+                    active_y=180,
+                    has_black_bars=True,
+                    metric_used="vmaf",
+                    vmaf_model="vmaf_v0.6.1",
+                    tier_scores=(),
+                    candidate_tier=None,
+                    valid_segments=1,
+                    total_segments=1,
+                    unmeasurable=False,
+                    is_vr_protected=False,
+                    measured_at="2026-01-01T00:00:00Z",
+                    analysis_version=FRAME_ANALYSIS_VERSION,
+                )
+            )
+            frame_store.set_manual_active_frame(
+                bare, manual, frame_width=1920, frame_height=1080
+            )
+        finally:
+            frame_store.close()
+
+        videos = [
+            make_video(filename="cached.mp4", width=1920, height=1080, vid_size_MB=23.0),
+            make_video(
+                filename="bare.mp4", width=1920, height=1080, vid_kbps=3000, vid_size_MB=23.0
+            ),
+        ]
+        self.registry.put(self.root, TableCache(self.root, videos, include_keyframe=False))
+        report = self._service().evaluate_all()
+        by_name = {ev.video.filename: ev for ev in report.evaluations}
+        bare_ev = by_name["bare.mp4"]
+        self.assertIs(bare_ev.smart_action, SmartAction.ENCODE_MANUAL)
+        self.assertEqual(bare_ev.active_frame, manual)
+        self.assertTrue(bare_ev.manual_active_frame_applied)
+        self.assertEqual(by_name["cached.mp4"].active_frame, ActiveFrame(1600, 900, 0, 180))
+
     def test_empty_frame_cache_skips_file_stat(self) -> None:
         """화질 분석 캐시가 비어 있으면 원본 파일 stat을 하지 않는지 검증"""
         empty_db = os.path.join(self._tmp.name, "empty_cache.sqlite3")

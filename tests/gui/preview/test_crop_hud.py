@@ -1,6 +1,7 @@
 """미리 보기 영상 위에 뜨는 활성 화면 편집 도구 모음(HUD) 검증"""
 
 import os
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -89,6 +90,15 @@ class CropEditHudTests(GuiTestCase):
         _APP.processEvents()
         self.assertGreaterEqual(self.hud.y(), 400)
         self.assertLessEqual(self.hud.x(), 300 + 640 - self.hud.width())
+
+    def test_reposition_raises_the_hud_above_the_overlay(self) -> None:
+        """겹침 창을 위로 올린 뒤 HUD를 다시 맞출 때 HUD가 그 위로 다시 올라오는지 검증"""
+        self.hud.show_hud()
+        _APP.processEvents()
+        self.assertTrue(self.hud.isVisible())
+        with patch.object(CropEditHud, "raise_") as raised:
+            self.hud.reposition()
+        raised.assert_called_once_with()
 
     def test_reposition_ignored_while_hidden(self) -> None:
         self.hud.reposition()

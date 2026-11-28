@@ -95,10 +95,14 @@ class CropEditHud(QWidget):
         self.raise_()
 
     def reposition(self) -> None:
-        """영상 영역이 바뀌면 도구 모음을 다시 맞춤"""
+        """영상 영역이 바뀌면 도구 모음을 다시 맞추고 겹침 창 위로 올림
+
+        - 겹침 창은 `set_crop`마다 `raise_()`로 자기를 위로 올리므로, 함께 갱신될 때마다 HUD도 다시 올려야 가려지지 않음
+        """
         if not self.isVisible():
             return
         self._move_to_area()
+        self.raise_()
 
     def _move_to_area(self) -> None:
         self.move(hud_position(self._get_area(), self.sizeHint()))

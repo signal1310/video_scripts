@@ -114,7 +114,8 @@ def _resolve_frame_cache_for(
 ) -> FrameCacheView:
     """화질 분석 캐시에서 잘라내기 확정 영상과 축소 후보 규격을 파일명별로 조회
 
-    - 캐시가 비어 있으면 원본 파일 stat을 하지 않고 빈 결과를 돌려줌
+    - 화질 분석 행도 사용자 지정 활성 화면도 없으면 원본 파일 stat을 하지 않고 빈 결과를 돌려줌
+    - 화질 분석 행이 없어도 저장된 사용자 지정 활성 화면은 직접 지정 판정에 넘김
     - 현재 파일 크기와 수정 시각이 같은 행만 써서 바뀐 파일의 낡은 측정을 쓰지 않음
     - 잘라내기를 쓰지 않는 영상(설정 끔, VR 보호, 검은 여백 없음)은 축소 후보도 반영하지 않음
     - 사용자 지정 활성 화면은 자동 감지 결과와 영상별 제외를 덮어씀
@@ -126,7 +127,7 @@ def _resolve_frame_cache_for(
         return empty
     store = FrameAnalysisStore(db_path)
     try:
-        if store.count() == 0:
+        if store.count() == 0 and store.count_manual_active_frames() == 0:
             return empty
         entries: list[tuple[tuple[str, int, int], str]] = []
         path_by_name: dict[str, str] = {}
@@ -231,6 +232,15 @@ def _resolve_frame_cache_for(
                 frame is None and not region.has_black_bars
             ):
                 frame_targets[name] = candidate
+        # - 화질 분석 행이 없는 영상도 사용자 지정 활성 화면만으로 직접 지정 판정을 받게 함
+        for name, path in path_by_name.items():
+            manual_frame = manual.get(path)
+            if manual_frame is None or name in manual_frames:
+                continue
+            if not crop_enabled or expected_vr.get(name, False):
+                continue
+            frames[name] = manual_frame
+            manual_frames[name] = manual_frame
         return FrameCacheView(frames, frame_targets, manual_frames)
     finally:
         store.close()

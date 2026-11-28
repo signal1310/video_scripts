@@ -1104,8 +1104,9 @@ class RowGroupingPresetSyncTests(unittest.TestCase):
         group_count = self.view.group_model.group_count
         self.assertEqual(
             self.bar.btn_row_group.text(),
-            f"그룹: {group_label(codec_key)} ({group_count})",
+            f"그룹: {group_label(codec_key)}",
         )
+        self.assertEqual(self.bar._row_group_badge.count, group_count)
 
         self.view.setColumnHidden(VideoTableModel.COL_CODEC, True)
         self.display.sync_preset()
@@ -1115,8 +1116,9 @@ class RowGroupingPresetSyncTests(unittest.TestCase):
         self.assertEqual(self.view.group_model.group_count, group_count)
         self.assertEqual(
             self.bar.btn_row_group.text(),
-            f"그룹: {group_label(codec_key)} ({group_count})",
+            f"그룹: {group_label(codec_key)}",
         )
+        self.assertEqual(self.bar._row_group_badge.count, group_count)
         self.assertIn(codec_key, self.bar._row_group_actions)
         assert self.bar._expand_groups_action is not None
         self.assertTrue(self.bar._expand_groups_action.isEnabled())
